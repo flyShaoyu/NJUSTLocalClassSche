@@ -1,0 +1,31 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="login_panel_title">&#25945;&#21153;&#30331;&#24405;</string>
+    <string name="login_panel_hint">&#36134;&#21495;&#23494;&#30721;&#22312;&#26412;&#22320;&#36755;&#20837;&#65292;&#39564;&#35777;&#30721;&#22270;&#29255;&#20174;&#25945;&#21153;&#31995;&#32479;&#24403;&#21069;&#20250;&#35805;&#37324;&#25289;&#21462;&#12290;</string>
+    <string name="username_label">&#23398;&#21495; / &#29992;&#25143;&#21517;</string>
+    <string name="password_label">&#23494;&#30721;</string>
+    <string name="captcha_label">&#39564;&#35777;&#30721;</string>
+    <string name="init_login_label">&#21152;&#36733;&#30331;&#24405;&#39029;</string>
+    <string name="refresh_captcha_label">&#25442;&#19968;&#24352;</string>
+    <string name="login_submit_label">&#25552;&#20132;&#30331;&#24405;</string>
+    <string name="open_timetable_label">&#25171;&#24320;&#35838;&#34920;&#39029;</string>
+    <string name="view_cache_label">&#26597;&#30475;&#32531;&#23384;</string>
+    <string name="captcha_loading">&#27491;&#22312;&#21152;&#36733;&#39564;&#35777;&#30721;</string>
+    <string name="captcha_loaded">&#39564;&#35777;&#30721;&#24050;&#21152;&#36733;</string>
+    <string name="status_idle">&#20934;&#22791;&#23601;&#32490;&#65292;&#20808;&#28857;&#8220;&#21152;&#36733;&#30331;&#24405;&#39029;&#8221;&#33719;&#21462;&#39564;&#35777;&#30721;&#12290;</string>
+    <string name="status_loading_login">&#27491;&#22312;&#25171;&#24320;&#25945;&#21153;&#30331;&#24405;&#39029;&#8230;</string>
+    <string name="status_refreshing_captcha">&#27491;&#22312;&#21047;&#26032;&#39564;&#35777;&#30721;&#8230;</string>
+    <string name="status_captcha_not_found">&#30331;&#24405;&#39029;&#37324;&#36824;&#27809;&#25214;&#21040;&#39564;&#35777;&#30721;&#22270;&#29255;&#12290;</string>
+    <string name="status_captcha_loaded">&#39564;&#35777;&#30721;&#24050;&#26356;&#26032;&#65292;&#35831;&#36755;&#20837;&#21518;&#25552;&#20132;&#12290;</string>
+    <string name="status_captcha_failed">&#39564;&#35777;&#30721;&#25289;&#21462;&#22833;&#36133;&#65306;%1$s</string>
+    <string name="status_missing_fields">&#36134;&#21495;&#12289;&#23494;&#30721;&#12289;&#39564;&#35777;&#30721;&#37117;&#38656;&#35201;&#22635;&#20889;&#12290;</string>
+    <string name="status_submitting_login">&#27491;&#22312;&#25552;&#20132;&#30331;&#24405;&#34920;&#21333;&#8230;</string>
+    <string name="status_submit_result">&#25552;&#20132;&#32467;&#26524;&#65306;%1$s</string>
+    <string name="status_login_success">&#30331;&#24405;&#39029;&#24050;&#36339;&#36716;&#65292;&#30097;&#20284;&#30331;&#24405;&#25104;&#21151;&#12290;</string>
+    <string name="status_opening_timetable">&#27491;&#22312;&#23581;&#35797;&#25171;&#24320;&#35838;&#34920;&#39029;&#8230;</string>
+    <string name="status_page_loaded">&#39029;&#38754;&#24050;&#21152;&#36733;&#65306;%1$s</string>
+    <string name="show_login_page_label">&#30331;&#24405;</string>
+    <string name="show_timetable_page_label">&#35838;&#34920;</string>
+    <string name="show_live_timetable_label">&#25945;&#21153;&#32593;&#39029;</string>
+    <string name="show_cached_timetable_label">&#26412;&#22320;&#35838;&#34920;</string>
+</resources>

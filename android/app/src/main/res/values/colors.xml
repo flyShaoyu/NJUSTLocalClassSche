@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="sky_top">#6CA7E0</color>
+    <color name="sky_bottom">#79AFE6</color>
+    <color name="surface">#F7F8FC</color>
+</resources>

@@ -1,75 +1,117 @@
-# Android APK Packaging
+# Android 说明
 
-## Current State
+## 当前状态
 
-This repository now includes an `android/` WebView shell that can display the locally cached timetable page from:
+仓库已经包含完整的 Android 工程，位于 `android/`。
 
-- `android/app/src/main/assets/timetable-view.html`
+当前 APK 能力包括：
 
-The Android shell is meant to wrap the generated local timetable UI into an APK.
+- 在手机端显示本地缓存课表页面
+- 本地登录表单输入账号、密码、验证码
+- 通过隐藏 `WebView` 打开真实教务页
+- 读取验证码图片
+- 提交真实登录表单
+- 打开课表页并刷新展示
 
-## Important Limitation
+## Android 资源来源
 
-The current desktop fetch flow uses Playwright. Playwright does not run inside a normal Android APK, so the exact desktop pipeline cannot be copied into the phone unchanged.
+以下文件会被导出到 Android `assets/`：
 
-That means there are two practical paths:
+- `artifacts/timetable-view.html`
+- `artifacts/timetable.json`
+- `artifacts/timetable.html`
 
-1. Desktop updates + APK offline display
-2. Rebuild the update flow for Android WebView manual login
+导出目标目录：
 
-This repository currently implements path 1 and prepares the codebase for path 2.
+- `android/app/src/main/assets/`
 
-## What Is Implemented
+## 相关核心文件
 
-- Android native project scaffold under `android/`
-- `MainActivity` with a `WebView`
-- Cleartext HTTP enabled for the current school URLs
-- Asset export script that copies:
-  - `artifacts/timetable-view.html`
-  - `artifacts/timetable.json`
-  - `artifacts/timetable.html`
+- `android/app/src/main/java/com/classsche/mobile/MainActivity.kt`
+  Android 主入口
+- `android/app/src/main/res/layout/activity_main.xml`
+  Android 主布局
+- `src/export-android.ts`
+  桌面端导出 Android 资源
+- `src/timetable-ui.ts`
+  本地课表页面生成器
 
-## Export Latest Cache Into Android Assets
+## 手机端当前流程
 
-After refreshing the timetable on desktop:
+1. 进入登录页
+2. 隐藏 `WebView` 加载真实教务页
+3. 获取验证码图片并展示到本地界面
+4. 输入账号、密码、验证码并提交
+5. 登录成功后访问课表页
+6. 读取最新页面并刷新缓存展示
+
+## 导出最新资源
+
+如果桌面端已经拿到最新课表：
+
+```bash
+npm run export:android
+```
+
+如果希望先抓再导出：
 
 ```bash
 npm run start
 npm run export:android
 ```
 
-Or if you already have the latest cache:
+## 本地构建 APK
+
+在 `android/` 目录下执行：
 
 ```bash
-npm run export:android
+./gradlew.bat :app:assembleDebug
 ```
 
-## Build APK In Android Studio
+生成的 APK 默认位于：
 
-1. Open the `android/` folder in Android Studio.
-2. Wait for Gradle sync.
-3. Build:
+- `android/app/build/outputs/apk/debug/app-debug.apk`
 
-```text
-Build > Build Bundle(s) / APK(s) > Build APK(s)
+## 安装到手机
+
+确保：
+
+- 已开启开发者选项
+- 已开启 USB 调试
+- 手机端已允许当前电脑的 ADB 授权
+
+安装命令示例：
+
+```bash
+adb install -r android/app/build/outputs/apk/debug/app-debug.apk
 ```
 
-## Next Step For A Truly Self-Updating APK
+## 常见问题
 
-If you want the APK itself to handle:
+### 1. 手机显示的还是旧页面
 
-- login
-- captcha/manual verification
-- jump to timetable page
-- capture HTML
-- parse timetable
-- update local cache
+当前项目已经在 Android 端对缓存页做了强制刷新，但如果手机还停留在旧页面，可以：
 
-then the fetch/update layer needs to be rewritten for Android, likely using:
+1. 重新导出资源
+2. 重新构建 APK
+3. 重新安装
+4. 重新打开 app 的“本地缓存”页
 
-- `WebView` for manual login
-- `evaluateJavascript` to read timetable page HTML
-- browser-side or native-side HTML parsing
-- local file persistence inside app storage
+### 2. ADB 提示 unauthorized
 
-That is a different runtime from Playwright, so it should be treated as a mobile-specific implementation rather than a direct packaging step.
+需要在手机上确认 USB 调试授权。
+
+### 3. ADB 提示 INSTALL_FAILED_ABORTED
+
+通常是手机端安装确认被拒绝，需要重新点击允许。
+
+## 限制说明
+
+桌面端抓取依赖 Playwright，不能原样打进普通 Android APK。
+
+因此本项目的移动端实现是：
+
+- 保留桌面端 Playwright 抓取链路
+- 同时提供 Android 专用的 WebView 登录与展示链路
+
+也就是说，Android 不是“直接运行 Playwright”，而是“移动端重做登录和展示逻辑”。
