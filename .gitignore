@@ -1,6 +1,41 @@
 node_modules/
 dist/
 .env
+.env.*
+!.env.example
 artifacts/
 playwright-report/
 test-results/
+.cache/
+coverage/
+
+# Gradle
+.gradle/
+
+# Local configuration
+local.properties
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# Build outputs
+build/
+app/build/
+android/build/
+android/app/build/
+
+# APK / App Bundle
+*.apk
+*.aab
+
+# Logs / temp
+*.log
+captures/
+.externalNativeBuild/
+.cxx/
+*.tmp
+*.temp
+Thumbs.db
+desktop.ini

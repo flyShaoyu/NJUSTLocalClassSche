@@ -236,6 +236,7 @@ const parseDataListMeetings = ($: cheerio.CheerioAPI, gridMeetings: GridMeeting[
       const teacher = cleanInlineText($(cells[4]).text());
       const timeEntries = splitTimeEntries($(cells[5]).html() ?? "");
       const classrooms = splitClassrooms($(cells[7]).text(), timeEntries.length);
+      const courseType = cleanInlineText($(cells[8]).text());
 
       timeEntries.forEach((entry, indexInRow) => {
         const classroom = classrooms[indexInRow] ?? classrooms[0] ?? "";
@@ -250,6 +251,7 @@ const parseDataListMeetings = ($: cheerio.CheerioAPI, gridMeetings: GridMeeting[
           teacher,
           courseCode,
           courseSequence,
+          courseType,
           rawText: matched.rawText || `${courseName}\n${teacher}\n${entry.weekday}(${entry.periods})\n${classroom}`,
           matchKey: buildKey(courseName, teacher, classroom, entry.weekday)
         });

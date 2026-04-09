@@ -1,0 +1,761 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head id="headerid1">
+	<base target="_self">
+	<title>学期理论课表</title>	
+	<meta http-equiv="pragma" content="no-cache">
+	<meta http-equiv="cache-control" content="no-cache">
+	<meta http-equiv="expires" content="0">
+	<meta http-equiv="keywords" content="湖南强智科技教务系统">
+	<meta http-equiv="description" content="湖南强智科技教务系统">
+	<meta http-equiv="X-UA-Compatible" content="IE=EmulateIE8">
+<script type="text/javascript" src="/njlgdx/js/jquery-min.js" language="javascript"></script>
+<script type="text/javascript" src="/njlgdx/js/common.js" language="javascript"></script>
+<script type="text/javascript" src="/njlgdx/js/iepngfix_tilebg.js" language="javascript"></script>
+<link href="/njlgdx/framework/images/common.css" rel="stylesheet" type="text/css">
+<link href="/njlgdx/framework/images/blue.css" rel="stylesheet" type="text/css" id="link_theme">
+<link href="/njlgdx/framework/images/workstation.css" rel="stylesheet" type="text/css">
+</head>
+<body><iframe id="notSession" name="notSession" style="display: none;" src=""></iframe>
+<script type="text/javascript">
+jQuery(document).ready(function(){
+	window.setInterval(function(){
+		 document.getElementById("notSession").src = "/njlgdx/framework/blankPage.jsp";
+	 }, 1000 * 60 * 10);
+});
+</script>
+
+
+
+
+
+
+<div class="Nsb_pw">
+  <div class="Nsb_top">
+    <div class="Nsb_top_logo"><table border="0" cellpadding="0" cellspacing="0"><tbody><tr><td height="75" valign="middle"><img style="display:;" id="imgLogo" src="/njlgdx/framework/images/index_logo.gif"></td></tr></tbody></table></div>
+    <div class="Nsb_top_menu">        
+        <div id="Top1_divLoginName" class="Nsb_top_menu_nc" style="color: #000000;">邵昱(924110800126)</div>
+        <ul>
+            <li><a id="TopUserSetting" info="个人设置" href="#" class="Nsb_top_menu_id"><img src="/njlgdx/framework/images/Nsb_top_p1.jpg" id="Top1_imgTopSmallUserPhoto"></a></li>
+            <span></span>                                      
+            <li><a id="TopTheme" info="切换主题" href="#" class="Nsb_top_menu_style" onclick="changeDisplay('divTopTheme')"></a></li>
+            <span id="Top1_LBackManageSpliter"></span>
+            <span id="Top1_LExitSpliter"></span>
+            <li id="Top1_LBackManage">
+            	<a info="个人设置" href="/njlgdx/grsz/grsz_xggrxx.do?Ves632DSdyV=NEW_JSD_WDZM" class="Nsb_top_menu_options"></a>
+            </li>
+            <li id="Top1_LExit"><a info="退出" href="javascript:Logout('/njlgdx');" class="Nsb_top_menu_exit"></a></li>
+        </ul>            
+     </div>   
+     <div id="divTopTheme" group="topDiv" style="display:none;z-index:10000">      
+        <div class="Nsb_top_c Nsb_top_c3">
+          <ul>
+            <li id="theme_blue" theme="blue" index="1" class="Nsb_top_c3_11" onclick="javascript:changeTheme('/njlgdx','blue',this);"></li>
+            <li id="theme_green" theme="green" index="2" class="Nsb_top_c3_2" onclick="javascript:changeTheme('/njlgdx','green',this);"></li>
+            <li id="theme_orange" theme="orange" index="3" class="Nsb_top_c3_3" onclick="javascript:changeTheme('/njlgdx','orange',this);"></li>
+            <li id="theme_red" theme="red" index="4" class="Nsb_top_c3_4" onclick="javascript:changeTheme('/njlgdx','red',this);"></li>
+            <li id="theme_purple" theme="purple" index="5" class="Nsb_top_c3_5" onclick="javascript:changeTheme('/njlgdx','purple',this);"></li>
+            <li id="theme_gray" theme="gray" index="6" class="Nsb_top_c3_6" onclick="javascript:changeTheme('/njlgdx','gray',this);"></li>
+          </ul>
+        </div>
+     </div>
+   </div>
+</div>
+<div class="Nsb_menu_pw">
+  <div class="Nsb_pw">
+    <div id="divFirstMenuClass" class="Nsb_menu menu_cn">
+      <ul>         
+         <li class="Nsb_menu_li_now" title="首页">
+         	<a class="Nsb_menu_li_h" id="homepage" href="/njlgdx/framework/main.jsp"><span></span></a>
+         </li>
+         
+         	<li title="我的桌面">
+         		<a id="calender_user_schedule" href="/njlgdx/jxzl/jxzl_query?Ves632DSdyV=NEW_XSD_WDZM">我的桌面</a>
+         	</li>
+         
+         	<li title="学籍成绩">
+         		<a id="calender_user_schedule" href="/njlgdx/xsxj/xjxxgl.do?Ves632DSdyV=NEW_XSD_XJCJ">学籍成绩</a>
+         	</li>
+         
+         	<li title="培养管理">
+         		<a id="calender_user_schedule" href="/njlgdx/pyfa/pyfadg_query?Ves632DSdyV=NEW_XSD_PYGL">培养管理</a>
+         	</li>
+         
+         	<li title="考试报名">
+         		<a id="calender_user_schedule" href="/njlgdx/xsks/xsksap_query?Ves632DSdyV=NEW_XSD_KSBM">考试报名</a>
+         	</li>
+         
+         	<li title="教学评价">
+         		<a id="calender_user_schedule" href="/njlgdx/xspj/xspj_find.do?Ves632DSdyV=NEW_XSD_JXPJ">教学评价</a>
+         	</li>
+         
+      </ul>
+    </div>
+  </div>
+</div>
+<script>
+function Logout(url){
+	window.location.href = url + "/xk/LoginToXk?method=exit";
+}
+</script>
+		
+<div class="Nsb_layout_r">
+
+
+<iframe style="display:none;" name="ifrmPrint" id="ifrmPrint"></iframe>
+<form action="" name="FormPrint" id="FormPrint" method="post" target="ifrmPrint"></form>
+<form action="" name="Form1" id="Form1" method="post" target="_self">
+ 	<input type="hidden" name="cj0701id" id="cj0701id" value="">
+   		<div class="Nsb_r_title"><a href="/njlgdx/framework/main.jsp" "="">首页</a> » 我的课表 » 学期理论课表</div>
+        <div>        	
+        	周次：<select name="zc" id="zc">
+		 	<option value="">(全部)</option>	
+			
+		    <option value="1">第1周</option>
+		    
+		    <option value="2">第2周</option>
+		    
+		    <option value="3">第3周</option>
+		    
+		    <option value="4">第4周</option>
+		    
+		    <option value="5">第5周</option>
+		    
+		    <option value="6">第6周</option>
+		    
+		    <option value="7">第7周</option>
+		    
+		    <option value="8">第8周</option>
+		    
+		    <option value="9">第9周</option>
+		    
+		    <option value="10">第10周</option>
+		    
+		    <option value="11">第11周</option>
+		    
+		    <option value="12">第12周</option>
+		    
+		    <option value="13">第13周</option>
+		    
+		    <option value="14">第14周</option>
+		    
+		    <option value="15">第15周</option>
+		    
+		    <option value="16">第16周</option>
+		    
+		    <option value="17">第17周</option>
+		    
+		    <option value="18">第18周</option>
+		    
+		    <option value="19">第19周</option>
+		    
+		    <option value="20">第20周</option>
+		    
+		    <option value="21">第21周</option>
+		    
+		    <option value="22">第22周</option>
+		    
+		    <option value="23">第23周</option>
+		    
+		    <option value="24">第24周</option>
+		    
+		    <option value="25">第25周</option>
+		    
+		    <option value="26">第26周</option>
+		    
+		    <option value="27">第27周</option>
+		    
+		    <option value="28">第28周</option>
+		    
+		    <option value="29">第29周</option>
+		    
+		    <option value="30">第30周</option>
+		    
+			</select><input type="hidden" name="demo" id="demo" value="">
+			学年学期：<select name="xnxq01id" id="xnxq01id" onchange="document.getElementById('Form1').submit();" 　style="width:180px;">
+			
+			<option value="2025-2026-2" selected="selected">2025-2026-2</option>
+			
+			<option value="2025-2026-1">2025-2026-1</option>
+			
+			<option value="2024-2025-3">2024-2025-3</option>
+			
+			<option value="2024-2025-2">2024-2025-2</option>
+			
+			<option value="2024-2025-1">2024-2025-1</option>
+			
+			<option value="2023-2024-3">2023-2024-3</option>
+			
+			<option value="2023-2024-2">2023-2024-2</option>
+			
+			<option value="2023-2024-1">2023-2024-1</option>
+			
+			<option value="2022-2023-2">2022-2023-2</option>
+			
+			<option value="2022-2023-1">2022-2023-1</option>
+			
+			<option value="2021-2022-2">2021-2022-2</option>
+			
+			<option value="2021-2022-1">2021-2022-1</option>
+			
+			<option value="2020-2021-2">2020-2021-2</option>
+			
+			<option value="2020-2021-1">2020-2021-1</option>
+			
+			<option value="2019-2020-2">2019-2020-2</option>
+			
+			<option value="2019-2020-1">2019-2020-1</option>
+			
+			<option value="2018-2019-2">2018-2019-2</option>
+			
+			<option value="2018-2019-1">2018-2019-1</option>
+			
+			<option value="2017-2018-2">2017-2018-2</option>
+			
+			<option value="2017-2018-1">2017-2018-1</option>
+			
+			<option value="2016-2017-2">2016-2017-2</option>
+			
+			<option value="2016-2017-1">2016-2017-1</option>
+			
+			<option value="2015-2016-2">2015-2016-2</option>
+			
+			<option value="2015-2016-1">2015-2016-1</option>
+			
+			<option value="2014-2015-2">2014-2015-2</option>
+			
+			<option value="2014-2015-1">2014-2015-1</option>
+			
+			<option value="2011-2012-1">2011-2012-1</option>
+			
+			</select>&nbsp;<input type="button" value="打 印" class="button" onclick="print(this)">&nbsp;		
+			<!--  
+			<input type="button" class="button" id="btnShenshen" value="返 回" onclick="javascript:window.location.href='/njlgdx/framework/main.jsp';"/>
+			-->		
+			<input type="checkbox" name="sfFD" id="sfFD" value="1" onclick="funFD(this.checked)">放大&nbsp;				
+			
+        </div>        	        	
+		<table id="kbtable" border="1" width="100%" cellspacing="0" cellpadding="0" class="Nsb_r_list Nsb_table">
+			<tbody><tr>
+				<th width="70" height="28" align="center">&nbsp;</th>
+				<th width="123" height="28" align="center">星期一</th>
+				<th width="123" height="28" align="center">星期二</th>
+				<th width="123" height="28" align="center">星期三</th>
+				<th width="124" height="28" align="center">星期四</th>
+				<th width="124" height="28" align="center">星期五</th>
+				<th width="124" height="28" align="center">星期六</th>
+				<th width="124" height="28" align="center">星期日</th>
+			</tr> 
+			
+			<tr>
+				<th width="70" height="28" align="center">第一大节&nbsp;</th>
+				<td width="123" height="28" align="center" valign="top">
+					<input type="hidden" name="jx0415zbdiv_1" value="9476022ECC564DBEAEA9F9034C956B29-1-1">
+					<input type="hidden" name="jx0415zbdiv_2" value="9476022ECC564DBEAEA9F9034C956B29-1-2">
+					<div id="9476022ECC564DBEAEA9F9034C956B29-1-1" class="kbcontent1">体育（Ⅳ）<br><font title="周次(节次)">1-16(周)</font><br></div>
+					<div id="9476022ECC564DBEAEA9F9034C956B29-1-2" style="display: none;" class="kbcontent">体育（Ⅳ）<br><font title="分组名">篮球</font><br><font title="老师">高士博</font><br><font title="周次(节次)">1-16(周)</font><br><font title="教室">二运篮球场</font><br></div>
+				</td>
+				<td width="123" height="28" align="center" valign="top">
+					<input type="hidden" name="jx0415zbdiv_1" value="9476022ECC564DBEAEA9F9034C956B29-2-1">
+					<input type="hidden" name="jx0415zbdiv_2" value="9476022ECC564DBEAEA9F9034C956B29-2-2">
+					<div id="9476022ECC564DBEAEA9F9034C956B29-2-1" class="kbcontent1">毛泽东思想和中国特色社会主义理论体系概论<br><font title="周次(节次)">1-5,7-14(周)</font><br>----------------------<br>电子线路综合实验<br><font title="周次(节次)">16(周)</font><br></div>
+					<div id="9476022ECC564DBEAEA9F9034C956B29-2-2" style="display: none;" class="kbcontent">毛泽东思想和中国特色社会主义理论体系概论<br><font title="老师">刘承昊</font><br><font title="周次(节次)">1-5,7-14(周)</font><br><font title="教室">Ⅳ-A204</font><br>---------------------<br>电子线路综合实验<br><font title="老师">丁淑艳</font><br><font title="周次(节次)">16(周)</font><br></div>
+				</td>
+				<td width="123" height="28" align="center" valign="top">
+					<input type="hidden" name="jx0415zbdiv_1" value="9476022ECC564DBEAEA9F9034C956B29-3-1">
+					<input type="hidden" name="jx0415zbdiv_2" value="9476022ECC564DBEAEA9F9034C956B29-3-2">
+					<div id="9476022ECC564DBEAEA9F9034C956B29-3-1" class="kbcontent1">控制概论<br><font title="周次(节次)">1-3(周)</font><br>----------------------<br>数据通信与网络<br><font title="周次(节次)">4-8(周)</font><br>----------------------<br>电子线路综合实验<br><font title="周次(节次)">16(周)</font><br></div>
+					<div id="9476022ECC564DBEAEA9F9034C956B29-3-2" style="display: none;" class="kbcontent">控制概论<br><font title="老师">谢蓉华</font><br><font title="周次(节次)">1-3(周)</font><br><font title="教室">I-301</font><br>---------------------<br>数据通信与网络<br><font title="老师">赵燕</font><br><font title="周次(节次)">4-8(周)</font><br><font title="教室">Ⅳ-A302</font><br>---------------------<br>电子线路综合实验<br><font title="老师">丁淑艳</font><br><font title="周次(节次)">16(周)</font><br></div>
+				</td>
+				<td width="123" height="28" align="center" valign="top">
+					<input type="hidden" name="jx0415zbdiv_1" value="9476022ECC564DBEAEA9F9034C956B29-4-1">
+					<input type="hidden" name="jx0415zbdiv_2" value="9476022ECC564DBEAEA9F9034C956B29-4-2">
+					<div id="9476022ECC564DBEAEA9F9034C956B29-4-1" class="kbcontent1">电子线路综合实验<br><font title="周次(节次)">16(周)</font><br></div>
+					<div id="9476022ECC564DBEAEA9F9034C956B29-4-2" style="display: none;" class="kbcontent">电子线路综合实验<br><font title="老师">丁淑艳</font><br><font title="周次(节次)">16(周)</font><br></div>
+				</td>
+				<td width="123" height="28" align="center" valign="top"> 
+					<input type="hidden" name="jx0415zbdiv_1" value="9476022ECC564DBEAEA9F9034C956B29-5-1">
+					<input type="hidden" name="jx0415zbdiv_2" value="9476022ECC564DBEAEA9F9034C956B29-5-2">
+					<div id="9476022ECC564DBEAEA9F9034C956B29-5-1" class="kbcontent1">电子线路综合实验<br><font title="周次(节次)">16(周)</font><br></div>
+					<div id="9476022ECC564DBEAEA9F9034C956B29-5-2" style="display: none;" class="kbcontent">电子线路综合实验<br><font title="老师">丁淑艳</font><br><font title="周次(节次)">16(周)</font><br></div>
+				</td>
+				<td width="123" height="28" align="center" valign="top">
+					<input type="hidden" name="jx0415zbdiv_1" value="9476022ECC564DBEAEA9F9034C956B29-6-1">
+					<input type="hidden" name="jx0415zbdiv_2" value="9476022ECC564DBEAEA9F9034C956B29-6-2">
+					<div id="9476022ECC564DBEAEA9F9034C956B29-6-1" class="kbcontent1">毛泽东思想和中国特色社会主义理论体系概论<br><font title="周次(节次)">6(周)</font><br></div>
+					<div id="9476022ECC564DBEAEA9F9034C956B29-6-2" style="display: none;" class="kbcontent">毛泽东思想和中国特色社会主义理论体系概论<br><font title="老师">刘承昊</font><br><font title="周次(节次)">6(周)</font><br><font title="教室">Ⅳ-A204</font><br></div>
+				</td>
+				<td width="123" height="28" align="center" valign="top">
+					<input type="hidden" name="jx0415zbdiv_1" value="9476022ECC564DBEAEA9F9034C956B29-7-1">
+					<input type="hidden" name="jx0415zbdiv_2" value="9476022ECC564DBEAEA9F9034C956B29-7-2">
+					<div id="9476022ECC564DBEAEA9F9034C956B29-7-1" class="kbcontent1">&nbsp;</div>
+					<div id="9476022ECC564DBEAEA9F9034C956B29-7-2" style="display: none;" class="kbcontent">&nbsp;</div>
+				</td>							
+			</tr>
+			
+			<tr>
+				<th width="70" height="28" align="center">第二大节&nbsp;</th>
+				<td width="123" height="28" align="center" valign="top">
+					<input type="hidden" name="jx0415zbdiv_1" value="C47ECB56274B4D2F8770C8E9A8644921-1-1">
+					<input type="hidden" name="jx0415zbdiv_2" value="C47ECB56274B4D2F8770C8E9A8644921-1-2">
+					<div id="C47ECB56274B4D2F8770C8E9A8644921-1-1" class="kbcontent1">离散数学<br><font title="周次(节次)">1-6(周)</font><br>----------------------<br>电子线路综合实验<br><font title="周次(节次)">16(周)</font><br></div>
+					<div id="C47ECB56274B4D2F8770C8E9A8644921-1-2" style="display: none;" class="kbcontent">离散数学<br><font title="老师">郭玲</font><br><font title="周次(节次)">1-6(周)</font><br><font title="教室">Ⅳ-C104</font><br>---------------------<br>电子线路综合实验<br><font title="老师">丁淑艳</font><br><font title="周次(节次)">16(周)</font><br></div>
+				</td>
+				<td width="123" height="28" align="center" valign="top">
+					<input type="hidden" name="jx0415zbdiv_1" value="C47ECB56274B4D2F8770C8E9A8644921-2-1">
+					<input type="hidden" name="jx0415zbdiv_2" value="C47ECB56274B4D2F8770C8E9A8644921-2-2">
+					<div id="C47ECB56274B4D2F8770C8E9A8644921-2-1" class="kbcontent1">电子线路综合实验<br><font title="周次(节次)">16(周)</font><br></div>
+					<div id="C47ECB56274B4D2F8770C8E9A8644921-2-2" style="display: none;" class="kbcontent">电子线路综合实验<br><font title="老师">丁淑艳</font><br><font title="周次(节次)">16(周)</font><br></div>
+				</td>
+				<td width="123" height="28" align="center" valign="top">
+					<input type="hidden" name="jx0415zbdiv_1" value="C47ECB56274B4D2F8770C8E9A8644921-3-1">
+					<input type="hidden" name="jx0415zbdiv_2" value="C47ECB56274B4D2F8770C8E9A8644921-3-2">
+					<div id="C47ECB56274B4D2F8770C8E9A8644921-3-1" class="kbcontent1">概率与统计<br><font title="周次(节次)">1-12(周)</font><br>----------------------<br>电子线路综合实验<br><font title="周次(节次)">16(周)</font><br></div>
+					<div id="C47ECB56274B4D2F8770C8E9A8644921-3-2" style="display: none;" class="kbcontent">概率与统计<br><font title="老师">梁思玉</font><br><font title="周次(节次)">1-12(周)</font><br><font title="教室">Ⅳ-C103</font><br>---------------------<br>电子线路综合实验<br><font title="老师">丁淑艳</font><br><font title="周次(节次)">16(周)</font><br></div>
+				</td>
+				<td width="123" height="28" align="center" valign="top">
+					<input type="hidden" name="jx0415zbdiv_1" value="C47ECB56274B4D2F8770C8E9A8644921-4-1">
+					<input type="hidden" name="jx0415zbdiv_2" value="C47ECB56274B4D2F8770C8E9A8644921-4-2">
+					<div id="C47ECB56274B4D2F8770C8E9A8644921-4-1" class="kbcontent1">模拟电子线路<br><font title="周次(节次)">1-14(周)</font><br>----------------------<br>电子线路综合实验<br><font title="周次(节次)">16(周)</font><br></div>
+					<div id="C47ECB56274B4D2F8770C8E9A8644921-4-2" style="display: none;" class="kbcontent">模拟电子线路<br><font title="老师">乌兰图雅</font><br><font title="周次(节次)">1-14(周)</font><br><font title="教室">I-106</font><br>---------------------<br>电子线路综合实验<br><font title="老师">丁淑艳</font><br><font title="周次(节次)">16(周)</font><br></div>
+				</td>
+				<td width="123" height="28" align="center" valign="top"> 
+					<input type="hidden" name="jx0415zbdiv_1" value="C47ECB56274B4D2F8770C8E9A8644921-5-1">
+					<input type="hidden" name="jx0415zbdiv_2" value="C47ECB56274B4D2F8770C8E9A8644921-5-2">
+					<div id="C47ECB56274B4D2F8770C8E9A8644921-5-1" class="kbcontent1">数字逻辑电路<br><font title="周次(节次)">1-12,14-15(周)</font><br>----------------------<br>电子线路综合实验<br><font title="周次(节次)">16(周)</font><br></div>
+					<div id="C47ECB56274B4D2F8770C8E9A8644921-5-2" style="display: none;" class="kbcontent">数字逻辑电路<br><font title="老师">姜萍</font><br><font title="周次(节次)">1-12,14-15(周)</font><br><font title="教室">I-105</font><br>---------------------<br>电子线路综合实验<br><font title="老师">丁淑艳</font><br><font title="周次(节次)">16(周)</font><br></div>
+				</td>
+				<td width="123" height="28" align="center" valign="top">
+					<input type="hidden" name="jx0415zbdiv_1" value="C47ECB56274B4D2F8770C8E9A8644921-6-1">
+					<input type="hidden" name="jx0415zbdiv_2" value="C47ECB56274B4D2F8770C8E9A8644921-6-2">
+					<div id="C47ECB56274B4D2F8770C8E9A8644921-6-1" class="kbcontent1">&nbsp;</div>
+					<div id="C47ECB56274B4D2F8770C8E9A8644921-6-2" style="display: none;" class="kbcontent">&nbsp;</div>
+				</td>
+				<td width="123" height="28" align="center" valign="top">
+					<input type="hidden" name="jx0415zbdiv_1" value="C47ECB56274B4D2F8770C8E9A8644921-7-1">
+					<input type="hidden" name="jx0415zbdiv_2" value="C47ECB56274B4D2F8770C8E9A8644921-7-2">
+					<div id="C47ECB56274B4D2F8770C8E9A8644921-7-1" class="kbcontent1">&nbsp;</div>
+					<div id="C47ECB56274B4D2F8770C8E9A8644921-7-2" style="display: none;" class="kbcontent">&nbsp;</div>
+				</td>							
+			</tr>
+			
+			<tr>
+				<th width="70" height="28" align="center">第三大节&nbsp;</th>
+				<td width="123" height="28" align="center" valign="top">
+					<input type="hidden" name="jx0415zbdiv_1" value="A47B05ACCF9F4FDF8C62DBA14AD54017-1-1">
+					<input type="hidden" name="jx0415zbdiv_2" value="A47B05ACCF9F4FDF8C62DBA14AD54017-1-2">
+					<div id="A47B05ACCF9F4FDF8C62DBA14AD54017-1-1" class="kbcontent1">数据通信与网络<br><font title="周次(节次)">4-8(周)</font><br>----------------------<br>电子线路综合实验<br><font title="周次(节次)">16(周)</font><br></div>
+					<div id="A47B05ACCF9F4FDF8C62DBA14AD54017-1-2" style="display: none;" class="kbcontent">数据通信与网络<br><font title="老师">赵燕</font><br><font title="周次(节次)">4-8(周)</font><br><font title="教室">Ⅳ-A302</font><br>---------------------<br>电子线路综合实验<br><font title="老师">丁淑艳</font><br><font title="周次(节次)">16(周)</font><br></div>
+				</td>
+				<td width="123" height="28" align="center" valign="top">
+					<input type="hidden" name="jx0415zbdiv_1" value="A47B05ACCF9F4FDF8C62DBA14AD54017-2-1">
+					<input type="hidden" name="jx0415zbdiv_2" value="A47B05ACCF9F4FDF8C62DBA14AD54017-2-2">
+					<div id="A47B05ACCF9F4FDF8C62DBA14AD54017-2-1" class="kbcontent1">电子线路综合实验<br><font title="周次(节次)">16(周)</font><br></div>
+					<div id="A47B05ACCF9F4FDF8C62DBA14AD54017-2-2" style="display: none;" class="kbcontent">电子线路综合实验<br><font title="老师">丁淑艳</font><br><font title="周次(节次)">16(周)</font><br></div>
+				</td>
+				<td width="123" height="28" align="center" valign="top">
+					<input type="hidden" name="jx0415zbdiv_1" value="A47B05ACCF9F4FDF8C62DBA14AD54017-3-1">
+					<input type="hidden" name="jx0415zbdiv_2" value="A47B05ACCF9F4FDF8C62DBA14AD54017-3-2">
+					<div id="A47B05ACCF9F4FDF8C62DBA14AD54017-3-1" class="kbcontent1">电子线路综合实验<br><font title="周次(节次)">16(周)</font><br></div>
+					<div id="A47B05ACCF9F4FDF8C62DBA14AD54017-3-2" style="display: none;" class="kbcontent">电子线路综合实验<br><font title="老师">丁淑艳</font><br><font title="周次(节次)">16(周)</font><br></div>
+				</td>
+				<td width="123" height="28" align="center" valign="top">
+					<input type="hidden" name="jx0415zbdiv_1" value="A47B05ACCF9F4FDF8C62DBA14AD54017-4-1">
+					<input type="hidden" name="jx0415zbdiv_2" value="A47B05ACCF9F4FDF8C62DBA14AD54017-4-2">
+					<div id="A47B05ACCF9F4FDF8C62DBA14AD54017-4-1" class="kbcontent1">电子线路综合实验<br><font title="周次(节次)">16(周)</font><br></div>
+					<div id="A47B05ACCF9F4FDF8C62DBA14AD54017-4-2" style="display: none;" class="kbcontent">电子线路综合实验<br><font title="老师">丁淑艳</font><br><font title="周次(节次)">16(周)</font><br></div>
+				</td>
+				<td width="123" height="28" align="center" valign="top"> 
+					<input type="hidden" name="jx0415zbdiv_1" value="A47B05ACCF9F4FDF8C62DBA14AD54017-5-1">
+					<input type="hidden" name="jx0415zbdiv_2" value="A47B05ACCF9F4FDF8C62DBA14AD54017-5-2">
+					<div id="A47B05ACCF9F4FDF8C62DBA14AD54017-5-1" class="kbcontent1">控制概论<br><font title="周次(节次)">1-3(周)</font><br>----------------------<br>电子线路综合实验<br><font title="周次(节次)">16(周)</font><br></div>
+					<div id="A47B05ACCF9F4FDF8C62DBA14AD54017-5-2" style="display: none;" class="kbcontent">控制概论<br><font title="老师">谢蓉华</font><br><font title="周次(节次)">1-3(周)</font><br><font title="教室">I-301</font><br>---------------------<br>电子线路综合实验<br><font title="老师">丁淑艳</font><br><font title="周次(节次)">16(周)</font><br></div>
+				</td>
+				<td width="123" height="28" align="center" valign="top">
+					<input type="hidden" name="jx0415zbdiv_1" value="A47B05ACCF9F4FDF8C62DBA14AD54017-6-1">
+					<input type="hidden" name="jx0415zbdiv_2" value="A47B05ACCF9F4FDF8C62DBA14AD54017-6-2">
+					<div id="A47B05ACCF9F4FDF8C62DBA14AD54017-6-1" class="kbcontent1">&nbsp;</div>
+					<div id="A47B05ACCF9F4FDF8C62DBA14AD54017-6-2" style="display: none;" class="kbcontent">&nbsp;</div>
+				</td>
+				<td width="123" height="28" align="center" valign="top">
+					<input type="hidden" name="jx0415zbdiv_1" value="A47B05ACCF9F4FDF8C62DBA14AD54017-7-1">
+					<input type="hidden" name="jx0415zbdiv_2" value="A47B05ACCF9F4FDF8C62DBA14AD54017-7-2">
+					<div id="A47B05ACCF9F4FDF8C62DBA14AD54017-7-1" class="kbcontent1">&nbsp;</div>
+					<div id="A47B05ACCF9F4FDF8C62DBA14AD54017-7-2" style="display: none;" class="kbcontent">&nbsp;</div>
+				</td>							
+			</tr>
+			
+			<tr>
+				<th width="70" height="28" align="center">第四大节&nbsp;</th>
+				<td width="123" height="28" align="center" valign="top">
+					<input type="hidden" name="jx0415zbdiv_1" value="EB0D842C6AB64A0198F19B16B64BEBCE-1-1">
+					<input type="hidden" name="jx0415zbdiv_2" value="EB0D842C6AB64A0198F19B16B64BEBCE-1-2">
+					<div id="EB0D842C6AB64A0198F19B16B64BEBCE-1-1" class="kbcontent1">模拟电子线路<br><font title="周次(节次)">1-14(周)</font><br>----------------------<br>电子线路综合实验<br><font title="周次(节次)">16(周)</font><br></div>
+					<div id="EB0D842C6AB64A0198F19B16B64BEBCE-1-2" style="display: none;" class="kbcontent">模拟电子线路<br><font title="老师">乌兰图雅</font><br><font title="周次(节次)">1-14(周)</font><br><font title="教室">I-106</font><br>---------------------<br>电子线路综合实验<br><font title="老师">丁淑艳</font><br><font title="周次(节次)">16(周)</font><br></div>
+				</td>
+				<td width="123" height="28" align="center" valign="top">
+					<input type="hidden" name="jx0415zbdiv_1" value="EB0D842C6AB64A0198F19B16B64BEBCE-2-1">
+					<input type="hidden" name="jx0415zbdiv_2" value="EB0D842C6AB64A0198F19B16B64BEBCE-2-2">
+					<div id="EB0D842C6AB64A0198F19B16B64BEBCE-2-1" class="kbcontent1">数字逻辑电路<br><font title="周次(节次)">1-12,14-15(周)</font><br>----------------------<br>电子线路综合实验<br><font title="周次(节次)">16(周)</font><br></div>
+					<div id="EB0D842C6AB64A0198F19B16B64BEBCE-2-2" style="display: none;" class="kbcontent">数字逻辑电路<br><font title="老师">姜萍</font><br><font title="周次(节次)">1-12,14-15(周)</font><br><font title="教室">I-105</font><br>---------------------<br>电子线路综合实验<br><font title="老师">丁淑艳</font><br><font title="周次(节次)">16(周)</font><br></div>
+				</td>
+				<td width="123" height="28" align="center" valign="top">
+					<input type="hidden" name="jx0415zbdiv_1" value="EB0D842C6AB64A0198F19B16B64BEBCE-3-1">
+					<input type="hidden" name="jx0415zbdiv_2" value="EB0D842C6AB64A0198F19B16B64BEBCE-3-2">
+					<div id="EB0D842C6AB64A0198F19B16B64BEBCE-3-1" class="kbcontent1">电子线路综合实验<br><font title="周次(节次)">16(周)</font><br></div>
+					<div id="EB0D842C6AB64A0198F19B16B64BEBCE-3-2" style="display: none;" class="kbcontent">电子线路综合实验<br><font title="老师">丁淑艳</font><br><font title="周次(节次)">16(周)</font><br></div>
+				</td>
+				<td width="123" height="28" align="center" valign="top">
+					<input type="hidden" name="jx0415zbdiv_1" value="EB0D842C6AB64A0198F19B16B64BEBCE-4-1">
+					<input type="hidden" name="jx0415zbdiv_2" value="EB0D842C6AB64A0198F19B16B64BEBCE-4-2">
+					<div id="EB0D842C6AB64A0198F19B16B64BEBCE-4-1" class="kbcontent1">离散数学<br><font title="周次(节次)">1-6(周)</font><br>----------------------<br>电子线路综合实验<br><font title="周次(节次)">16(周)</font><br></div>
+					<div id="EB0D842C6AB64A0198F19B16B64BEBCE-4-2" style="display: none;" class="kbcontent">离散数学<br><font title="老师">郭玲</font><br><font title="周次(节次)">1-6(周)</font><br><font title="教室">Ⅳ-C104</font><br>---------------------<br>电子线路综合实验<br><font title="老师">丁淑艳</font><br><font title="周次(节次)">16(周)</font><br></div>
+				</td>
+				<td width="123" height="28" align="center" valign="top"> 
+					<input type="hidden" name="jx0415zbdiv_1" value="EB0D842C6AB64A0198F19B16B64BEBCE-5-1">
+					<input type="hidden" name="jx0415zbdiv_2" value="EB0D842C6AB64A0198F19B16B64BEBCE-5-2">
+					<div id="EB0D842C6AB64A0198F19B16B64BEBCE-5-1" class="kbcontent1">概率与统计<br><font title="周次(节次)">1-12(周)</font><br>----------------------<br>电子线路综合实验<br><font title="周次(节次)">16(周)</font><br></div>
+					<div id="EB0D842C6AB64A0198F19B16B64BEBCE-5-2" style="display: none;" class="kbcontent">概率与统计<br><font title="老师">梁思玉</font><br><font title="周次(节次)">1-12(周)</font><br><font title="教室">Ⅳ-C103</font><br>---------------------<br>电子线路综合实验<br><font title="老师">丁淑艳</font><br><font title="周次(节次)">16(周)</font><br></div>
+				</td>
+				<td width="123" height="28" align="center" valign="top">
+					<input type="hidden" name="jx0415zbdiv_1" value="EB0D842C6AB64A0198F19B16B64BEBCE-6-1">
+					<input type="hidden" name="jx0415zbdiv_2" value="EB0D842C6AB64A0198F19B16B64BEBCE-6-2">
+					<div id="EB0D842C6AB64A0198F19B16B64BEBCE-6-1" class="kbcontent1">走进交响乐<br><font title="周次(节次)">1-11(周)</font><br></div>
+					<div id="EB0D842C6AB64A0198F19B16B64BEBCE-6-2" style="display: none;" class="kbcontent">走进交响乐<br><font title="老师">骆达</font><br><font title="周次(节次)">1-11(周)</font><br><font title="教室">艺文馆303</font><br></div>
+				</td>
+				<td width="123" height="28" align="center" valign="top">
+					<input type="hidden" name="jx0415zbdiv_1" value="EB0D842C6AB64A0198F19B16B64BEBCE-7-1">
+					<input type="hidden" name="jx0415zbdiv_2" value="EB0D842C6AB64A0198F19B16B64BEBCE-7-2">
+					<div id="EB0D842C6AB64A0198F19B16B64BEBCE-7-1" class="kbcontent1">&nbsp;</div>
+					<div id="EB0D842C6AB64A0198F19B16B64BEBCE-7-2" style="display: none;" class="kbcontent">&nbsp;</div>
+				</td>							
+			</tr>
+			
+			<tr>
+				<th width="70" height="28" align="center">第五大节&nbsp;</th>
+				<td width="123" height="28" align="center" valign="top">
+					<input type="hidden" name="jx0415zbdiv_1" value="D70D659F68D24C148C650958F8ED84A3-1-1">
+					<input type="hidden" name="jx0415zbdiv_2" value="D70D659F68D24C148C650958F8ED84A3-1-2">
+					<div id="D70D659F68D24C148C650958F8ED84A3-1-1" class="kbcontent1">电子线路综合实验<br><font title="周次(节次)">16(周)</font><br></div>
+					<div id="D70D659F68D24C148C650958F8ED84A3-1-2" style="display: none;" class="kbcontent">电子线路综合实验<br><font title="老师">丁淑艳</font><br><font title="周次(节次)">16(周)</font><br></div>
+				</td>
+				<td width="123" height="28" align="center" valign="top">
+					<input type="hidden" name="jx0415zbdiv_1" value="D70D659F68D24C148C650958F8ED84A3-2-1">
+					<input type="hidden" name="jx0415zbdiv_2" value="D70D659F68D24C148C650958F8ED84A3-2-2">
+					<div id="D70D659F68D24C148C650958F8ED84A3-2-1" class="kbcontent1">电子线路综合实验<br><font title="周次(节次)">16(周)</font><br></div>
+					<div id="D70D659F68D24C148C650958F8ED84A3-2-2" style="display: none;" class="kbcontent">电子线路综合实验<br><font title="老师">丁淑艳</font><br><font title="周次(节次)">16(周)</font><br></div>
+				</td>
+				<td width="123" height="28" align="center" valign="top">
+					<input type="hidden" name="jx0415zbdiv_1" value="D70D659F68D24C148C650958F8ED84A3-3-1">
+					<input type="hidden" name="jx0415zbdiv_2" value="D70D659F68D24C148C650958F8ED84A3-3-2">
+					<div id="D70D659F68D24C148C650958F8ED84A3-3-1" class="kbcontent1">电子线路综合实验<br><font title="周次(节次)">16(周)</font><br></div>
+					<div id="D70D659F68D24C148C650958F8ED84A3-3-2" style="display: none;" class="kbcontent">电子线路综合实验<br><font title="老师">丁淑艳</font><br><font title="周次(节次)">16(周)</font><br></div>
+				</td>
+				<td width="123" height="28" align="center" valign="top">
+					<input type="hidden" name="jx0415zbdiv_1" value="D70D659F68D24C148C650958F8ED84A3-4-1">
+					<input type="hidden" name="jx0415zbdiv_2" value="D70D659F68D24C148C650958F8ED84A3-4-2">
+					<div id="D70D659F68D24C148C650958F8ED84A3-4-1" class="kbcontent1">电子线路综合实验<br><font title="周次(节次)">16(周)</font><br></div>
+					<div id="D70D659F68D24C148C650958F8ED84A3-4-2" style="display: none;" class="kbcontent">电子线路综合实验<br><font title="老师">丁淑艳</font><br><font title="周次(节次)">16(周)</font><br></div>
+				</td>
+				<td width="123" height="28" align="center" valign="top"> 
+					<input type="hidden" name="jx0415zbdiv_1" value="D70D659F68D24C148C650958F8ED84A3-5-1">
+					<input type="hidden" name="jx0415zbdiv_2" value="D70D659F68D24C148C650958F8ED84A3-5-2">
+					<div id="D70D659F68D24C148C650958F8ED84A3-5-1" class="kbcontent1">电子线路综合实验<br><font title="周次(节次)">16(周)</font><br></div>
+					<div id="D70D659F68D24C148C650958F8ED84A3-5-2" style="display: none;" class="kbcontent">电子线路综合实验<br><font title="老师">丁淑艳</font><br><font title="周次(节次)">16(周)</font><br></div>
+				</td>
+				<td width="123" height="28" align="center" valign="top">
+					<input type="hidden" name="jx0415zbdiv_1" value="D70D659F68D24C148C650958F8ED84A3-6-1">
+					<input type="hidden" name="jx0415zbdiv_2" value="D70D659F68D24C148C650958F8ED84A3-6-2">
+					<div id="D70D659F68D24C148C650958F8ED84A3-6-1" class="kbcontent1">&nbsp;</div>
+					<div id="D70D659F68D24C148C650958F8ED84A3-6-2" style="display: none;" class="kbcontent">&nbsp;</div>
+				</td>
+				<td width="123" height="28" align="center" valign="top">
+					<input type="hidden" name="jx0415zbdiv_1" value="D70D659F68D24C148C650958F8ED84A3-7-1">
+					<input type="hidden" name="jx0415zbdiv_2" value="D70D659F68D24C148C650958F8ED84A3-7-2">
+					<div id="D70D659F68D24C148C650958F8ED84A3-7-1" class="kbcontent1">&nbsp;</div>
+					<div id="D70D659F68D24C148C650958F8ED84A3-7-2" style="display: none;" class="kbcontent">&nbsp;</div>
+				</td>							
+			</tr>
+			
+			<tr>
+				<th width="70" height="28" align="center">中午&nbsp;</th>
+				<td width="123" height="28" align="center" valign="top">
+					<input type="hidden" name="jx0415zbdiv_1" value="2E42370D8E8B4C4EAEFA7CFF041BBA3E-1-1">
+					<input type="hidden" name="jx0415zbdiv_2" value="2E42370D8E8B4C4EAEFA7CFF041BBA3E-1-2">
+					<div id="2E42370D8E8B4C4EAEFA7CFF041BBA3E-1-1" class="kbcontent1">形势与政策（Ⅳ）<br><font title="周次(节次)">9-12(周)</font><br></div>
+					<div id="2E42370D8E8B4C4EAEFA7CFF041BBA3E-1-2" style="display: none;" class="kbcontent">形势与政策（Ⅳ）<br><font title="老师">肖兰兰</font><br><font title="周次(节次)">9-12(周)</font><br><font title="教室">线上</font><br></div>
+				</td>
+				<td width="123" height="28" align="center" valign="top">
+					<input type="hidden" name="jx0415zbdiv_1" value="2E42370D8E8B4C4EAEFA7CFF041BBA3E-2-1">
+					<input type="hidden" name="jx0415zbdiv_2" value="2E42370D8E8B4C4EAEFA7CFF041BBA3E-2-2">
+					<div id="2E42370D8E8B4C4EAEFA7CFF041BBA3E-2-1" class="kbcontent1">&nbsp;</div>
+					<div id="2E42370D8E8B4C4EAEFA7CFF041BBA3E-2-2" style="display: none;" class="kbcontent">&nbsp;</div>
+				</td>
+				<td width="123" height="28" align="center" valign="top">
+					<input type="hidden" name="jx0415zbdiv_1" value="2E42370D8E8B4C4EAEFA7CFF041BBA3E-3-1">
+					<input type="hidden" name="jx0415zbdiv_2" value="2E42370D8E8B4C4EAEFA7CFF041BBA3E-3-2">
+					<div id="2E42370D8E8B4C4EAEFA7CFF041BBA3E-3-1" class="kbcontent1">&nbsp;</div>
+					<div id="2E42370D8E8B4C4EAEFA7CFF041BBA3E-3-2" style="display: none;" class="kbcontent">&nbsp;</div>
+				</td>
+				<td width="123" height="28" align="center" valign="top">
+					<input type="hidden" name="jx0415zbdiv_1" value="2E42370D8E8B4C4EAEFA7CFF041BBA3E-4-1">
+					<input type="hidden" name="jx0415zbdiv_2" value="2E42370D8E8B4C4EAEFA7CFF041BBA3E-4-2">
+					<div id="2E42370D8E8B4C4EAEFA7CFF041BBA3E-4-1" class="kbcontent1">改革开放史<br><font title="周次(节次)">6(周)</font><br></div>
+					<div id="2E42370D8E8B4C4EAEFA7CFF041BBA3E-4-2" style="display: none;" class="kbcontent">改革开放史<br><font title="老师">课程中心</font><br><font title="周次(节次)">6(周)</font><br></div>
+				</td>
+				<td width="123" height="28" align="center" valign="top"> 
+					<input type="hidden" name="jx0415zbdiv_1" value="2E42370D8E8B4C4EAEFA7CFF041BBA3E-5-1">
+					<input type="hidden" name="jx0415zbdiv_2" value="2E42370D8E8B4C4EAEFA7CFF041BBA3E-5-2">
+					<div id="2E42370D8E8B4C4EAEFA7CFF041BBA3E-5-1" class="kbcontent1">&nbsp;</div>
+					<div id="2E42370D8E8B4C4EAEFA7CFF041BBA3E-5-2" style="display: none;" class="kbcontent">&nbsp;</div>
+				</td>
+				<td width="123" height="28" align="center" valign="top">
+					<input type="hidden" name="jx0415zbdiv_1" value="2E42370D8E8B4C4EAEFA7CFF041BBA3E-6-1">
+					<input type="hidden" name="jx0415zbdiv_2" value="2E42370D8E8B4C4EAEFA7CFF041BBA3E-6-2">
+					<div id="2E42370D8E8B4C4EAEFA7CFF041BBA3E-6-1" class="kbcontent1">&nbsp;</div>
+					<div id="2E42370D8E8B4C4EAEFA7CFF041BBA3E-6-2" style="display: none;" class="kbcontent">&nbsp;</div>
+				</td>
+				<td width="123" height="28" align="center" valign="top">
+					<input type="hidden" name="jx0415zbdiv_1" value="2E42370D8E8B4C4EAEFA7CFF041BBA3E-7-1">
+					<input type="hidden" name="jx0415zbdiv_2" value="2E42370D8E8B4C4EAEFA7CFF041BBA3E-7-2">
+					<div id="2E42370D8E8B4C4EAEFA7CFF041BBA3E-7-1" class="kbcontent1">&nbsp;</div>
+					<div id="2E42370D8E8B4C4EAEFA7CFF041BBA3E-7-2" style="display: none;" class="kbcontent">&nbsp;</div>
+				</td>							
+			</tr>
+			
+	<!-- 	<tr>
+				<th width="70" height="28" align="center">备注:</th>
+				<td colspan="7" align="left">电子线路综合实验 丁淑艳 16周;</td>
+			</tr>  -->	
+		</tbody></table>
+		<table id="dataList" width="100%" border="0" cellspacing="0" cellpadding="0" class="Nsb_r_list Nsb_table">
+		<tbody><tr>
+            <th class="Nsb_r_list_thb" scope="col">序号</th>
+            <th class="Nsb_r_list_thb" scope="col">课程号</th>
+            <th class="Nsb_r_list_thb" scope="col">课序号</th>
+            <th class="Nsb_r_list_thb" scope="col">课程名称</th>
+			<th class="Nsb_r_list_thb" scope="col">教师</th>
+			<th class="Nsb_r_list_thb" scope="col">时间</th>
+			<th class="Nsb_r_list_thb" scope="col">学分</th>
+			<th class="Nsb_r_list_thb" scope="col">地点</th>
+			<th class="Nsb_r_list_thb" scope="col">课程属性</th>
+			<th class="Nsb_r_list_thb" scope="col">选课阶段</th>
+		</tr>
+		
+		<tr>
+			<td>1</td>
+			<td align="center">15045305</td>
+			<td align="center">19</td>
+			<td align="center">毛泽东思想和中国特色社会主义理论体系概论</td>
+			<td align="center">刘承昊</td>
+			<td align="center">星期二(01-03小节)<br>星期六(01-03小节)</td>
+			<td align="center">3</td>
+			<td align="center">Ⅳ-A204,Ⅳ-A204</td>
+			<td align="center">必修</td>
+			<td align="center">补退选</td>
+		</tr>
+		
+		<tr>
+			<td>2</td>
+			<td align="center">10065103</td>
+			<td align="center">0</td>
+			<td align="center">控制概论</td>
+			<td align="center">谢蓉华</td>
+			<td align="center">星期三(01-03小节)<br>星期五(06-07小节)</td>
+			<td align="center">1</td>
+			<td align="center">I-301,I-301</td>
+			<td align="center">必修</td>
+			<td align="center">预置</td>
+		</tr>
+		
+		<tr>
+			<td>3</td>
+			<td align="center">10062501</td>
+			<td align="center">0</td>
+			<td align="center">离散数学</td>
+			<td align="center">郭玲</td>
+			<td align="center">星期一(04-05小节)<br>星期四(08-10小节)</td>
+			<td align="center">2</td>
+			<td align="center">Ⅳ-C104,Ⅳ-C104</td>
+			<td align="center">必修</td>
+			<td align="center">预置</td>
+		</tr>
+		
+		<tr>
+			<td>4</td>
+			<td align="center">11022601</td>
+			<td align="center">1</td>
+			<td align="center">概率与统计</td>
+			<td align="center">梁思玉</td>
+			<td align="center">星期三(04-05小节)<br>星期五(08-09小节)</td>
+			<td align="center">3</td>
+			<td align="center">Ⅳ-C103,Ⅳ-C103</td>
+			<td align="center">必修</td>
+			<td align="center">预置</td>
+		</tr>
+		
+		<tr>
+			<td>5</td>
+			<td align="center">04026804</td>
+			<td align="center">8</td>
+			<td align="center">模拟电子线路</td>
+			<td align="center">乌兰图雅</td>
+			<td align="center">星期一(08-09小节)<br>星期四(04-05小节)</td>
+			<td align="center">3.5</td>
+			<td align="center">I-106,I-106</td>
+			<td align="center">必修</td>
+			<td align="center">预置</td>
+		</tr>
+		
+		<tr>
+			<td>6</td>
+			<td align="center">04026304</td>
+			<td align="center">9</td>
+			<td align="center">数字逻辑电路</td>
+			<td align="center">姜萍</td>
+			<td align="center">星期二(08-09小节)<br>星期五(04-05小节)</td>
+			<td align="center">3.5</td>
+			<td align="center">I-105,I-105</td>
+			<td align="center">必修</td>
+			<td align="center">补退选</td>
+		</tr>
+		
+		<tr>
+			<td>7</td>
+			<td align="center">36400002</td>
+			<td align="center">5</td>
+			<td align="center">形势与政策（Ⅳ）</td>
+			<td align="center">肖兰兰</td>
+			<td align="center">星期一(14-14小节)</td>
+			<td align="center">0.3</td>
+			<td align="center">线上</td>
+			<td align="center">必修</td>
+			<td align="center">预置</td>
+		</tr>
+		
+		<tr>
+			<td>8</td>
+			<td align="center">10031702</td>
+			<td align="center">2</td>
+			<td align="center">数据通信与网络</td>
+			<td align="center">赵燕</td>
+			<td align="center">星期一(06-07小节)<br>星期三(01-03小节)</td>
+			<td align="center">2</td>
+			<td align="center">Ⅳ-A302,Ⅳ-A302</td>
+			<td align="center">必修</td>
+			<td align="center">预置</td>
+		</tr>
+		
+		<tr>
+			<td>9</td>
+			<td align="center">04061701</td>
+			<td align="center">3</td>
+			<td align="center">电子线路综合实验</td>
+			<td align="center">丁淑艳</td>
+			<td align="center">星期一(04-13小节)<br>星期二(01-13小节)<br>星期三(01-13小节)<br>星期四(01-13小节)<br>星期五(01-13小节)</td>
+			<td align="center">1.5</td>
+			<td align="center"></td>
+			<td align="center">必修</td>
+			<td align="center">预置</td>
+		</tr>
+		
+		<tr>
+			<td>10</td>
+			<td align="center">00000573</td>
+			<td align="center">0</td>
+			<td align="center">走进交响乐</td>
+			<td align="center">骆达</td>
+			<td align="center">星期六(08-10小节)</td>
+			<td align="center">1</td>
+			<td align="center">艺文馆303</td>
+			<td align="center">公选</td>
+			<td align="center">一选</td>
+		</tr>
+		
+		<tr>
+			<td>11</td>
+			<td align="center">21420102</td>
+			<td align="center">1127</td>
+			<td align="center">体育（Ⅳ）</td>
+			<td align="center">高士博</td>
+			<td align="center">星期一(02-03小节)</td>
+			<td align="center">0.5</td>
+			<td align="center">二运篮球场</td>
+			<td align="center">必修</td>
+			<td align="center">二选</td>
+		</tr>
+		
+		<tr>
+			<td>12</td>
+			<td align="center">00W00154</td>
+			<td align="center">0</td>
+			<td align="center">改革开放史</td>
+			<td align="center">课程中心</td>
+			<td align="center">星期四(14-14小节)</td>
+			<td align="center">0.5</td>
+			<td align="center"></td>
+			<td align="center">公选</td>
+			<td align="center">一选</td>
+		</tr>
+		
+	</tbody></table>
+	<div id="PagingControl1_divOuterClass" class="Nsb_r_list_tdfy"> <div class="Nsb_r_list_fy"><div class="Nsb_r_list_fy2"><span>转到</span><input name="pageIndex" type="text" value="1" id="pageIndex" onkeyup="keyUpNum(this);" onafterpaste="keyUpNum(this);" onkeydown="paginationKeyDown()"> </div><div class="Nsb_r_list_fy3"> <span> 共1页&nbsp;12条</span></div><div class="Nsb_r_list_fy4"><a id="PagingControl1_btnPrevPage" disabled="disabled" title="第一页"></a><a id="PagingControl1_btnNextPage" disabled="disabled" title="最后一页"></a></div></div></div>	
+</form>
+</div>
+
+<br>
+
+<div id="Footer1_divCopyright" class="Nsb_pw" style="display:;">
+  <div class="Nsb_rights">Copyright (C) 湖南强智科技发展有限公司 2003-2013 All Rights Reserved 湘ICP 备12010071号</div>
+</div>
+<script language="javascript">
+loadjs();
+function loadjs(){
+	if( ''!=''){
+		alert('');
+	}
+}
+
+//放大显示详细
+function funFD(flag){
+	if(flag){
+		var jx0415zbdiv_1 = document.getElementsByName("jx0415zbdiv_1");
+		for(var i = 0; i < jx0415zbdiv_1.length; i++){
+			document.getElementById(jx0415zbdiv_1[i].value).style.display="none";
+		}
+		var jx0415zbdiv_2 = document.getElementsByName("jx0415zbdiv_2");
+		for(var i = 0; i < jx0415zbdiv_2.length; i++){
+			document.getElementById(jx0415zbdiv_2[i].value).style.display="";
+		}
+	}else{
+		var jx0415zbdiv_1 = document.getElementsByName("jx0415zbdiv_1");
+		for(var i = 0; i < jx0415zbdiv_1.length; i++){
+			document.getElementById(jx0415zbdiv_1[i].value).style.display="";
+		}
+		var jx0415zbdiv_2 = document.getElementsByName("jx0415zbdiv_2");
+		for(var i = 0; i < jx0415zbdiv_2.length; i++){
+			document.getElementById(jx0415zbdiv_2[i].value).style.display="none";
+		}
+	}
+} 
+
+function search(obj){
+	if(obj != null){
+		obj.value = "查询中";
+		obj.disabled = true;
+	}
+	document.getElementById('Form1').submit();
+}
+function print(obj){
+	var url = "";
+	var xnxq01id = document.getElementById("xnxq01id").value ; 
+	var zc = document.getElementById("zc").value ;  
+	url += "?xnxq01id="+xnxq01id;
+	url += "&zc="+zc;
+	 
+	document.getElementById("FormPrint").action = "/njlgdx/xskb/xskb_print.do"+url;
+	document.getElementById("FormPrint").submit();
+}
+funFD(document.getElementById("sfFD").checked);
+</script>
+
+
+</body></html>
