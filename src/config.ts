@@ -30,6 +30,8 @@ export const storageStatePath = path.resolve("artifacts", "storageState.json");
 export const timetableHtmlPath = path.resolve("artifacts", "timetable.html");
 export const timetableJsonPath = path.resolve("artifacts", "timetable.json");
 export const timetableViewPath = path.resolve("artifacts", "timetable-view.html");
+export const homeViewPath = path.resolve("artifacts", "home-view.html");
+export const homeImageSourceDir = path.resolve("assets", "home-gallery");
 
 export const loadConfig = (): AppConfig => ({
   baseUrl: process.env.BASE_URL?.trim() || "http://202.119.81.113:8080",

@@ -28,4 +28,9 @@
     <string name="show_timetable_page_label">&#35838;&#34920;</string>
     <string name="show_live_timetable_label">&#25945;&#21153;&#32593;&#39029;</string>
     <string name="show_cached_timetable_label">&#26412;&#22320;&#35838;&#34920;</string>
+    <string name="nav_home_label">&#39318;&#39029;</string>
+    <string name="nav_profile_label">&#20010;&#20154;&#20013;&#24515;</string>
+    <string name="toolbar_title_home">&#21608;&#19977;&#35838;&#34920;</string>
+    <string name="toolbar_title_profile">&#25945;&#21153;&#30331;&#24405;</string>
+    <string name="toolbar_title_timetable">&#35838;&#34920;&#26597;&#35810;</string>
 </resources>

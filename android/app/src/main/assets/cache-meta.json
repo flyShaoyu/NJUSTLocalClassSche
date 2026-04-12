@@ -1,8 +1,10 @@
 {
-  "exportedAt": "2026-04-10T12:43:05.536Z",
+  "exportedAt": "2026-04-12T04:04:04.268Z",
   "files": {
     "timetableHtml": "timetable.html",
     "timetableJson": "timetable.json",
-    "timetableView": "timetable-view.html"
+    "timetableView": "timetable-view.html",
+    "homeView": "home-view.html",
+    "homeGallery": "home-gallery/"
   }
 }

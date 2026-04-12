@@ -8,13 +8,23 @@ import java.time.LocalDateTime
 object TimetableRenderer {
   private val coursesPattern = Regex("""const courses = \[.*?];""", setOf(RegexOption.DOT_MATCHES_ALL))
 
+  fun emptyHomeHtml(context: Context): String {
+    return renderAsset(context, "home-view.html", emptyList())
+      ?: fallbackHtml("当前设备还没有首页缓存，请先导出首页资源。")
+  }
+
   fun emptyHtml(context: Context): String {
-    return renderFromAsset(context, emptyList())
+    return renderAsset(context, "timetable-view.html", emptyList())
       ?: fallbackHtml("当前设备还没有本地课表，请先登录并打开一次课表页。")
   }
 
+  fun toHomeHtml(context: Context, courses: List<TimetableCourse>): String {
+    return renderAsset(context, "home-view.html", courses)
+      ?: fallbackHtml("首页缓存已更新，共解析 ${courses.size} 条课程。")
+  }
+
   fun toHtml(context: Context, courses: List<TimetableCourse>): String {
-    return renderFromAsset(context, courses)
+    return renderAsset(context, "timetable-view.html", courses)
       ?: fallbackHtml("本地课表已更新，共解析 ${courses.size} 条课程。")
   }
 
@@ -39,8 +49,8 @@ object TimetableRenderer {
     return array.toString(2)
   }
 
-  private fun renderFromAsset(context: Context, courses: List<TimetableCourse>): String? {
-    val template = readAssetText(context, "timetable-view.html") ?: return null
+  private fun renderAsset(context: Context, fileName: String, courses: List<TimetableCourse>): String? {
+    val template = readAssetText(context, fileName) ?: return null
     return coursesPattern.replace(template, "const courses = ${toJson(courses)};")
   }
 
