@@ -1,12 +1,15 @@
 ﻿package com.classsche.mobile
 
 import android.annotation.SuppressLint
+import android.graphics.Color
 import android.content.Context
 import android.graphics.BitmapFactory
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.util.TypedValue
 import android.view.View
+import android.view.ViewGroup
 import android.view.inputmethod.InputMethodManager
 import android.webkit.WebResourceRequest
 import android.webkit.CookieManager
@@ -15,6 +18,11 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import android.widget.ImageButton
+import android.widget.ImageView
 import com.classsche.mobile.databinding.ActivityMainBinding
 import org.json.JSONArray
 import org.json.JSONObject
@@ -29,11 +37,19 @@ class MainActivity : AppCompatActivity() {
   private val mainHandler = Handler(Looper.getMainLooper())
   private val ioExecutor = Executors.newSingleThreadExecutor()
   private val prefs by lazy { getSharedPreferences("classsche_prefs", Context.MODE_PRIVATE) }
+  private var baseToolbarPaddingLeft = 0
+  private var baseToolbarPaddingTop = 0
+  private var baseToolbarPaddingRight = 0
+  private var baseToolbarPaddingBottom = 0
+  private var lastStatusBarInsetTop = 0
 
   private var loginSubmitted = false
   private var cacheCaptureInProgress = false
   private var showingLiveTimetable = false
   private var currentWebScreen = WebScreen.HOME
+  private var homePageLoaded = false
+  private var currentAssetExportId: String? = null
+  private var renderedHomeSignature: String? = null
 
   private enum class WebScreen {
     HOME,
@@ -100,13 +116,13 @@ class MainActivity : AppCompatActivity() {
   }
 
   override fun onBackPressed() {
-    if (binding.timetablePage.visibility == View.VISIBLE && binding.contentWebView.canGoBack()) {
-      binding.contentWebView.goBack()
+    if (binding.timetablePage.visibility == View.VISIBLE && currentWebScreen != WebScreen.HOME) {
+      showHomePage()
       return
     }
 
-    if (binding.timetablePage.visibility == View.VISIBLE && currentWebScreen != WebScreen.HOME) {
-      showHomePage()
+    if (binding.timetablePage.visibility == View.VISIBLE && binding.contentWebView.canGoBack()) {
+      binding.contentWebView.goBack()
       return
     }
 
@@ -114,7 +130,24 @@ class MainActivity : AppCompatActivity() {
   }
 
   private fun setupToolbar() {
+    baseToolbarPaddingLeft = binding.toolbar.paddingLeft
+    baseToolbarPaddingTop = binding.toolbar.paddingTop
+    baseToolbarPaddingRight = binding.toolbar.paddingRight
+    baseToolbarPaddingBottom = binding.toolbar.paddingBottom
     binding.toolbar.title = getString(R.string.toolbar_title_home)
+    binding.toolbar.navigationIcon = null
+    binding.toolbar.setNavigationOnClickListener {
+      if (currentWebScreen == WebScreen.TIMETABLE) {
+        showHomePage()
+      }
+    }
+    ViewCompat.setOnApplyWindowInsetsListener(binding.toolbar) { view, insets ->
+      lastStatusBarInsetTop = insets.getInsets(WindowInsetsCompat.Type.statusBars()).top
+      applyToolbarLayout()
+      insets
+    }
+    applyToolbarLayout()
+    updateToolbarNavigationButtonLayout()
   }
 
   @SuppressLint("SetJavaScriptEnabled")
@@ -181,15 +214,22 @@ class MainActivity : AppCompatActivity() {
       override fun onPageFinished(view: WebView, url: String) {
         super.onPageFinished(view, url)
         when {
-          url.contains("home-view", ignoreCase = true) -> applyWebScreen(WebScreen.HOME)
-          url.contains("timetable-view", ignoreCase = true) || looksLikeTimetableUrl(url) -> applyWebScreen(WebScreen.TIMETABLE)
+          url.contains("home-view", ignoreCase = true) || url.contains("home-from-json", ignoreCase = true) -> {
+            homePageLoaded = true
+            renderedHomeSignature = currentHomeSignature()
+            applyWebScreen(WebScreen.HOME)
+          }
+          url.contains("timetable-view", ignoreCase = true) || looksLikeTimetableUrl(url) -> {
+            homePageLoaded = false
+            applyWebScreen(WebScreen.TIMETABLE)
+          }
         }
       }
     }
   }
 
   private fun setupActions() {
-    binding.bottomNavGroup.check(binding.navHomeButton.id)
+    updateBottomNavSelection(binding.navHomeButton.id)
     binding.navHomeButton.setOnClickListener { showHomePage() }
     binding.navProfileButton.setOnClickListener { showLoginPage() }
 
@@ -214,13 +254,6 @@ class MainActivity : AppCompatActivity() {
       showCachedTimetable()
     }
 
-    binding.showLiveTimetableButton.setOnClickListener {
-      showLiveTimetable()
-    }
-
-    binding.showCachedTimetableButton.setOnClickListener {
-      showCachedTimetable()
-    }
   }
 
   private fun bootstrapLoginSession(forceReload: Boolean = false) {
@@ -237,8 +270,9 @@ class MainActivity : AppCompatActivity() {
     binding.loginPage.visibility = View.VISIBLE
     binding.timetablePage.visibility = View.GONE
     binding.bottomNavGroup.visibility = View.VISIBLE
-    binding.bottomNavGroup.check(binding.navProfileButton.id)
+    updateBottomNavSelection(binding.navProfileButton.id)
     binding.toolbar.title = getString(R.string.toolbar_title_profile)
+    binding.toolbar.navigationIcon = null
   }
 
   private fun applyWebScreen(screen: WebScreen) {
@@ -248,23 +282,76 @@ class MainActivity : AppCompatActivity() {
     binding.loginPage.visibility = View.GONE
     binding.timetablePage.visibility = View.VISIBLE
     val showControls = screen == WebScreen.TIMETABLE
-    binding.webModeBar.visibility = if (showControls) View.VISIBLE else View.GONE
     binding.bottomNavGroup.visibility = if (showControls) View.GONE else View.VISIBLE
     if (!showControls) {
-      binding.bottomNavGroup.check(binding.navHomeButton.id)
+      updateBottomNavSelection(binding.navHomeButton.id)
     }
     binding.toolbar.title = if (showControls) {
       getString(R.string.toolbar_title_timetable)
     } else {
       getString(R.string.toolbar_title_home)
     }
+    binding.toolbar.navigationIcon = if (showControls) {
+      ContextCompat.getDrawable(this, androidx.appcompat.R.drawable.abc_ic_ab_back_material)?.mutate()?.apply {
+        setTint(Color.WHITE)
+      }
+    } else {
+      null
+    }
+    applyToolbarLayout()
+    updateToolbarNavigationButtonLayout()
     binding.contentWebView.requestFocus()
   }
+
+  private fun applyToolbarLayout() {
+    val extraBottom = if (currentWebScreen == WebScreen.HOME) dpToPx(10) else 0
+    val minHeight = if (currentWebScreen == WebScreen.HOME) dpToPx(56) else 0
+
+    binding.toolbar.minimumHeight = minHeight
+    binding.toolbar.setPadding(
+      baseToolbarPaddingLeft,
+      baseToolbarPaddingTop + lastStatusBarInsetTop,
+      baseToolbarPaddingRight,
+      baseToolbarPaddingBottom + extraBottom
+    )
+  }
+
+  private fun updateToolbarNavigationButtonLayout() {
+    binding.toolbar.post {
+      val targetSize = dpToPx(44)
+      val horizontalMargin = dpToPx(8)
+      for (index in 0 until binding.toolbar.childCount) {
+        val child = binding.toolbar.getChildAt(index)
+        if (child is ImageButton) {
+          val params = child.layoutParams
+          params.height = targetSize
+          params.width = targetSize
+          if (params is ViewGroup.MarginLayoutParams) {
+            params.marginStart = horizontalMargin
+            params.marginEnd = horizontalMargin
+          }
+          child.layoutParams = params
+          child.minimumHeight = targetSize
+          child.minimumWidth = targetSize
+          child.setPadding(0, 0, 0, 0)
+          child.scaleType = ImageView.ScaleType.CENTER
+          child.imageTintList = android.content.res.ColorStateList.valueOf(Color.WHITE)
+        }
+      }
+    }
+  }
+
+  private fun dpToPx(value: Int): Int =
+    TypedValue.applyDimension(
+      TypedValue.COMPLEX_UNIT_DIP,
+      value.toFloat(),
+      resources.displayMetrics
+    ).toInt()
 
   private fun showHomePage() {
     showingLiveTimetable = false
     applyWebScreen(WebScreen.HOME)
-    loadCachedHome()
+    presentHomePage()
   }
 
   private fun showLiveTimetable() {
@@ -276,17 +363,99 @@ class MainActivity : AppCompatActivity() {
   private fun showCachedTimetable() {
     showingLiveTimetable = false
     applyWebScreen(WebScreen.TIMETABLE)
-    loadCachedTimetable()
+    homePageLoaded = false
+    showCachedTimetableOrEmpty()
+  }
+
+  private fun presentHomePage() {
+    val targetSignature = currentHomeSignature()
+    if (homePageLoaded && renderedHomeSignature == targetSignature) {
+      return
+    }
+
+    if (homePageLoaded && updateHomeRecentCoursesOnly()) {
+      renderedHomeSignature = targetSignature
+      return
+    }
+
+    loadCachedHome()
   }
 
   private fun loadCachedHome() {
-    val cacheFile = File(filesDir, GENERATED_HOME_HTML_FILE)
-    loadGeneratedPage(cacheFile, TimetableRenderer.emptyHomeHtml(this))
+    val homeCacheFile = File(filesDir, GENERATED_HOME_HTML_FILE)
+    if (homeCacheFile.exists() && homeCacheFile.length() > 0L) {
+      loadGeneratedPage(homeCacheFile, TimetableRenderer.emptyHomeHtml(this))
+      return
+    }
+
+    val cacheJsonFile = File(filesDir, CACHE_JSON_FILE)
+    if (cacheJsonFile.exists() && cacheJsonFile.length() > 2L) {
+      val renderedHomeHtml = runCatching {
+        TimetableRenderer.homeHtmlFromJson(this, cacheJsonFile.readText(Charsets.UTF_8))
+      }.getOrNull()
+
+      if (!renderedHomeHtml.isNullOrBlank()) {
+        binding.contentWebView.stopLoading()
+        binding.contentWebView.clearHistory()
+        binding.contentWebView.clearCache(true)
+        binding.contentWebView.loadDataWithBaseURL(
+          "https://classsche.local/home-from-json/",
+          renderedHomeHtml,
+          "text/html",
+          "utf-8",
+          null
+        )
+        return
+      }
+    }
+
+    loadGeneratedPage(homeCacheFile, TimetableRenderer.emptyHomeHtml(this))
   }
 
-  private fun loadCachedTimetable() {
+  private fun showCachedTimetableOrEmpty() {
     val cacheFile = File(filesDir, GENERATED_CACHE_HTML_FILE)
+    val cacheJsonFile = File(filesDir, CACHE_JSON_FILE)
+
+    if (!hasUsableTimetableCache(cacheFile, cacheJsonFile)) {
+      showEmptyTimetablePage()
+      return
+    }
+
     loadGeneratedPage(cacheFile, TimetableRenderer.emptyHtml(this))
+  }
+
+  private fun showEmptyTimetablePage() {
+    binding.contentWebView.stopLoading()
+    binding.contentWebView.clearHistory()
+    binding.contentWebView.clearCache(true)
+    binding.contentWebView.loadDataWithBaseURL(
+      "https://classsche.local/empty-timetable/",
+      TimetableRenderer.emptyHtml(this),
+      "text/html",
+      "utf-8",
+      null
+    )
+  }
+
+  private fun hasUsableTimetableCache(cacheFile: File, cacheJsonFile: File): Boolean {
+    if (!cacheFile.exists() || cacheFile.length() <= 0L) {
+      return false
+    }
+
+    if (!cacheJsonFile.exists() || cacheJsonFile.length() <= 2L) {
+      return false
+    }
+
+    return try {
+      val raw = cacheJsonFile.readText(Charsets.UTF_8).trim()
+      if (raw.isBlank() || raw == "[]") {
+        false
+      } else {
+        JSONArray(raw).length() > 0
+      }
+    } catch (_: Exception) {
+      false
+    }
   }
 
   private fun loadGeneratedPage(cacheFile: File, fallbackHtml: String) {
@@ -300,7 +469,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     binding.contentWebView.loadDataWithBaseURL(
-      null,
+      "https://classsche.local/fallback/",
       fallbackHtml,
       "text/html",
       "utf-8",
@@ -320,6 +489,50 @@ class MainActivity : AppCompatActivity() {
       }
       else -> false
     }
+  }
+
+  private fun updateBottomNavSelection(selectedButtonId: Int) {
+    val activeColor = Color.parseColor("#5B89BF")
+    val inactiveColor = Color.parseColor("#7E8794")
+    val buttons = listOf(binding.navHomeButton, binding.navProfileButton)
+
+    buttons.forEach { button ->
+      val selected = button.id == selectedButtonId
+      button.setTextColor(if (selected) activeColor else inactiveColor)
+      button.iconTint = android.content.res.ColorStateList.valueOf(if (selected) activeColor else inactiveColor)
+      button.strokeWidth = 0
+      button.backgroundTintList = android.content.res.ColorStateList.valueOf(Color.TRANSPARENT)
+      button.rippleColor = android.content.res.ColorStateList.valueOf(Color.parseColor("#223A5E8C"))
+      button.isChecked = selected
+    }
+  }
+
+  private fun currentHomeSignature(): String {
+    val homeCacheFile = File(filesDir, GENERATED_HOME_HTML_FILE)
+    val cacheJsonFile = File(filesDir, CACHE_JSON_FILE)
+    val homePart = if (homeCacheFile.exists()) "${homeCacheFile.length()}:${homeCacheFile.lastModified()}" else "missing"
+    val jsonPart = if (cacheJsonFile.exists()) "${cacheJsonFile.length()}:${cacheJsonFile.lastModified()}" else "missing"
+    return listOf(currentAssetExportId ?: "no-export", homePart, jsonPart).joinToString("|")
+  }
+
+  private fun updateHomeRecentCoursesOnly(): Boolean {
+    val cacheJsonFile = File(filesDir, CACHE_JSON_FILE)
+    if (!cacheJsonFile.exists() || cacheJsonFile.length() <= 2L) {
+      return false
+    }
+
+    val rawJson = runCatching { cacheJsonFile.readText(Charsets.UTF_8) }.getOrNull() ?: return false
+    val js = """
+      (function() {
+        if (window.ClassScheHome && typeof window.ClassScheHome.updateRecentCourses === 'function') {
+          return window.ClassScheHome.updateRecentCourses(${JSONObject.quote(rawJson)});
+        }
+        return false;
+      })();
+    """.trimIndent()
+
+    binding.contentWebView.evaluateJavascript(js, null)
+    return true
   }
 
   private fun refreshCaptchaInWebView() {
@@ -538,6 +751,12 @@ class MainActivity : AppCompatActivity() {
 
   private fun syncAssetExportId() {
     val currentExportId = readAssetExportId() ?: return
+    currentAssetExportId = currentExportId
+    val previousExportId = prefs.getString(PREF_ASSET_EXPORT_ID, null)
+
+    if (previousExportId != null && previousExportId != currentExportId) {
+      File(filesDir, GENERATED_HOME_HTML_FILE).delete()
+    }
 
     prefs.edit()
       .putString(PREF_ASSET_EXPORT_ID, currentExportId)

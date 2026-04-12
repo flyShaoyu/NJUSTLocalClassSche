@@ -10,7 +10,11 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:background="@color/sky_top"
+        android:minHeight="0dp"
+        android:paddingTop="4dp"
+        android:paddingBottom="4dp"
         android:theme="@style/ThemeOverlay.Material3.Dark.ActionBar"
+        app:contentInsetStartWithNavigation="20dp"
         app:titleCentered="true" />
 
     <FrameLayout
@@ -201,33 +205,6 @@
             android:orientation="vertical"
             android:visibility="gone">
 
-            <LinearLayout
-                android:id="@+id/webModeBar"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:background="#E8F1FB"
-                android:orientation="horizontal"
-                android:padding="10dp"
-                android:visibility="gone">
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/showLiveTimetableButton"
-                    style="@style/Widget.Material3.Button.TonalButton"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="@string/show_live_timetable_label" />
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/showCachedTimetableButton"
-                    style="@style/Widget.Material3.Button.OutlinedButton"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="10dp"
-                    android:layout_weight="1"
-                    android:text="@string/show_cached_timetable_label" />
-            </LinearLayout>
-
             <WebView
                 android:id="@+id/contentWebView"
                 android:layout_width="match_parent"
@@ -242,7 +219,7 @@
             android:visibility="invisible" />
     </FrameLayout>
 
-    <com.google.android.material.button.MaterialButtonToggleGroup
+    <LinearLayout
         android:id="@+id/bottomNavGroup"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -251,26 +228,31 @@
         android:paddingTop="8dp"
         android:paddingEnd="12dp"
         android:paddingBottom="8dp"
-        app:selectionRequired="true"
-        app:singleSelection="true">
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/navHomeButton"
-            style="@style/Widget.Material3.Button.TonalButton"
+            style="@style/Widget.Material3.Button.TextButton"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="@string/nav_home_label"
             app:icon="@android:drawable/ic_menu_view" />
 
+        <View
+            android:layout_width="1dp"
+            android:layout_height="28dp"
+            android:background="#D9E1EC" />
+
         <com.google.android.material.button.MaterialButton
             android:id="@+id/navProfileButton"
-            style="@style/Widget.Material3.Button.TonalButton"
+            style="@style/Widget.Material3.Button.TextButton"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="@string/nav_profile_label"
             app:icon="@android:drawable/ic_menu_myplaces" />
-    </com.google.android.material.button.MaterialButtonToggleGroup>
+    </LinearLayout>
 
 </LinearLayout>
