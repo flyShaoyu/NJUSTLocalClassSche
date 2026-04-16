@@ -114,9 +114,7 @@ export const renderTimetablePage = (courses: TimetableCourse[]): string => {
     body {
       margin: 0;
       min-height: 100vh;
-      background:
-        radial-gradient(circle at top left, rgba(255,255,255,0.48), transparent 16%),
-        linear-gradient(180deg, #8ebcf0 0, #7fb2ea 228px, var(--paper) 228px, var(--paper) 100%);
+      background: #ffffff;
       color: var(--ink);
       font-family: var(--font-ui);
       overflow-x: hidden;
@@ -137,13 +135,6 @@ export const renderTimetablePage = (courses: TimetableCourse[]): string => {
       background: #ffffff;
     }
 
-    .hero {
-      padding: 18px 10px 12px;
-      color: white;
-      background: linear-gradient(180deg, rgba(121, 175, 230, 0.98), rgba(108, 167, 224, 0.96));
-    }
-
-    .hero-main,
     .sheet-topbar {
       display: flex;
       align-items: center;
@@ -154,11 +145,6 @@ export const renderTimetablePage = (courses: TimetableCourse[]): string => {
       display: flex;
       align-items: center;
       gap: 12px;
-    }
-
-    .hero-main {
-      gap: 14px;
-      justify-content: space-between;
     }
 
     .back-button,
@@ -188,21 +174,12 @@ export const renderTimetablePage = (courses: TimetableCourse[]): string => {
       font-size: 24px;
       line-height: 1;
     }
-
-    .hero-title {
-      text-align: center;
-      font-family: var(--font-cn);
-      font-size: clamp(22px, 4.6vw, 30px);
-      letter-spacing: clamp(2px, 0.9vw, 6px);
-      text-shadow: 0 3px 10px rgba(55, 82, 118, 0.18);
-    }
-
     .board {
       position: relative;
       display: grid;
       grid-template-rows: auto minmax(0, 1fr);
       background: #ffffff;
-      border-radius: 22px 22px 0 0;
+      border-radius: 0;
       box-shadow: 0 30px 65px rgba(66, 88, 128, 0.14);
       overflow: hidden;
       transition: filter 180ms ease, transform 180ms ease;
@@ -714,10 +691,6 @@ export const renderTimetablePage = (courses: TimetableCourse[]): string => {
         overflow: hidden;
       }
       .app { height: 100dvh; min-height: 100dvh; padding-bottom: calc(var(--footer-height) + 2px); }
-      .hero {
-        padding: 10px 6px 6px;
-        padding-inline: 6px;
-      }
       .back-button {
         width: 34px;
         height: 34px;
@@ -730,7 +703,7 @@ export const renderTimetablePage = (courses: TimetableCourse[]): string => {
         font-size: 20px;
       }
       .footer-bar { left: 0; right: 0; }
-      .board { border-radius: 14px 14px 0 0; }
+      .board { border-radius: 0; }
       :root {
         --axis-width: 16px;
         --row-min-height: 24px;
@@ -795,14 +768,6 @@ export const renderTimetablePage = (courses: TimetableCourse[]): string => {
 </head>
 <body>
   <div class="app">
-    <header class="hero">
-      <div class="hero-main">
-        <a class="back-button" href="./home-view.html" aria-label="返回首页">‹</a>
-        <div class="hero-title">课表查询</div>
-        <div style="width:42px;height:42px;"></div>
-      </div>
-    </header>
-
     <main class="board">
       <div id="boardHighlightLayer" class="board-highlight-layer"></div>
       <div id="headerRow" class="header-row"></div>

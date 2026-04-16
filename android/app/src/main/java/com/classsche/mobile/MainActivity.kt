@@ -50,6 +50,7 @@ class MainActivity : AppCompatActivity() {
   private var homePageLoaded = false
   private var currentAssetExportId: String? = null
   private var renderedHomeSignature: String? = null
+  private var loginSessionBootstrapped = false
 
   private enum class WebScreen {
     HOME,
@@ -59,6 +60,7 @@ class MainActivity : AppCompatActivity() {
   companion object {
     private const val LOGIN_URL = "http://202.119.81.113:8080"
     private const val TIMETABLE_URL = "http://202.119.81.112:9080/njlgdx/xskb/xskb_list.do"
+    private const val HOME_ASSET_BASE_URL = "file:///android_asset/"
     private const val GENERATED_HOME_HTML_FILE = "home-view-generated.html"
     private const val GENERATED_CACHE_HTML_FILE = "timetable-view-generated.html"
     private const val CACHE_JSON_FILE = "timetable.json"
@@ -101,13 +103,13 @@ class MainActivity : AppCompatActivity() {
 
     setupToolbar()
     setupAuthWebView()
+    setupHomeWebView()
     setupContentWebView()
     setupActions()
     restoreSavedCredentials()
     syncAssetExportId()
 
     showHomePage()
-    bootstrapLoginSession()
   }
 
   override fun onDestroy() {
@@ -195,6 +197,36 @@ class MainActivity : AppCompatActivity() {
   }
 
   @SuppressLint("SetJavaScriptEnabled")
+  private fun setupHomeWebView() {
+    with(binding.homeWebView.settings) {
+      javaScriptEnabled = true
+      domStorageEnabled = true
+      allowFileAccess = true
+      allowContentAccess = true
+      builtInZoomControls = false
+      displayZoomControls = false
+      cacheMode = WebSettings.LOAD_NO_CACHE
+    }
+
+    binding.homeWebView.webViewClient = object : WebViewClient() {
+      override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+        return handleInternalPageNavigation(request.url.toString())
+      }
+
+      override fun onPageFinished(view: WebView, url: String) {
+        super.onPageFinished(view, url)
+        if (url.contains("home-view", ignoreCase = true) || url.contains("home-from-json", ignoreCase = true)) {
+          homePageLoaded = true
+          renderedHomeSignature = currentHomeSignature()
+          if (currentWebScreen == WebScreen.HOME) {
+            applyWebScreen(WebScreen.HOME)
+          }
+        }
+      }
+    }
+  }
+
+  @SuppressLint("SetJavaScriptEnabled")
   private fun setupContentWebView() {
     with(binding.contentWebView.settings) {
       javaScriptEnabled = true
@@ -214,13 +246,7 @@ class MainActivity : AppCompatActivity() {
       override fun onPageFinished(view: WebView, url: String) {
         super.onPageFinished(view, url)
         when {
-          url.contains("home-view", ignoreCase = true) || url.contains("home-from-json", ignoreCase = true) -> {
-            homePageLoaded = true
-            renderedHomeSignature = currentHomeSignature()
-            applyWebScreen(WebScreen.HOME)
-          }
           url.contains("timetable-view", ignoreCase = true) || looksLikeTimetableUrl(url) -> {
-            homePageLoaded = false
             applyWebScreen(WebScreen.TIMETABLE)
           }
         }
@@ -257,6 +283,11 @@ class MainActivity : AppCompatActivity() {
   }
 
   private fun bootstrapLoginSession(forceReload: Boolean = false) {
+    if (loginSessionBootstrapped && !forceReload) {
+      return
+    }
+
+    loginSessionBootstrapped = true
     updateStatus(getString(R.string.status_loading_login))
     if (forceReload) {
       CookieManager.getInstance().removeSessionCookies(null)
@@ -266,8 +297,10 @@ class MainActivity : AppCompatActivity() {
   }
 
   private fun showLoginPage() {
+    bootstrapLoginSession()
     clearInputFocus()
     binding.loginPage.visibility = View.VISIBLE
+    binding.homeWebView.visibility = View.GONE
     binding.timetablePage.visibility = View.GONE
     binding.bottomNavGroup.visibility = View.VISIBLE
     updateBottomNavSelection(binding.navProfileButton.id)
@@ -279,8 +312,19 @@ class MainActivity : AppCompatActivity() {
     currentWebScreen = screen
     dismissKeyboard()
     clearInputFocus()
-    binding.loginPage.visibility = View.GONE
-    binding.timetablePage.visibility = View.VISIBLE
+    when (screen) {
+      WebScreen.HOME -> {
+        binding.loginPage.visibility = View.GONE
+        binding.homeWebView.visibility = View.VISIBLE
+        binding.timetablePage.visibility = View.GONE
+      }
+      WebScreen.TIMETABLE -> {
+        binding.loginPage.visibility = View.GONE
+        binding.homeWebView.visibility = View.GONE
+        binding.timetablePage.visibility = View.VISIBLE
+      }
+    }
+
     val showControls = screen == WebScreen.TIMETABLE
     binding.bottomNavGroup.visibility = if (showControls) View.GONE else View.VISIBLE
     if (!showControls) {
@@ -300,7 +344,11 @@ class MainActivity : AppCompatActivity() {
     }
     applyToolbarLayout()
     updateToolbarNavigationButtonLayout()
-    binding.contentWebView.requestFocus()
+    if (screen == WebScreen.HOME) {
+      binding.homeWebView.requestFocus()
+    } else {
+      binding.contentWebView.requestFocus()
+    }
   }
 
   private fun applyToolbarLayout() {
@@ -350,7 +398,6 @@ class MainActivity : AppCompatActivity() {
 
   private fun showHomePage() {
     showingLiveTimetable = false
-    applyWebScreen(WebScreen.HOME)
     presentHomePage()
   }
 
@@ -363,18 +410,23 @@ class MainActivity : AppCompatActivity() {
   private fun showCachedTimetable() {
     showingLiveTimetable = false
     applyWebScreen(WebScreen.TIMETABLE)
-    homePageLoaded = false
     showCachedTimetableOrEmpty()
   }
 
   private fun presentHomePage() {
     val targetSignature = currentHomeSignature()
+    if (!homePageLoaded) {
+      applyWebScreen(WebScreen.HOME)
+    }
+
     if (homePageLoaded && renderedHomeSignature == targetSignature) {
+      applyWebScreen(WebScreen.HOME)
       return
     }
 
     if (homePageLoaded && updateHomeRecentCoursesOnly()) {
       renderedHomeSignature = targetSignature
+      applyWebScreen(WebScreen.HOME)
       return
     }
 
@@ -384,7 +436,18 @@ class MainActivity : AppCompatActivity() {
   private fun loadCachedHome() {
     val homeCacheFile = File(filesDir, GENERATED_HOME_HTML_FILE)
     if (homeCacheFile.exists() && homeCacheFile.length() > 0L) {
-      loadGeneratedPage(homeCacheFile, TimetableRenderer.emptyHomeHtml(this))
+      val cachedHtml = runCatching { homeCacheFile.readText(Charsets.UTF_8) }.getOrNull()
+      if (!cachedHtml.isNullOrBlank()) {
+        loadHomeHtml(cachedHtml)
+        return
+      }
+    }
+
+    val homeAssetHtml = runCatching {
+      assets.open("home-view.html").bufferedReader(Charsets.UTF_8).use { it.readText() }
+    }.getOrNull()
+    if (!homeAssetHtml.isNullOrBlank()) {
+      loadHomeHtml(homeAssetHtml)
       return
     }
 
@@ -395,21 +458,25 @@ class MainActivity : AppCompatActivity() {
       }.getOrNull()
 
       if (!renderedHomeHtml.isNullOrBlank()) {
-        binding.contentWebView.stopLoading()
-        binding.contentWebView.clearHistory()
-        binding.contentWebView.clearCache(true)
-        binding.contentWebView.loadDataWithBaseURL(
-          "https://classsche.local/home-from-json/",
-          renderedHomeHtml,
-          "text/html",
-          "utf-8",
-          null
-        )
+        loadHomeHtml(renderedHomeHtml)
         return
       }
     }
 
-    loadGeneratedPage(homeCacheFile, TimetableRenderer.emptyHomeHtml(this))
+    loadHomeHtml(TimetableRenderer.emptyHomeHtml(this))
+  }
+
+  private fun loadHomeHtml(html: String) {
+    binding.homeWebView.stopLoading()
+    binding.homeWebView.clearHistory()
+    binding.homeWebView.clearCache(true)
+    binding.homeWebView.loadDataWithBaseURL(
+      HOME_ASSET_BASE_URL,
+      html,
+      "text/html",
+      "utf-8",
+      null
+    )
   }
 
   private fun showCachedTimetableOrEmpty() {
@@ -421,7 +488,12 @@ class MainActivity : AppCompatActivity() {
       return
     }
 
-    loadGeneratedPage(cacheFile, TimetableRenderer.emptyHtml(this))
+    loadGeneratedPage(
+      webView = binding.contentWebView,
+      cacheFile = cacheFile,
+      fallbackBaseUrl = "https://classsche.local/fallback/",
+      fallbackHtml = TimetableRenderer.emptyHtml(this)
+    )
   }
 
   private fun showEmptyTimetablePage() {
@@ -458,18 +530,23 @@ class MainActivity : AppCompatActivity() {
     }
   }
 
-  private fun loadGeneratedPage(cacheFile: File, fallbackHtml: String) {
-    binding.contentWebView.stopLoading()
-    binding.contentWebView.clearHistory()
-    binding.contentWebView.clearCache(true)
+  private fun loadGeneratedPage(
+    webView: WebView,
+    cacheFile: File,
+    fallbackBaseUrl: String,
+    fallbackHtml: String
+  ) {
+    webView.stopLoading()
+    webView.clearHistory()
+    webView.clearCache(true)
 
     if (cacheFile.exists() && cacheFile.length() > 0L) {
-      binding.contentWebView.loadUrl("file://${cacheFile.absolutePath}?v=${System.currentTimeMillis()}")
+      webView.loadUrl("file://${cacheFile.absolutePath}?v=${System.currentTimeMillis()}")
       return
     }
 
-    binding.contentWebView.loadDataWithBaseURL(
-      "https://classsche.local/fallback/",
+    webView.loadDataWithBaseURL(
+      fallbackBaseUrl,
       fallbackHtml,
       "text/html",
       "utf-8",
@@ -531,7 +608,7 @@ class MainActivity : AppCompatActivity() {
       })();
     """.trimIndent()
 
-    binding.contentWebView.evaluateJavascript(js, null)
+    binding.homeWebView.evaluateJavascript(js, null)
     return true
   }
 

@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import {
+  homeImageArtifactsDir,
   homeImageSourceDir,
   homeViewPath,
   timetableJsonPath,
@@ -14,38 +15,27 @@ import { TimetableCourse } from "./types.js";
 
 const imageExtensions = new Set([".jpg", ".jpeg", ".png", ".webp", ".gif"]);
 
-const collectHomeImages = async (): Promise<Array<{ fileName: string; relativePath: string }>> => {
+const collectHomeImages = async (): Promise<Array<{ fileName: string; src: string }>> => {
   await fs.mkdir(homeImageSourceDir, { recursive: true });
+  await fs.rm(homeImageArtifactsDir, { recursive: true, force: true });
+  await fs.mkdir(homeImageArtifactsDir, { recursive: true });
 
   const entries = await fs.readdir(homeImageSourceDir, { withFileTypes: true });
-  return entries
-    .filter((entry) => entry.isFile() && imageExtensions.has(path.extname(entry.name).toLowerCase()))
-    .map((entry) => ({
-      fileName: entry.name,
-      relativePath: `./home-gallery/${entry.name}`
-    }));
-};
+  const imageEntries = entries.filter((entry) => entry.isFile() && imageExtensions.has(path.extname(entry.name).toLowerCase()));
 
-const syncHomeImagesToArtifacts = async (): Promise<void> => {
-  const targetDir = path.resolve("artifacts", "home-gallery");
-  await fs.mkdir(targetDir, { recursive: true });
+  return Promise.all(
+    imageEntries.map(async (entry, index) => {
+      const sourcePath = path.join(homeImageSourceDir, entry.name);
+      const extension = path.extname(entry.name).toLowerCase();
+      const safeFileName = `image-${String(index + 1).padStart(3, "0")}${extension}`;
+      const targetPath = path.join(homeImageArtifactsDir, safeFileName);
+      await fs.copyFile(sourcePath, targetPath);
 
-  const entries = await fs.readdir(homeImageSourceDir, { withFileTypes: true });
-  const sourceFiles = entries
-    .filter((entry) => entry.isFile() && imageExtensions.has(path.extname(entry.name).toLowerCase()))
-    .map((entry) => entry.name);
-
-  const existingTargetFiles = await fs.readdir(targetDir, { withFileTypes: true });
-  await Promise.all(
-    existingTargetFiles
-      .filter((entry) => entry.isFile() && !sourceFiles.includes(entry.name))
-      .map((entry) => fs.rm(path.join(targetDir, entry.name), { force: true }))
-  );
-
-  await Promise.all(
-    sourceFiles.map((fileName) =>
-      fs.copyFile(path.join(homeImageSourceDir, fileName), path.join(targetDir, fileName))
-    )
+      return {
+        fileName: entry.name,
+        src: `./resources/${safeFileName}`
+      };
+    })
   );
 };
 
@@ -57,7 +47,6 @@ const run = async (): Promise<void> => {
   const content = await fs.readFile(timetableJsonPath, "utf8");
   const courses = JSON.parse(content) as TimetableCourse[];
   const homeImages = await collectHomeImages();
-  await syncHomeImagesToArtifacts();
 
   logStep("Rendering timetable frontend.");
   await writeTextFile(timetableViewPath, renderTimetablePage(courses));

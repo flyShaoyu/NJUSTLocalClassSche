@@ -1,5 +1,6 @@
-interface HomeScriptParams {
+﻿interface HomeScriptParams {
   coursesJson: string;
+  imagesJson: string;
   weekdaysJson: string;
   periodSlotsJson: string;
   menuItemsJson: string;
@@ -10,7 +11,8 @@ interface HomeScriptParams {
 
 export const buildHomePageScript = (params: HomeScriptParams): string => `
   <script>
-    const courses = ${params.coursesJson};
+    let courses = ${params.coursesJson};
+    const images = ${params.imagesJson};
     const weekdays = ${params.weekdaysJson};
     const periodSlots = ${params.periodSlotsJson};
     const menuItems = ${params.menuItemsJson};
@@ -18,8 +20,25 @@ export const buildHomePageScript = (params: HomeScriptParams): string => `
     const anchorWeek = ${params.anchorWeek};
     const anchorMonday = new Date(${params.anchorMondayJson});
 
-    const state = { toastTimer: null };
-    const weekTitles = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
+    const state = {
+      toastTimer: null,
+      galleryIndex: 0,
+      touchStartX: null,
+      galleryLoadedCount: 1,
+      lightboxOpen: false,
+      lightboxHistoryPushed: false,
+      lightboxScale: 1,
+      lightboxPanX: 0,
+      lightboxPanY: 0,
+      pinchStartDistance: null,
+      pinchStartScale: 1,
+      dragStartX: null,
+      dragStartY: null,
+      dragOriginX: 0,
+      dragOriginY: 0,
+      lightboxSwipeStartX: null
+    };
+    const weekTitles = ["\\u5468\\u4e00", "\\u5468\\u4e8c", "\\u5468\\u4e09", "\\u5468\\u56db", "\\u5468\\u4e94", "\\u5468\\u516d", "\\u5468\\u65e5"];
 
     const escapeHtml = (value) =>
       String(value ?? "")
@@ -29,8 +48,8 @@ export const buildHomePageScript = (params: HomeScriptParams): string => `
         .replace(/"/g, "&quot;");
 
     const currentDayIndex = () => (new Date().getDay() + 6) % 7;
-    const shortWeekday = (weekday) => weekday.replace("星期", "周");
-    const dateLabel = (date) => date.getMonth() + 1 + "月" + date.getDate() + "日";
+    const shortWeekday = (weekday) => weekday.replace("\\u661f\\u671f", "\\u5468");
+    const dateLabel = (date) => date.getMonth() + 1 + "\\u6708" + date.getDate() + "\\u65e5";
 
     const toMinutes = (time) => {
       const [hourText, minuteText] = String(time || "00:00").split(":");
@@ -54,16 +73,27 @@ export const buildHomePageScript = (params: HomeScriptParams): string => `
       return weeks;
     };
 
-    const normalizeCourses = courses.map((course) => {
-      const periodMatch = String(course.periods).match(/(\\d+)(?:-(\\d+))?/);
-      const startPeriod = periodMatch ? Number(periodMatch[1]) : 1;
-      const endPeriod = periodMatch ? Number(periodMatch[2] || periodMatch[1]) : startPeriod;
+    const normalizedCourses = () =>
+      courses.map((course) => {
+        const periodMatch = String(course.periods).match(/(\\d+)(?:-(\\d+))?/);
+        const startPeriod = periodMatch ? Number(periodMatch[1]) : 1;
+        const endPeriod = periodMatch ? Number(periodMatch[2] || periodMatch[1]) : startPeriod;
 
-      return { ...course, startPeriod, endPeriod, weeks: parseWeeks(course.weeks) };
-    });
+        return { ...course, startPeriod, endPeriod, weeks: parseWeeks(course.weeks) };
+      });
 
-    const visibleCourses = (week) =>
-      normalizeCourses
+    const allScheduledCourses = (courseList) =>
+      courseList
+        .flatMap((course) => (course.weeks.length > 0 ? course.weeks : [anchorWeek]).map((week) => ({ ...course, week })))
+        .sort((left, right) => {
+          const weekDiff = left.week - right.week;
+          if (weekDiff !== 0) return weekDiff;
+          const dayDiff = weekdays.indexOf(left.weekday) - weekdays.indexOf(right.weekday);
+          return dayDiff !== 0 ? dayDiff : left.startPeriod - right.startPeriod;
+        });
+
+    const visibleCourses = (courseList, week) =>
+      courseList
         .filter((course) => course.weeks.length === 0 || course.weeks.includes(week))
         .sort((left, right) => {
           const dayDiff = weekdays.indexOf(left.weekday) - weekdays.indexOf(right.weekday);
@@ -73,27 +103,68 @@ export const buildHomePageScript = (params: HomeScriptParams): string => `
     const upcomingCourses = () => {
       const now = new Date();
       const result = [];
+      const courseList = normalizedCourses();
+      const wantedOffsets = new Set([0, 1]);
+      const nowMinutes = now.getHours() * 60 + now.getMinutes();
 
-      for (let offset = 0; offset < 21 && result.length < 2; offset += 1) {
+      for (let offset = 0; offset < 21; offset += 1) {
         const date = new Date(now);
         date.setHours(0, 0, 0, 0);
         date.setDate(date.getDate() + offset);
 
         const week = anchorWeek + Math.floor((date - anchorMonday) / 86400000 / 7);
         const weekday = weekdays[(date.getDay() + 6) % 7];
-        const coursesOfDay = visibleCourses(week)
+        const coursesOfDay = visibleCourses(courseList, week)
           .filter((course) => course.weekday === weekday)
           .filter((course) => offset !== 0 || toMinutes(periodSlots[course.endPeriod]?.end || "23:59") >= now.getHours() * 60 + now.getMinutes());
 
-        for (const course of coursesOfDay) {
-          result.push({
-            ...course,
-            displayDay: offset === 0 ? "今日" : (offset === 1 ? "明日" : shortWeekday(weekday)),
-            displayDate: dateLabel(date)
-          });
+        if (wantedOffsets.has(offset)) {
+          for (const course of coursesOfDay) {
+            const startMinutes = toMinutes(periodSlots[course.startPeriod]?.start || "00:00");
+            const endMinutes = toMinutes(periodSlots[course.endPeriod]?.end || "23:59");
+            const isAlert =
+              offset === 0 &&
+              (
+                (nowMinutes >= startMinutes && nowMinutes <= endMinutes) ||
+                (startMinutes >= nowMinutes && startMinutes - nowMinutes <= 15)
+              );
+            result.push({
+              ...course,
+              displayDay: offset === 0 ? "\\u4eca\\u65e5" : "\\u660e\\u65e5",
+              displayDate: dateLabel(date),
+              isToday: offset === 0,
+              isAlert
+            });
+          }
 
-          if (result.length >= 2) break;
+          if (offset === 1) {
+            break;
+          }
+        } else if (offset > 1 && result.length > 0) {
+          break;
         }
+      }
+
+      if (result.length > 0) {
+        return result;
+      }
+
+      const fallback = allScheduledCourses(courseList).slice(0, 6).map((course) => {
+        const weekOffset = course.week - anchorWeek;
+        const date = new Date(anchorMonday);
+        date.setDate(anchorMonday.getDate() + weekOffset * 7 + weekdays.indexOf(course.weekday));
+
+        return {
+          ...course,
+          displayDay: shortWeekday(course.weekday),
+          displayDate: "\\u7b2c" + course.week + "\\u5468 \\u00b7 " + dateLabel(date),
+          isToday: false,
+          isAlert: false
+        };
+      });
+
+      if (fallback.length > 0) {
+        return fallback;
       }
 
       return result;
@@ -129,7 +200,7 @@ export const buildHomePageScript = (params: HomeScriptParams): string => `
 
     const renderHeader = () => {
       const title = document.getElementById("homeTitle");
-      if (title) title.textContent = weekTitles[currentDayIndex()] + "课表";
+      if (title) title.textContent = weekTitles[currentDayIndex()] + "\\u8bfe\\u8868";
     };
 
     const renderMenu = () => {
@@ -148,6 +219,120 @@ export const buildHomePageScript = (params: HomeScriptParams): string => `
       }).join("");
     };
 
+    const renderGallery = () => {
+      const track = document.getElementById("featureTrack");
+      const caption = document.getElementById("featureCaption");
+      const dots = document.querySelector(".feature-dots");
+      const prev = document.getElementById("featurePrev");
+      const next = document.getElementById("featureNext");
+      if (!(track instanceof HTMLElement) || !(caption instanceof HTMLElement) || !(dots instanceof HTMLElement)) return;
+
+      if (!images.length) {
+        if (prev instanceof HTMLButtonElement) prev.hidden = true;
+        if (next instanceof HTMLButtonElement) next.hidden = true;
+        dots.innerHTML = "";
+        return;
+      }
+
+      state.galleryIndex = ((state.galleryIndex % images.length) + images.length) % images.length;
+      state.galleryLoadedCount = Math.max(state.galleryLoadedCount || 1, state.galleryIndex + 1);
+      track.style.transform = "translateX(-" + state.galleryIndex * 100 + "%)";
+      track.innerHTML = images.map((image, index) =>
+        '<div class="feature-slide" data-gallery-index="' + index + '">' +
+          '<img src="' + (index < state.galleryLoadedCount ? image.src : "") + '" data-src="' + image.src + '" alt="' + escapeHtml(image.caption) + '" loading="lazy" decoding="async" />' +
+        "</div>"
+      ).join("");
+
+      caption.textContent = images[state.galleryIndex].caption;
+      dots.innerHTML = images.map((_, index) =>
+        '<span class="dot' + (index === state.galleryIndex ? " active" : "") + '"></span>'
+      ).join("");
+
+      const multiple = images.length > 1;
+      if (prev instanceof HTMLButtonElement) prev.hidden = !multiple;
+      if (next instanceof HTMLButtonElement) next.hidden = !multiple;
+    };
+
+    const openLightbox = (index) => {
+      const lightbox = document.getElementById("lightbox");
+      const image = document.getElementById("lightboxImage");
+      const caption = document.getElementById("lightboxCaption");
+      const prev = document.getElementById("lightboxPrev");
+      const next = document.getElementById("lightboxNext");
+      if (!(lightbox instanceof HTMLElement) || !(image instanceof HTMLImageElement) || !(caption instanceof HTMLElement)) return;
+      state.galleryIndex = ((index % images.length) + images.length) % images.length;
+      const current = images[state.galleryIndex];
+      if (!current) return;
+      image.src = current.src;
+      image.alt = current.caption;
+      caption.textContent = current.caption;
+      [state.galleryIndex - 1, state.galleryIndex + 1].forEach((neighborIndex) => {
+        const normalizedIndex = ((neighborIndex % images.length) + images.length) % images.length;
+        const preloadImage = new Image();
+        preloadImage.src = images[normalizedIndex].src;
+      });
+      if (prev instanceof HTMLButtonElement) prev.hidden = images.length < 2;
+      if (next instanceof HTMLButtonElement) next.hidden = images.length < 2;
+      state.lightboxOpen = true;
+      state.lightboxScale = 1;
+      state.lightboxPanX = 0;
+      state.lightboxPanY = 0;
+      state.pinchStartDistance = null;
+      state.pinchStartScale = 1;
+      state.dragStartX = null;
+      state.dragStartY = null;
+      state.lightboxSwipeStartX = null;
+      updateLightboxTransform();
+      lightbox.classList.add("show");
+      lightbox.setAttribute("aria-hidden", "false");
+
+      if (!state.lightboxHistoryPushed) {
+        history.pushState({ lightbox: true }, "", location.href);
+        state.lightboxHistoryPushed = true;
+      }
+    };
+
+    const closeLightbox = (fromHistory = false) => {
+      const lightbox = document.getElementById("lightbox");
+      if (!(lightbox instanceof HTMLElement)) return;
+      state.lightboxOpen = false;
+      lightbox.classList.remove("show");
+      lightbox.setAttribute("aria-hidden", "true");
+      state.lightboxScale = 1;
+      state.lightboxPanX = 0;
+      state.lightboxPanY = 0;
+      state.pinchStartDistance = null;
+      state.pinchStartScale = 1;
+      state.dragStartX = null;
+      state.dragStartY = null;
+      state.lightboxSwipeStartX = null;
+      updateLightboxTransform();
+
+      if (state.lightboxHistoryPushed) {
+        state.lightboxHistoryPushed = false;
+        if (!fromHistory && history.length > 1) {
+          history.back();
+        }
+      }
+    };
+
+    const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+    const touchDistance = (first, second) => Math.hypot(second.clientX - first.clientX, second.clientY - first.clientY);
+    const updateLightboxTransform = () => {
+      const image = document.getElementById("lightboxImage");
+      if (!(image instanceof HTMLImageElement)) return;
+      image.style.transform =
+        "translate(" + state.lightboxPanX + "px, " + state.lightboxPanY + "px) scale(" + state.lightboxScale + ")";
+    };
+    const updateLightboxScale = (scale) => {
+      state.lightboxScale = clamp(scale, 1, 4);
+      if (state.lightboxScale <= 1) {
+        state.lightboxPanX = 0;
+        state.lightboxPanY = 0;
+      }
+      updateLightboxTransform();
+    };
+
     const renderHome = () => {
       const list = upcomingCourses();
       const noticeText = document.getElementById("noticeText");
@@ -155,8 +340,8 @@ export const buildHomePageScript = (params: HomeScriptParams): string => `
 
       if (noticeText) {
         noticeText.textContent = list.length > 0
-          ? "服务器出错加载数据失败，请稍后下拉刷新，由于安全限定"
-          : "暂无近期课程记录，可以点击下方按钮查看完整课表";
+          ? "\\u6700\\u8fd1\\u8bfe\\u8868\\u5df2\\u6309\\u672c\\u5730\\u7f13\\u5b58\\u66f4\\u65b0"
+          : "\\u6700\\u8fd1\\u6ca1\\u6709\\u5f85\\u4e0a\\u7684\\u8bfe\\u7a0b\\uff0c\\u53ef\\u4ee5\\u70b9\\u51fb\\u4e0b\\u65b9\\u6309\\u94ae\\u67e5\\u770b\\u5b8c\\u6574\\u8bfe\\u8868";
       }
 
       if (!(recent instanceof HTMLElement)) return;
@@ -164,46 +349,198 @@ export const buildHomePageScript = (params: HomeScriptParams): string => `
       const items = list.length > 0
         ? list
         : [{
-            displayDay: "空",
-            courseName: "最近没有待上的课程",
-            displayDate: "可以点击下方按钮查看完整课表",
-            classroom: "待定",
+            displayDay: "\\u7a7a",
+            courseName: "\\u6700\\u8fd1\\u6ca1\\u6709\\u5f85\\u4e0a\\u7684\\u8bfe\\u7a0b",
+            displayDate: "\\u53ef\\u4ee5\\u70b9\\u51fb\\u4e0b\\u65b9\\u6309\\u94ae\\u67e5\\u770b\\u5b8c\\u6574\\u8bfe\\u8868",
+            classroom: "\\u5f85\\u5b9a",
+            isToday: false,
+            isAlert: false,
             startPeriod: null,
             endPeriod: 1
           }];
 
       recent.innerHTML = items.map((course) => {
         const timeText = typeof course.startPeriod === "number"
-          ? "第" + course.startPeriod + "大节 " + (periodSlots[course.startPeriod]?.start || "") + "-" + (periodSlots[course.endPeriod]?.end || "")
+          ? "\\u7b2c" + course.startPeriod + "\\u5927\\u8282 " + (periodSlots[course.startPeriod]?.start || "") + "-" + (periodSlots[course.endPeriod]?.end || "")
           : course.displayDate;
 
         return (
           '<div class="recent-item">' +
-            '<div class="badge">' + escapeHtml(course.displayDay) + "</div>" +
+            '<div class="' + (course.isAlert ? "badge alert" : (course.isToday ? "badge today" : "badge")) + '">' + escapeHtml(course.displayDay) + "</div>" +
             '<div class="recent-main">' +
               '<div class="recent-title">' + escapeHtml(course.courseName) + "</div>" +
               '<div class="recent-meta">' + escapeHtml(timeText) + "</div>" +
             "</div>" +
-            '<div class="recent-room">' + escapeHtml(course.classroom || "待定") + "</div>" +
+            '<div class="recent-room">' + escapeHtml(course.classroom || "\\u5f85\\u5b9a") + "</div>" +
           "</div>"
         );
       }).join("");
+    };
+
+    window.ClassScheHome = {
+      updateRecentCourses(nextCourses) {
+        try {
+          courses = Array.isArray(nextCourses) ? nextCourses : JSON.parse(String(nextCourses || "[]"));
+          renderHome();
+          return true;
+        } catch (_) {
+          return false;
+        }
+      }
     };
 
     document.addEventListener("click", (event) => {
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
 
+      if (target.closest("#featurePrev")) {
+        state.galleryIndex -= 1;
+        renderGallery();
+        return;
+      }
+
+      if (target.closest("#featureNext")) {
+        state.galleryIndex += 1;
+        renderGallery();
+        return;
+      }
+
+      if (target.closest("#lightboxPrev")) {
+        openLightbox(state.galleryIndex - 1);
+        return;
+      }
+
+      if (target.closest("#lightboxNext")) {
+        openLightbox(state.galleryIndex + 1);
+        return;
+      }
+
+      const featureSlide = target.closest("[data-gallery-index]");
+      if (featureSlide instanceof HTMLElement) {
+        openLightbox(Number(featureSlide.dataset.galleryIndex || "0"));
+        return;
+      }
+
+      if (target.closest("#lightboxClose") || target.id === "lightbox") {
+        closeLightbox();
+        return;
+      }
+
       if (target.closest("[data-menu]")) {
-        showToast("该功能入口已预留，暂未实现");
+        showToast("\\u8be5\\u529f\\u80fd\\u5165\\u53e3\\u5df2\\u9884\\u7559\\uff0c\\u6682\\u672a\\u5b9e\\u73b0");
       }
 
       if (target.closest("[data-action='menu']")) {
-        showToast("更多功能入口已预留，后续可以继续补充");
+        showToast("\\u66f4\\u591a\\u529f\\u80fd\\u5165\\u53e3\\u5df2\\u9884\\u7559\\uff0c\\u540e\\u7eed\\u53ef\\u4ee5\\u7ee7\\u7eed\\u8865\\u5145");
       }
     });
 
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        closeLightbox();
+      }
+    });
+
+    window.addEventListener("popstate", () => {
+      if (state.lightboxOpen) {
+        closeLightbox(true);
+      }
+    });
+
+    const track = document.getElementById("featureTrack");
+    if (track instanceof HTMLElement) {
+      track.addEventListener("touchstart", (event) => {
+        state.touchStartX = event.touches[0]?.clientX ?? null;
+      }, { passive: true });
+
+      track.addEventListener("touchend", (event) => {
+        const endX = event.changedTouches[0]?.clientX ?? null;
+        if (state.touchStartX == null || endX == null) return;
+        const delta = endX - state.touchStartX;
+        state.touchStartX = null;
+        if (Math.abs(delta) < 28 || images.length < 2) return;
+        state.galleryIndex += delta < 0 ? 1 : -1;
+        state.galleryLoadedCount = Math.max(state.galleryLoadedCount || 1, state.galleryIndex + 2);
+        renderGallery();
+      });
+    }
+
+    const lightboxImage = document.getElementById("lightboxImage");
+    if (lightboxImage instanceof HTMLImageElement) {
+      lightboxImage.addEventListener("touchstart", (event) => {
+        if (event.touches.length === 2) {
+          state.pinchStartDistance = touchDistance(event.touches[0], event.touches[1]);
+          state.pinchStartScale = state.lightboxScale;
+          state.dragStartX = null;
+          state.dragStartY = null;
+          return;
+        }
+
+        if (event.touches.length === 1) {
+          const touch = event.touches[0];
+          if (state.lightboxScale > 1) {
+            state.dragStartX = touch.clientX;
+            state.dragStartY = touch.clientY;
+            state.dragOriginX = state.lightboxPanX;
+            state.dragOriginY = state.lightboxPanY;
+          } else {
+            state.lightboxSwipeStartX = touch.clientX;
+          }
+        }
+      }, { passive: true });
+
+      lightboxImage.addEventListener("touchmove", (event) => {
+        if (event.touches.length === 2 && state.pinchStartDistance != null) {
+          event.preventDefault();
+          const distance = touchDistance(event.touches[0], event.touches[1]);
+          if (!distance) return;
+          updateLightboxScale(state.pinchStartScale * (distance / state.pinchStartDistance));
+          return;
+        }
+
+        if (event.touches.length === 1 && state.lightboxScale > 1 && state.dragStartX != null && state.dragStartY != null) {
+          event.preventDefault();
+          const touch = event.touches[0];
+          state.lightboxPanX = state.dragOriginX + (touch.clientX - state.dragStartX);
+          state.lightboxPanY = state.dragOriginY + (touch.clientY - state.dragStartY);
+          updateLightboxTransform();
+        }
+      }, { passive: false });
+
+      lightboxImage.addEventListener("touchend", (event) => {
+        if (event.touches.length < 2) {
+          state.pinchStartDistance = null;
+          state.pinchStartScale = state.lightboxScale;
+        }
+
+        if (event.touches.length === 0) {
+          if (state.lightboxScale <= 1 && state.lightboxSwipeStartX != null && images.length > 1) {
+            const endX = event.changedTouches[0]?.clientX ?? null;
+            if (endX != null) {
+              const delta = endX - state.lightboxSwipeStartX;
+              if (Math.abs(delta) >= 36) {
+                openLightbox(state.galleryIndex + (delta < 0 ? 1 : -1));
+              }
+            }
+          }
+          state.dragStartX = null;
+          state.dragStartY = null;
+          state.lightboxSwipeStartX = null;
+        }
+      });
+
+      lightboxImage.addEventListener("touchcancel", () => {
+        state.pinchStartDistance = null;
+        state.pinchStartScale = state.lightboxScale;
+        state.dragStartX = null;
+        state.dragStartY = null;
+        state.lightboxSwipeStartX = null;
+      });
+    }
+
     renderHeader();
     renderMenu();
+    renderGallery();
     renderHome();
   </script>`;
+

@@ -1,7 +1,7 @@
 import path from "node:path";
-import { access, copyFile, mkdir, readdir, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import {
-  homeImageSourceDir,
+  homeImageArtifactsDir,
   homeViewPath,
   timetableHtmlPath,
   timetableJsonPath,
@@ -30,30 +30,38 @@ const copyIfExists = async (sourcePath: string, targetPath: string): Promise<voi
     return;
   }
 
-  await copyFile(sourcePath, targetPath);
-  logStep(`Copied: ${sourcePath} -> ${targetPath}`);
+  const content = await readFile(sourcePath);
+  await writeFile(targetPath, content);
+
+  const [sourceStat, targetStat] = await Promise.all([stat(sourcePath), stat(targetPath)]);
+  if (sourceStat.size !== targetStat.size) {
+    throw new Error(`Export verification failed for ${path.basename(targetPath)}: ${sourceStat.size} != ${targetStat.size}`);
+  }
+
+  logStep(`Copied: ${sourcePath} -> ${targetPath} (${targetStat.size} bytes)`);
 };
 
 const copyHomeGallery = async (): Promise<void> => {
-  await ensureDir(homeImageSourceDir);
-  const targetDir = path.join(androidAssetsDir, "home-gallery");
+  const targetDir = path.join(androidAssetsDir, "resources");
   await ensureDir(targetDir);
-
-  const entries = await readdir(homeImageSourceDir, { withFileTypes: true });
-  const files = entries.filter((entry) => entry.isFile()).map((entry) => entry.name);
+  const sourceExists = await exists(homeImageArtifactsDir);
   const targetEntries = await readdir(targetDir, { withFileTypes: true });
 
   await Promise.all(
     targetEntries
-      .filter((entry) => entry.isFile() && !files.includes(entry.name))
+      .filter((entry) => entry.isFile())
       .map((entry) => rm(path.join(targetDir, entry.name), { force: true }))
   );
 
-  await Promise.all(
-    files.map((fileName) => copyFile(path.join(homeImageSourceDir, fileName), path.join(targetDir, fileName)))
-  );
+  if (sourceExists) {
+    const sourceEntries = await readdir(homeImageArtifactsDir, { withFileTypes: true });
+    for (const entry of sourceEntries) {
+      if (!entry.isFile()) continue;
+      await copyIfExists(path.join(homeImageArtifactsDir, entry.name), path.join(targetDir, entry.name));
+    }
+  }
 
-  logStep(`Synced home gallery to ${targetDir}`);
+  logStep(`Synced home resource directory: ${targetDir}`);
 };
 
 const writeMetaFile = async (): Promise<void> => {
@@ -64,8 +72,7 @@ const writeMetaFile = async (): Promise<void> => {
       timetableHtml: "timetable.html",
       timetableJson: "timetable.json",
       timetableView: "timetable-view.html",
-      homeView: "home-view.html",
-      homeGallery: "home-gallery/"
+      homeView: "home-view.html"
     }
   };
 
