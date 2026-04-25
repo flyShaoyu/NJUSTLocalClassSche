@@ -4,6 +4,8 @@ import { TimetableCourse } from "./types.js";
 interface HomeImageAsset {
   fileName: string;
   src: string;
+  detailSrc: string;
+  fullSrc: string;
 }
 
 const WEEKDAYS = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"];
@@ -358,13 +360,14 @@ export const renderHomePage = (
     .lightbox img {
       display: block;
       width: auto;
-      max-width: min(96vw, 1600px);
-      max-height: min(82vh, 1600px);
+      max-width: min(92vw, calc(100vw - 24px));
+      max-height: min(78vh, calc(100vh - 96px));
       object-fit: contain;
       background: rgba(255, 255, 255, 0.08);
       transform-origin: center center;
       will-change: transform;
       touch-action: none;
+      image-rendering: auto;
     }
 
     .lightbox-nav {

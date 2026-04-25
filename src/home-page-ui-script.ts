@@ -36,7 +36,12 @@ export const buildHomePageScript = (params: HomeScriptParams): string => `
       dragStartY: null,
       dragOriginX: 0,
       dragOriginY: 0,
-      lightboxSwipeStartX: null
+      lightboxSwipeStartX: null,
+      lightboxBaseScale: 1,
+      lightboxMaxScale: 1,
+      lightboxNaturalWidth: 0,
+      lightboxNaturalHeight: 0,
+      lightboxImageTier: "detail"
     };
     const weekTitles = ["\\u5468\\u4e00", "\\u5468\\u4e8c", "\\u5468\\u4e09", "\\u5468\\u56db", "\\u5468\\u4e94", "\\u5468\\u516d", "\\u5468\\u65e5"];
 
@@ -263,9 +268,23 @@ export const buildHomePageScript = (params: HomeScriptParams): string => `
       state.galleryIndex = ((index % images.length) + images.length) % images.length;
       const current = images[state.galleryIndex];
       if (!current) return;
-      image.src = current.src;
+      state.lightboxBaseScale = 1;
+      state.lightboxMaxScale = 1;
+      state.lightboxNaturalWidth = 0;
+      state.lightboxNaturalHeight = 0;
+      state.lightboxImageTier = "detail";
+      image.style.width = "";
+      image.style.height = "";
+      image.style.transformOrigin = "center center";
+      image.style.transform = "translate(0px, 0px) scale(1)";
+      image.src = current.detailSrc || current.src;
       image.alt = current.caption;
       caption.textContent = current.caption;
+      image.onload = () => fitLightboxImage();
+      if (current.fullSrc && current.fullSrc !== current.detailSrc && current.fullSrc !== current.src) {
+        const fullImage = new Image();
+        fullImage.src = current.fullSrc;
+      }
       [state.galleryIndex - 1, state.galleryIndex + 1].forEach((neighborIndex) => {
         const normalizedIndex = ((neighborIndex % images.length) + images.length) % images.length;
         const preloadImage = new Image();
@@ -285,6 +304,7 @@ export const buildHomePageScript = (params: HomeScriptParams): string => `
       updateLightboxTransform();
       lightbox.classList.add("show");
       lightbox.setAttribute("aria-hidden", "false");
+      fitLightboxImage();
 
       if (!state.lightboxHistoryPushed) {
         history.pushState({ lightbox: true }, "", location.href);
@@ -306,6 +326,13 @@ export const buildHomePageScript = (params: HomeScriptParams): string => `
       state.dragStartX = null;
       state.dragStartY = null;
       state.lightboxSwipeStartX = null;
+      state.lightboxBaseScale = 1;
+      state.lightboxMaxScale = 1;
+      state.lightboxImageTier = "detail";
+      const image = document.getElementById("lightboxImage");
+      if (image instanceof HTMLImageElement) {
+        image.style.transformOrigin = "center center";
+      }
       updateLightboxTransform();
 
       if (state.lightboxHistoryPushed) {
@@ -318,6 +345,58 @@ export const buildHomePageScript = (params: HomeScriptParams): string => `
 
     const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
     const touchDistance = (first, second) => Math.hypot(second.clientX - first.clientX, second.clientY - first.clientY);
+    const fitLightboxImage = () => {
+      const image = document.getElementById("lightboxImage");
+      const stage = document.querySelector(".lightbox-stage");
+      if (!(image instanceof HTMLImageElement) || !(stage instanceof HTMLElement)) return;
+
+      const naturalWidth = image.naturalWidth || state.lightboxNaturalWidth || 0;
+      const naturalHeight = image.naturalHeight || state.lightboxNaturalHeight || 0;
+      if (!naturalWidth || !naturalHeight) return;
+
+      state.lightboxNaturalWidth = naturalWidth;
+      state.lightboxNaturalHeight = naturalHeight;
+
+      const bounds = stage.getBoundingClientRect();
+      const availableWidth = Math.max(1, bounds.width - 24);
+      const availableHeight = Math.max(1, bounds.height - 24);
+      const fitScale = Math.min(availableWidth / naturalWidth, availableHeight / naturalHeight, 1);
+      const fittedWidth = Math.max(1, Math.round(naturalWidth * fitScale));
+      const fittedHeight = Math.max(1, Math.round(naturalHeight * fitScale));
+
+      state.lightboxBaseScale = 1;
+      state.lightboxMaxScale = Math.max(1, 1 / fitScale);
+
+      image.style.width = fittedWidth + "px";
+      image.style.height = fittedHeight + "px";
+      updateLightboxTransform();
+    };
+    const updateLightboxResolution = () => {
+      const image = document.getElementById("lightboxImage");
+      const current = images[state.galleryIndex];
+      if (!(image instanceof HTMLImageElement) || !current) return;
+
+      const targetTier = state.lightboxScale > 1 ? "full" : "detail";
+      if (state.lightboxImageTier === targetTier) return;
+      if (state.lightboxImageTier === "full" && targetTier === "detail") return;
+
+      const nextSrc = targetTier === "full"
+        ? (current.fullSrc || current.detailSrc || current.src)
+        : (current.detailSrc || current.src);
+
+      if (!nextSrc || image.src.endsWith(nextSrc)) {
+        state.lightboxImageTier = targetTier;
+        return;
+      }
+
+      state.lightboxImageTier = targetTier;
+      const nextImage = new Image();
+      nextImage.onload = () => {
+        image.src = nextSrc;
+        fitLightboxImage();
+      };
+      nextImage.src = nextSrc;
+    };
     const updateLightboxTransform = () => {
       const image = document.getElementById("lightboxImage");
       if (!(image instanceof HTMLImageElement)) return;
@@ -325,11 +404,19 @@ export const buildHomePageScript = (params: HomeScriptParams): string => `
         "translate(" + state.lightboxPanX + "px, " + state.lightboxPanY + "px) scale(" + state.lightboxScale + ")";
     };
     const updateLightboxScale = (scale) => {
-      state.lightboxScale = clamp(scale, 1, 4);
+      const previousScale = state.lightboxScale || 1;
+      const nextScale = clamp(scale, 1, state.lightboxMaxScale || 1);
+      const scaleRatio = previousScale > 0 ? nextScale / previousScale : 1;
+      state.lightboxScale = nextScale;
+      if (nextScale > 1 && scaleRatio !== 1) {
+        state.lightboxPanX *= scaleRatio;
+        state.lightboxPanY *= scaleRatio;
+      }
       if (state.lightboxScale <= 1) {
         state.lightboxPanX = 0;
         state.lightboxPanY = 0;
       }
+      updateLightboxResolution();
       updateLightboxTransform();
     };
 
@@ -444,6 +531,12 @@ export const buildHomePageScript = (params: HomeScriptParams): string => `
     window.addEventListener("popstate", () => {
       if (state.lightboxOpen) {
         closeLightbox(true);
+      }
+    });
+
+    window.addEventListener("resize", () => {
+      if (state.lightboxOpen) {
+        fitLightboxImage();
       }
     });
 

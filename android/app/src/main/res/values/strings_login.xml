@@ -33,4 +33,11 @@
     <string name="toolbar_title_home">&#21608;&#19977;&#35838;&#34920;</string>
     <string name="toolbar_title_profile">&#25945;&#21153;&#30331;&#24405;</string>
     <string name="toolbar_title_timetable">&#35838;&#34920;&#26597;&#35810;</string>
+    <string name="home_prev_image">&#19978;&#19968;&#24352;</string>
+    <string name="home_next_image">&#19979;&#19968;&#24352;</string>
+    <string name="home_close_image_viewer">&#20851;&#38381;&#22823;&#22270;</string>
+    <string name="home_recent_title">&#26368;&#36817;&#35838;&#34920;</string>
+    <string name="home_open_full_timetable">&#26597;&#30475;&#23436;&#25972;&#35838;&#34920;</string>
+    <string name="home_recent_updated">&#26368;&#36817;&#35838;&#34920;&#24050;&#25353;&#26412;&#22320;&#32531;&#23384;&#26356;&#26032;</string>
+    <string name="home_recent_empty">&#26368;&#36817;&#27809;&#26377;&#24453;&#19978;&#30340;&#35838;&#31243;&#65292;&#21487;&#20197;&#28857;&#20987;&#19979;&#26041;&#25353;&#38062;&#26597;&#30475;&#23436;&#25972;&#35838;&#34920;</string>
 </resources>

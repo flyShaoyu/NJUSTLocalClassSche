@@ -296,13 +296,14 @@
     .lightbox img {
       display: block;
       width: auto;
-      max-width: min(96vw, 1600px);
-      max-height: min(82vh, 1600px);
+      max-width: min(92vw, calc(100vw - 24px));
+      max-height: min(78vh, calc(100vh - 96px));
       object-fit: contain;
       background: rgba(255, 255, 255, 0.08);
       transform-origin: center center;
       will-change: transform;
       touch-action: none;
+      image-rendering: auto;
     }
 
     .lightbox-nav {
@@ -541,7 +542,7 @@
   
   <script>
     let courses = [{"courseName":"\u6bdb\u6cfd\u4e1c\u601d\u60f3\u548c\u4e2d\u56fd\u7279\u8272\u793e\u4f1a\u4e3b\u4e49\u7406\u8bba\u4f53\u7cfb\u6982\u8bba","weekday":"\u661f\u671f\u4e8c","periods":"01-03\u5c0f\u8282","classroom":"\u2163-A204","weeks":"1-5,7-14(\u5468)","teacher":"\u5218\u627f\u660a","courseCode":"15045305","courseSequence":"19","courseType":"\u5fc5\u4fee","rawText":"\u6bdb\u6cfd\u4e1c\u601d\u60f3\u548c\u4e2d\u56fd\u7279\u8272\u793e\u4f1a\u4e3b\u4e49\u7406\u8bba\u4f53\u7cfb\u6982\u8bba\n\u5218\u627f\u660a\n1-5,7-14(\u5468)\n\u2163-A204"},{"courseName":"\u6bdb\u6cfd\u4e1c\u601d\u60f3\u548c\u4e2d\u56fd\u7279\u8272\u793e\u4f1a\u4e3b\u4e49\u7406\u8bba\u4f53\u7cfb\u6982\u8bba","weekday":"\u661f\u671f\u516d","periods":"01-03\u5c0f\u8282","classroom":"\u2163-A204","weeks":"6(\u5468)","teacher":"\u5218\u627f\u660a","courseCode":"15045305","courseSequence":"19","courseType":"\u5fc5\u4fee","rawText":"\u6bdb\u6cfd\u4e1c\u601d\u60f3\u548c\u4e2d\u56fd\u7279\u8272\u793e\u4f1a\u4e3b\u4e49\u7406\u8bba\u4f53\u7cfb\u6982\u8bba\n\u5218\u627f\u660a\n6(\u5468)\n\u2163-A204"},{"courseName":"\u63a7\u5236\u6982\u8bba","weekday":"\u661f\u671f\u4e09","periods":"01-03\u5c0f\u8282","classroom":"I-301","weeks":"1-3(\u5468)","teacher":"\u8c22\u84c9\u534e","courseCode":"10065103","courseSequence":"0","courseType":"\u5fc5\u4fee","rawText":"\u63a7\u5236\u6982\u8bba\n\u8c22\u84c9\u534e\n1-3(\u5468)\nI-301"},{"courseName":"\u63a7\u5236\u6982\u8bba","weekday":"\u661f\u671f\u4e94","periods":"06-07\u5c0f\u8282","classroom":"I-301","weeks":"1-3(\u5468)","teacher":"\u8c22\u84c9\u534e","courseCode":"10065103","courseSequence":"0","courseType":"\u5fc5\u4fee","rawText":"\u63a7\u5236\u6982\u8bba\n\u8c22\u84c9\u534e\n1-3(\u5468)\nI-301"},{"courseName":"\u79bb\u6563\u6570\u5b66","weekday":"\u661f\u671f\u4e00","periods":"04-05\u5c0f\u8282","classroom":"\u2163-C104","weeks":"1-6(\u5468)","teacher":"\u90ed\u73b2","courseCode":"10062501","courseSequence":"0","courseType":"\u5fc5\u4fee","rawText":"\u79bb\u6563\u6570\u5b66\n\u90ed\u73b2\n1-6(\u5468)\n\u2163-C104"},{"courseName":"\u79bb\u6563\u6570\u5b66","weekday":"\u661f\u671f\u56db","periods":"08-10\u5c0f\u8282","classroom":"\u2163-C104","weeks":"1-6(\u5468)","teacher":"\u90ed\u73b2","courseCode":"10062501","courseSequence":"0","courseType":"\u5fc5\u4fee","rawText":"\u79bb\u6563\u6570\u5b66\n\u90ed\u73b2\n1-6(\u5468)\n\u2163-C104"},{"courseName":"\u6982\u7387\u4e0e\u7edf\u8ba1","weekday":"\u661f\u671f\u4e09","periods":"04-05\u5c0f\u8282","classroom":"\u2163-C103","weeks":"1-12(\u5468)","teacher":"\u6881\u601d\u7389","courseCode":"11022601","courseSequence":"1","courseType":"\u5fc5\u4fee","rawText":"\u6982\u7387\u4e0e\u7edf\u8ba1\n\u6881\u601d\u7389\n1-12(\u5468)\n\u2163-C103"},{"courseName":"\u6982\u7387\u4e0e\u7edf\u8ba1","weekday":"\u661f\u671f\u4e94","periods":"08-09\u5c0f\u8282","classroom":"\u2163-C103","weeks":"1-12(\u5468)","teacher":"\u6881\u601d\u7389","courseCode":"11022601","courseSequence":"1","courseType":"\u5fc5\u4fee","rawText":"\u6982\u7387\u4e0e\u7edf\u8ba1\n\u6881\u601d\u7389\n1-12(\u5468)\n\u2163-C103"},{"courseName":"\u6a21\u62df\u7535\u5b50\u7ebf\u8def","weekday":"\u661f\u671f\u4e00","periods":"08-09\u5c0f\u8282","classroom":"I-106","weeks":"1-14(\u5468)","teacher":"\u4e4c\u5170\u56fe\u96c5","courseCode":"04026804","courseSequence":"8","courseType":"\u5fc5\u4fee","rawText":"\u6a21\u62df\u7535\u5b50\u7ebf\u8def\n\u4e4c\u5170\u56fe\u96c5\n1-14(\u5468)\nI-106"},{"courseName":"\u6a21\u62df\u7535\u5b50\u7ebf\u8def","weekday":"\u661f\u671f\u56db","periods":"04-05\u5c0f\u8282","classroom":"I-106","weeks":"1-14(\u5468)","teacher":"\u4e4c\u5170\u56fe\u96c5","courseCode":"04026804","courseSequence":"8","courseType":"\u5fc5\u4fee","rawText":"\u6a21\u62df\u7535\u5b50\u7ebf\u8def\n\u4e4c\u5170\u56fe\u96c5\n1-14(\u5468)\nI-106"},{"courseName":"\u6570\u5b57\u903b\u8f91\u7535\u8def","weekday":"\u661f\u671f\u4e8c","periods":"08-09\u5c0f\u8282","classroom":"I-105","weeks":"1-12,14-15(\u5468)","teacher":"\u59dc\u840d","courseCode":"04026304","courseSequence":"9","courseType":"\u5fc5\u4fee","rawText":"\u6570\u5b57\u903b\u8f91\u7535\u8def\n\u59dc\u840d\n1-12,14-15(\u5468)\nI-105"},{"courseName":"\u6570\u5b57\u903b\u8f91\u7535\u8def","weekday":"\u661f\u671f\u4e94","periods":"04-05\u5c0f\u8282","classroom":"I-105","weeks":"1-12,14-15(\u5468)","teacher":"\u59dc\u840d","courseCode":"04026304","courseSequence":"9","courseType":"\u5fc5\u4fee","rawText":"\u6570\u5b57\u903b\u8f91\u7535\u8def\n\u59dc\u840d\n1-12,14-15(\u5468)\nI-105"},{"courseName":"\u5f62\u52bf\u4e0e\u653f\u7b56\uff08\u2163\uff09","weekday":"\u661f\u671f\u4e00","periods":"14-14\u5c0f\u8282","classroom":"\u7ebf\u4e0a","weeks":"9-12(\u5468)","teacher":"\u8096\u5170\u5170","courseCode":"36400002","courseSequence":"5","courseType":"\u5fc5\u4fee","rawText":"\u5f62\u52bf\u4e0e\u653f\u7b56\uff08\u2163\uff09\n\u8096\u5170\u5170\n9-12(\u5468)\n\u7ebf\u4e0a"},{"courseName":"\u6570\u636e\u901a\u4fe1\u4e0e\u7f51\u7edc","weekday":"\u661f\u671f\u4e00","periods":"06-07\u5c0f\u8282","classroom":"\u2163-A302","weeks":"4-8(\u5468)","teacher":"\u8d75\u71d5","courseCode":"10031702","courseSequence":"2","courseType":"\u5fc5\u4fee","rawText":"\u6570\u636e\u901a\u4fe1\u4e0e\u7f51\u7edc\n\u8d75\u71d5\n4-8(\u5468)\n\u2163-A302"},{"courseName":"\u6570\u636e\u901a\u4fe1\u4e0e\u7f51\u7edc","weekday":"\u661f\u671f\u4e09","periods":"01-03\u5c0f\u8282","classroom":"\u2163-A302","weeks":"4-8(\u5468)","teacher":"\u8d75\u71d5","courseCode":"10031702","courseSequence":"2","courseType":"\u5fc5\u4fee","rawText":"\u6570\u636e\u901a\u4fe1\u4e0e\u7f51\u7edc\n\u8d75\u71d5\n4-8(\u5468)\n\u2163-A302"},{"courseName":"\u7535\u5b50\u7ebf\u8def\u7efc\u5408\u5b9e\u9a8c","weekday":"\u661f\u671f\u4e00","periods":"04-13\u5c0f\u8282","classroom":"","weeks":"16(\u5468)","teacher":"\u4e01\u6dd1\u8273","courseCode":"04061701","courseSequence":"3","courseType":"\u5fc5\u4fee","rawText":"\u7535\u5b50\u7ebf\u8def\u7efc\u5408\u5b9e\u9a8c\n\u4e01\u6dd1\u8273\n16(\u5468)"},{"courseName":"\u7535\u5b50\u7ebf\u8def\u7efc\u5408\u5b9e\u9a8c","weekday":"\u661f\u671f\u4e8c","periods":"01-13\u5c0f\u8282","classroom":"","weeks":"16(\u5468)","teacher":"\u4e01\u6dd1\u8273","courseCode":"04061701","courseSequence":"3","courseType":"\u5fc5\u4fee","rawText":"\u7535\u5b50\u7ebf\u8def\u7efc\u5408\u5b9e\u9a8c\n\u4e01\u6dd1\u8273\n16(\u5468)"},{"courseName":"\u7535\u5b50\u7ebf\u8def\u7efc\u5408\u5b9e\u9a8c","weekday":"\u661f\u671f\u4e09","periods":"01-13\u5c0f\u8282","classroom":"","weeks":"16(\u5468)","teacher":"\u4e01\u6dd1\u8273","courseCode":"04061701","courseSequence":"3","courseType":"\u5fc5\u4fee","rawText":"\u7535\u5b50\u7ebf\u8def\u7efc\u5408\u5b9e\u9a8c\n\u4e01\u6dd1\u8273\n16(\u5468)"},{"courseName":"\u7535\u5b50\u7ebf\u8def\u7efc\u5408\u5b9e\u9a8c","weekday":"\u661f\u671f\u56db","periods":"01-13\u5c0f\u8282","classroom":"","weeks":"16(\u5468)","teacher":"\u4e01\u6dd1\u8273","courseCode":"04061701","courseSequence":"3","courseType":"\u5fc5\u4fee","rawText":"\u7535\u5b50\u7ebf\u8def\u7efc\u5408\u5b9e\u9a8c\n\u4e01\u6dd1\u8273\n16(\u5468)"},{"courseName":"\u7535\u5b50\u7ebf\u8def\u7efc\u5408\u5b9e\u9a8c","weekday":"\u661f\u671f\u4e94","periods":"01-13\u5c0f\u8282","classroom":"","weeks":"16(\u5468)","teacher":"\u4e01\u6dd1\u8273","courseCode":"04061701","courseSequence":"3","courseType":"\u5fc5\u4fee","rawText":"\u7535\u5b50\u7ebf\u8def\u7efc\u5408\u5b9e\u9a8c\n\u4e01\u6dd1\u8273\n16(\u5468)"},{"courseName":"\u8d70\u8fdb\u4ea4\u54cd\u4e50","weekday":"\u661f\u671f\u516d","periods":"08-10\u5c0f\u8282","classroom":"\u827a\u6587\u9986303","weeks":"1-11(\u5468)","teacher":"\u9a86\u8fbe","courseCode":"00000573","courseSequence":"0","courseType":"\u516c\u9009","rawText":"\u8d70\u8fdb\u4ea4\u54cd\u4e50\n\u9a86\u8fbe\n1-11(\u5468)\n\u827a\u6587\u9986303"},{"courseName":"\u4f53\u80b2\uff08\u2163\uff09","weekday":"\u661f\u671f\u4e00","periods":"02-03\u5c0f\u8282","classroom":"\u4e8c\u8fd0\u7bee\u7403\u573a","weeks":"1-16(\u5468)","teacher":"\u9ad8\u58eb\u535a","courseCode":"21420102","courseSequence":"1127","courseType":"\u5fc5\u4fee","rawText":"\u4f53\u80b2\uff08\u2163\uff09\n\u7bee\u7403\n\u9ad8\u58eb\u535a\n1-16(\u5468)\n\u4e8c\u8fd0\u7bee\u7403\u573a"},{"courseName":"\u6539\u9769\u5f00\u653e\u53f2","weekday":"\u661f\u671f\u56db","periods":"14-14\u5c0f\u8282","classroom":"","weeks":"6(\u5468)","teacher":"\u8bfe\u7a0b\u4e2d\u5fc3","courseCode":"00W00154","courseSequence":"0","courseType":"\u516c\u9009","rawText":"\u6539\u9769\u5f00\u653e\u53f2\n\u8bfe\u7a0b\u4e2d\u5fc3\n6(\u5468)"}];
-    const images = [{"fileName":"\u6821\u5386.jpg","src":"./resources/image-001.jpg","caption":"\u6821\u5386"},{"fileName":"\u6821\u56ed\u5730\u56fe\uff1a\u5357\u4eac1.jpg","src":"./resources/image-002.jpg","caption":"\u6821\u56ed\u5730\u56fe\uff1a\u5357\u4eac1"},{"fileName":"\u6821\u56ed\u5730\u56fe\uff1a\u5357\u4eac2.jpg","src":"./resources/image-003.jpg","caption":"\u6821\u56ed\u5730\u56fe\uff1a\u5357\u4eac2"},{"fileName":"\u6821\u56ed\u5730\u56fe\uff1a\u6c5f\u9634.jpg","src":"./resources/image-004.jpg","caption":"\u6821\u56ed\u5730\u56fe\uff1a\u6c5f\u9634"}];
+    const images = [{"fileName":"\u6821\u5386.jpg","src":"./resources/image-001-thumb.jpg","detailSrc":"./resources/image-001-detail.jpg","fullSrc":"./resources/image-001.jpg","caption":"\u6821\u5386"},{"fileName":"\u6821\u56ed\u5730\u56fe\uff1a\u5357\u4eac1.jpg","src":"./resources/image-002-thumb.jpg","detailSrc":"./resources/image-002-detail.jpg","fullSrc":"./resources/image-002.jpg","caption":"\u6821\u56ed\u5730\u56fe\uff1a\u5357\u4eac1"},{"fileName":"\u6821\u56ed\u5730\u56fe\uff1a\u5357\u4eac2.jpg","src":"./resources/image-003-thumb.jpg","detailSrc":"./resources/image-003-detail.jpg","fullSrc":"./resources/image-003.jpg","caption":"\u6821\u56ed\u5730\u56fe\uff1a\u5357\u4eac2"},{"fileName":"\u6821\u56ed\u5730\u56fe\uff1a\u6c5f\u9634.jpg","src":"./resources/image-004-thumb.jpg","detailSrc":"./resources/image-004-detail.jpg","fullSrc":"./resources/image-004.jpg","caption":"\u6821\u56ed\u5730\u56fe\uff1a\u6c5f\u9634"}];
     const weekdays = ["\u661f\u671f\u4e00","\u661f\u671f\u4e8c","\u661f\u671f\u4e09","\u661f\u671f\u56db","\u661f\u671f\u4e94","\u661f\u671f\u516d","\u661f\u671f\u65e5"];
     const periodSlots = {"1":{"start":"08:00","end":"08:45"},"2":{"start":"08:50","end":"09:35"},"3":{"start":"09:40","end":"10:25"},"4":{"start":"10:40","end":"11:25"},"5":{"start":"11:30","end":"12:15"},"6":{"start":"14:00","end":"14:45"},"7":{"start":"14:50","end":"15:35"},"8":{"start":"15:50","end":"16:35"},"9":{"start":"16:40","end":"17:25"},"10":{"start":"17:30","end":"18:15"},"11":{"start":"19:00","end":"19:45"},"12":{"start":"19:50","end":"20:35"},"13":{"start":"20:40","end":"21:25"},"14":{"start":"12:15","end":"14:00"}};
     const menuItems = [{"key":"exam","label":"\u8003\u8bd5\u5b89\u6392","enabled":false},{"key":"score","label":"\u6210\u7ee9\u67e5\u8be2","enabled":false},{"key":"level","label":"\u7b49\u7ea7\u8003\u8bd5","enabled":false},{"key":"add","label":"\u6dfb\u52a0\u8bfe\u8868","enabled":false},{"key":"schedule","label":"\u8bfe\u8868\u67e5\u8be2","enabled":true},{"key":"room","label":"\u7a7a\u95f2\u6559\u5ba4","enabled":false},{"key":"site","label":"\u5e38\u7528\u7f51\u7ad9","enabled":false},{"key":"refresh","label":"\u66f4\u65b0\u8bfe\u8868","enabled":false},{"key":"library","label":"\u56fe\u4e66\u641c\u7d22","enabled":false},{"key":"borrow","label":"\u501f\u9605\u4fe1\u606f","enabled":false}];
@@ -565,7 +566,12 @@
       dragStartY: null,
       dragOriginX: 0,
       dragOriginY: 0,
-      lightboxSwipeStartX: null
+      lightboxSwipeStartX: null,
+      lightboxBaseScale: 1,
+      lightboxMaxScale: 1,
+      lightboxNaturalWidth: 0,
+      lightboxNaturalHeight: 0,
+      lightboxImageTier: "detail"
     };
     const weekTitles = ["\u5468\u4e00", "\u5468\u4e8c", "\u5468\u4e09", "\u5468\u56db", "\u5468\u4e94", "\u5468\u516d", "\u5468\u65e5"];
 
@@ -792,9 +798,23 @@
       state.galleryIndex = ((index % images.length) + images.length) % images.length;
       const current = images[state.galleryIndex];
       if (!current) return;
-      image.src = current.src;
+      state.lightboxBaseScale = 1;
+      state.lightboxMaxScale = 1;
+      state.lightboxNaturalWidth = 0;
+      state.lightboxNaturalHeight = 0;
+      state.lightboxImageTier = "detail";
+      image.style.width = "";
+      image.style.height = "";
+      image.style.transformOrigin = "center center";
+      image.style.transform = "translate(0px, 0px) scale(1)";
+      image.src = current.detailSrc || current.src;
       image.alt = current.caption;
       caption.textContent = current.caption;
+      image.onload = () => fitLightboxImage();
+      if (current.fullSrc && current.fullSrc !== current.detailSrc && current.fullSrc !== current.src) {
+        const fullImage = new Image();
+        fullImage.src = current.fullSrc;
+      }
       [state.galleryIndex - 1, state.galleryIndex + 1].forEach((neighborIndex) => {
         const normalizedIndex = ((neighborIndex % images.length) + images.length) % images.length;
         const preloadImage = new Image();
@@ -814,6 +834,7 @@
       updateLightboxTransform();
       lightbox.classList.add("show");
       lightbox.setAttribute("aria-hidden", "false");
+      fitLightboxImage();
 
       if (!state.lightboxHistoryPushed) {
         history.pushState({ lightbox: true }, "", location.href);
@@ -835,6 +856,13 @@
       state.dragStartX = null;
       state.dragStartY = null;
       state.lightboxSwipeStartX = null;
+      state.lightboxBaseScale = 1;
+      state.lightboxMaxScale = 1;
+      state.lightboxImageTier = "detail";
+      const image = document.getElementById("lightboxImage");
+      if (image instanceof HTMLImageElement) {
+        image.style.transformOrigin = "center center";
+      }
       updateLightboxTransform();
 
       if (state.lightboxHistoryPushed) {
@@ -847,6 +875,58 @@
 
     const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
     const touchDistance = (first, second) => Math.hypot(second.clientX - first.clientX, second.clientY - first.clientY);
+    const fitLightboxImage = () => {
+      const image = document.getElementById("lightboxImage");
+      const stage = document.querySelector(".lightbox-stage");
+      if (!(image instanceof HTMLImageElement) || !(stage instanceof HTMLElement)) return;
+
+      const naturalWidth = image.naturalWidth || state.lightboxNaturalWidth || 0;
+      const naturalHeight = image.naturalHeight || state.lightboxNaturalHeight || 0;
+      if (!naturalWidth || !naturalHeight) return;
+
+      state.lightboxNaturalWidth = naturalWidth;
+      state.lightboxNaturalHeight = naturalHeight;
+
+      const bounds = stage.getBoundingClientRect();
+      const availableWidth = Math.max(1, bounds.width - 24);
+      const availableHeight = Math.max(1, bounds.height - 24);
+      const fitScale = Math.min(availableWidth / naturalWidth, availableHeight / naturalHeight, 1);
+      const fittedWidth = Math.max(1, Math.round(naturalWidth * fitScale));
+      const fittedHeight = Math.max(1, Math.round(naturalHeight * fitScale));
+
+      state.lightboxBaseScale = 1;
+      state.lightboxMaxScale = Math.max(1, 1 / fitScale);
+
+      image.style.width = fittedWidth + "px";
+      image.style.height = fittedHeight + "px";
+      updateLightboxTransform();
+    };
+    const updateLightboxResolution = () => {
+      const image = document.getElementById("lightboxImage");
+      const current = images[state.galleryIndex];
+      if (!(image instanceof HTMLImageElement) || !current) return;
+
+      const targetTier = state.lightboxScale > 1 ? "full" : "detail";
+      if (state.lightboxImageTier === targetTier) return;
+      if (state.lightboxImageTier === "full" && targetTier === "detail") return;
+
+      const nextSrc = targetTier === "full"
+        ? (current.fullSrc || current.detailSrc || current.src)
+        : (current.detailSrc || current.src);
+
+      if (!nextSrc || image.src.endsWith(nextSrc)) {
+        state.lightboxImageTier = targetTier;
+        return;
+      }
+
+      state.lightboxImageTier = targetTier;
+      const nextImage = new Image();
+      nextImage.onload = () => {
+        image.src = nextSrc;
+        fitLightboxImage();
+      };
+      nextImage.src = nextSrc;
+    };
     const updateLightboxTransform = () => {
       const image = document.getElementById("lightboxImage");
       if (!(image instanceof HTMLImageElement)) return;
@@ -854,11 +934,19 @@
         "translate(" + state.lightboxPanX + "px, " + state.lightboxPanY + "px) scale(" + state.lightboxScale + ")";
     };
     const updateLightboxScale = (scale) => {
-      state.lightboxScale = clamp(scale, 1, 4);
+      const previousScale = state.lightboxScale || 1;
+      const nextScale = clamp(scale, 1, state.lightboxMaxScale || 1);
+      const scaleRatio = previousScale > 0 ? nextScale / previousScale : 1;
+      state.lightboxScale = nextScale;
+      if (nextScale > 1 && scaleRatio !== 1) {
+        state.lightboxPanX *= scaleRatio;
+        state.lightboxPanY *= scaleRatio;
+      }
       if (state.lightboxScale <= 1) {
         state.lightboxPanX = 0;
         state.lightboxPanY = 0;
       }
+      updateLightboxResolution();
       updateLightboxTransform();
     };
 
@@ -973,6 +1061,12 @@
     window.addEventListener("popstate", () => {
       if (state.lightboxOpen) {
         closeLightbox(true);
+      }
+    });
+
+    window.addEventListener("resize", () => {
+      if (state.lightboxOpen) {
+        fitLightboxImage();
       }
     });
 
