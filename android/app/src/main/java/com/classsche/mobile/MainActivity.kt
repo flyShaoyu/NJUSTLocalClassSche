@@ -231,9 +231,11 @@ class MainActivity : AppCompatActivity() {
     setupContentWebView()
     setupActions()
     restoreSavedCredentials()
-    syncAssetExportId()
 
     showHomePage()
+    binding.root.post {
+      refreshGeneratedCacheAfterStartup()
+    }
   }
 
   override fun onDestroy() {
@@ -849,6 +851,20 @@ class MainActivity : AppCompatActivity() {
       fallbackBaseUrl = "https://classsche.local/fallback/",
       fallbackHtml = TimetableRenderer.emptyHtml(this)
     )
+  }
+
+  private fun refreshGeneratedCacheAfterStartup() {
+    syncAssetExportId()
+    renderedHomeSignature = null
+
+    if (currentWebScreen == WebScreen.HOME) {
+      presentHomePage()
+      return
+    }
+
+    if (currentWebScreen == WebScreen.TIMETABLE && !showingLiveTimetable) {
+      showCachedTimetableOrEmpty()
+    }
   }
 
   private fun showEmptyTimetablePage() {
@@ -1471,7 +1487,21 @@ class MainActivity : AppCompatActivity() {
   @Synchronized
   private fun loadHomeBitmap(assetPath: String): Bitmap? {
     homeBitmapCache.get(assetPath)?.let { return it }
-    val bitmap = assets.open(assetPath).use { BitmapFactory.decodeStream(it) } ?: return null
+    val candidatePaths = linkedSetOf(assetPath).apply {
+      if (assetPath.contains("-thumb.")) {
+        add(assetPath.replace("-thumb.", "-detail."))
+        add(assetPath.replace("-thumb.", "."))
+      } else if (assetPath.contains("-detail.")) {
+        add(assetPath.replace("-detail.", "."))
+      }
+    }
+
+    val bitmap = candidatePaths.firstNotNullOfOrNull { candidatePath ->
+      runCatching {
+        assets.open(candidatePath).use { BitmapFactory.decodeStream(it) }
+      }.getOrNull()
+    } ?: return null
+
     homeBitmapCache.put(assetPath, bitmap)
     return bitmap
   }
@@ -1944,10 +1974,21 @@ class MainActivity : AppCompatActivity() {
   private fun syncAssetExportId() {
     val currentExportId = readAssetExportId() ?: return
     currentAssetExportId = currentExportId
-    val previousExportId = prefs.getString(PREF_ASSET_EXPORT_ID, null)
-
-    if (previousExportId != null && previousExportId != currentExportId) {
+    val courses = loadCoursesFromCacheJson()
+    if (courses.isNotEmpty()) {
+      runCatching {
+        File(filesDir, GENERATED_HOME_HTML_FILE).writeText(
+          TimetableRenderer.toHomeHtml(this, courses),
+          Charsets.UTF_8
+        )
+        File(filesDir, GENERATED_CACHE_HTML_FILE).writeText(
+          TimetableRenderer.toHtml(this, courses),
+          Charsets.UTF_8
+        )
+      }
+    } else {
       File(filesDir, GENERATED_HOME_HTML_FILE).delete()
+      File(filesDir, GENERATED_CACHE_HTML_FILE).delete()
     }
 
     prefs.edit()

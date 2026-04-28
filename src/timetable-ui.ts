@@ -99,6 +99,7 @@ export const renderTimetablePage = (courses: TimetableCourse[]): string => {
       --row-height: clamp(var(--row-min-height), 5.2vh, 68px);
       --cell-gap: 2px;
       --footer-height: 64px;
+      --sheet-bottom-gap: 18px;
       --font-cn: "STKaiti", "KaiTi", "Noto Serif SC", serif;
       --font-ui: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
     }
@@ -207,7 +208,7 @@ export const renderTimetablePage = (courses: TimetableCourse[]): string => {
 
     .header-row {
       position: relative;
-      z-index: 1;
+      z-index: 0;
       display: grid;
       grid-template-columns: var(--axis-width) repeat(7, minmax(0, 1fr));
       background: rgba(255,255,255,0.76);
@@ -246,14 +247,15 @@ export const renderTimetablePage = (courses: TimetableCourse[]): string => {
 
     .grid-scroll {
       position: relative;
-      z-index: 1;
+      z-index: 2;
       min-height: 0;
-      overflow: hidden;
+      overflow: visible;
       background: #ffffff;
     }
 
     .schedule {
       position: relative;
+      z-index: 4;
       width: 100%;
       display: grid;
       grid-template-columns: var(--axis-width) repeat(7, minmax(0, 1fr));
@@ -262,6 +264,7 @@ export const renderTimetablePage = (courses: TimetableCourse[]): string => {
       row-gap: var(--cell-gap);
       padding: 0 var(--cell-gap) 0 0;
       background: #ffffff;
+      overflow: visible;
     }
 
     .axis-cell,
@@ -311,16 +314,22 @@ export const renderTimetablePage = (courses: TimetableCourse[]): string => {
       overflow: hidden;
       cursor: pointer;
       transition: transform 120ms ease, box-shadow 120ms ease;
+      -webkit-tap-highlight-color: transparent;
     }
 
     .course-card:active {
-      transform: scale(0.985);
-      box-shadow: 0 6px 12px rgba(77, 102, 144, 0.18);
+      transform: none;
+      box-shadow: 0 6px 14px rgba(77, 102, 144, 0.14);
+      filter: none;
     }
 
     .course-card.active {
       transform: translateY(-2px) scale(1.01);
       box-shadow: 0 16px 28px rgba(64, 92, 138, 0.28);
+    }
+
+    .course-card.stacked {
+      box-shadow: 0 7px 16px rgba(64, 92, 138, 0.2);
     }
 
     .course-top,
@@ -502,6 +511,10 @@ export const renderTimetablePage = (courses: TimetableCourse[]): string => {
       justify-self: start;
     }
 
+    .footer-side:last-child {
+      justify-self: end;
+    }
+
     .footer-center {
       display: flex;
       align-items: center;
@@ -509,9 +522,31 @@ export const renderTimetablePage = (courses: TimetableCourse[]): string => {
       justify-self: center;
     }
 
+    .footer-center[hidden] {
+      display: none;
+    }
+
     .footer-center .icon-button,
     .footer-center .toolbar-button {
       color: #ffffff;
+    }
+
+    .footer-mode-toggle {
+      min-width: 40px;
+      height: 30px;
+      border: 0;
+      border-radius: 999px;
+      padding: 0 12px;
+      background: rgba(255,255,255,0.18);
+      color: white;
+      font-family: var(--font-cn);
+      font-size: clamp(13px, 3.2vw, 15px);
+      line-height: 1;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.18);
     }
 
     .sheet-overlay {
@@ -549,7 +584,9 @@ export const renderTimetablePage = (courses: TimetableCourse[]): string => {
       left: 0;
       right: 0;
       bottom: 0;
-      min-height: 26vh;
+      display: grid;
+      grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+      min-height: max(26vh, 290px);
       max-height: 42vh;
       padding: 10px 0 calc(16px + env(safe-area-inset-bottom));
       color: white;
@@ -601,6 +638,45 @@ export const renderTimetablePage = (courses: TimetableCourse[]): string => {
       position: relative;
       padding: 8px 22px 0;
       min-height: 150px;
+      overflow: hidden;
+    }
+
+    .sheet-dots {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      position: relative;
+      z-index: 2;
+      flex-shrink: 0;
+      padding: 10px 18px calc(var(--sheet-bottom-gap) + env(safe-area-inset-bottom));
+      min-height: calc(28px + var(--sheet-bottom-gap) + env(safe-area-inset-bottom));
+    }
+
+    .sheet-dots[hidden] {
+      display: none;
+    }
+
+    .sheet-dot {
+      width: 8px;
+      height: 8px;
+      padding: 0;
+      border: 0;
+      outline: 0;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.36);
+      transition: transform 140ms ease, background-color 140ms ease, opacity 140ms ease;
+      opacity: 0.9;
+      cursor: pointer;
+      appearance: none;
+      -webkit-appearance: none;
+      box-shadow: none;
+    }
+
+    .sheet-dot.active {
+      background: rgba(255,255,255,0.98);
+      transform: scale(1.15);
+      opacity: 1;
     }
 
     .sheet-watermark {
@@ -790,7 +866,9 @@ export const renderTimetablePage = (courses: TimetableCourse[]): string => {
       <span id="weekLabel">第${initialWeek}周</span>
       <button id="nextWeek" class="icon-button toolbar-button" type="button" aria-label="下一周">›</button>
     </div>
-    <div class="footer-side"></div>
+    <div class="footer-side">
+      <button id="modeToggle" class="footer-mode-toggle" type="button" aria-label="切换课表模式">周</button>
+    </div>
   </footer>
 
   <div id="sheetOverlay" class="sheet-overlay"></div>
@@ -815,6 +893,7 @@ export const renderTimetablePage = (courses: TimetableCourse[]): string => {
         <div class="sheet-row"><span id="sheetCode" class="sheet-main">-</span><span class="sheet-note">（课程序号）</span></div>
       </div>
     </div>
+    <div id="sheetDots" class="sheet-dots" hidden></div>
   </section>
 
     ${buildTimetablePageScript({

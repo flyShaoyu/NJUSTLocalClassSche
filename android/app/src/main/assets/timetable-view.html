@@ -17,6 +17,7 @@
       --row-height: clamp(var(--row-min-height), 5.2vh, 68px);
       --cell-gap: 2px;
       --footer-height: 64px;
+      --sheet-bottom-gap: 18px;
       --font-cn: "STKaiti", "KaiTi", "Noto Serif SC", serif;
       --font-ui: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
     }
@@ -125,7 +126,7 @@
 
     .header-row {
       position: relative;
-      z-index: 1;
+      z-index: 0;
       display: grid;
       grid-template-columns: var(--axis-width) repeat(7, minmax(0, 1fr));
       background: rgba(255,255,255,0.76);
@@ -164,14 +165,15 @@
 
     .grid-scroll {
       position: relative;
-      z-index: 1;
+      z-index: 2;
       min-height: 0;
-      overflow: hidden;
+      overflow: visible;
       background: #ffffff;
     }
 
     .schedule {
       position: relative;
+      z-index: 4;
       width: 100%;
       display: grid;
       grid-template-columns: var(--axis-width) repeat(7, minmax(0, 1fr));
@@ -180,6 +182,7 @@
       row-gap: var(--cell-gap);
       padding: 0 var(--cell-gap) 0 0;
       background: #ffffff;
+      overflow: visible;
     }
 
     .axis-cell,
@@ -229,16 +232,22 @@
       overflow: hidden;
       cursor: pointer;
       transition: transform 120ms ease, box-shadow 120ms ease;
+      -webkit-tap-highlight-color: transparent;
     }
 
     .course-card:active {
-      transform: scale(0.985);
-      box-shadow: 0 6px 12px rgba(77, 102, 144, 0.18);
+      transform: none;
+      box-shadow: 0 6px 14px rgba(77, 102, 144, 0.14);
+      filter: none;
     }
 
     .course-card.active {
       transform: translateY(-2px) scale(1.01);
       box-shadow: 0 16px 28px rgba(64, 92, 138, 0.28);
+    }
+
+    .course-card.stacked {
+      box-shadow: 0 7px 16px rgba(64, 92, 138, 0.2);
     }
 
     .course-top,
@@ -420,6 +429,10 @@
       justify-self: start;
     }
 
+    .footer-side:last-child {
+      justify-self: end;
+    }
+
     .footer-center {
       display: flex;
       align-items: center;
@@ -427,9 +440,31 @@
       justify-self: center;
     }
 
+    .footer-center[hidden] {
+      display: none;
+    }
+
     .footer-center .icon-button,
     .footer-center .toolbar-button {
       color: #ffffff;
+    }
+
+    .footer-mode-toggle {
+      min-width: 40px;
+      height: 30px;
+      border: 0;
+      border-radius: 999px;
+      padding: 0 12px;
+      background: rgba(255,255,255,0.18);
+      color: white;
+      font-family: var(--font-cn);
+      font-size: clamp(13px, 3.2vw, 15px);
+      line-height: 1;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.18);
     }
 
     .sheet-overlay {
@@ -467,7 +502,9 @@
       left: 0;
       right: 0;
       bottom: 0;
-      min-height: 26vh;
+      display: grid;
+      grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+      min-height: max(26vh, 290px);
       max-height: 42vh;
       padding: 10px 0 calc(16px + env(safe-area-inset-bottom));
       color: white;
@@ -519,6 +556,45 @@
       position: relative;
       padding: 8px 22px 0;
       min-height: 150px;
+      overflow: hidden;
+    }
+
+    .sheet-dots {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      position: relative;
+      z-index: 2;
+      flex-shrink: 0;
+      padding: 10px 18px calc(var(--sheet-bottom-gap) + env(safe-area-inset-bottom));
+      min-height: calc(28px + var(--sheet-bottom-gap) + env(safe-area-inset-bottom));
+    }
+
+    .sheet-dots[hidden] {
+      display: none;
+    }
+
+    .sheet-dot {
+      width: 8px;
+      height: 8px;
+      padding: 0;
+      border: 0;
+      outline: 0;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.36);
+      transition: transform 140ms ease, background-color 140ms ease, opacity 140ms ease;
+      opacity: 0.9;
+      cursor: pointer;
+      appearance: none;
+      -webkit-appearance: none;
+      box-shadow: none;
+    }
+
+    .sheet-dot.active {
+      background: rgba(255,255,255,0.98);
+      transform: scale(1.15);
+      opacity: 1;
     }
 
     .sheet-watermark {
@@ -708,7 +784,9 @@
       <span id="weekLabel">第6周</span>
       <button id="nextWeek" class="icon-button toolbar-button" type="button" aria-label="下一周">›</button>
     </div>
-    <div class="footer-side"></div>
+    <div class="footer-side">
+      <button id="modeToggle" class="footer-mode-toggle" type="button" aria-label="切换课表模式">周</button>
+    </div>
   </footer>
 
   <div id="sheetOverlay" class="sheet-overlay"></div>
@@ -733,22 +811,24 @@
         <div class="sheet-row"><span id="sheetCode" class="sheet-main">-</span><span class="sheet-note">（课程序号）</span></div>
       </div>
     </div>
+    <div id="sheetDots" class="sheet-dots" hidden></div>
   </section>
 
     
   <script>
-const courses = [{"courseName":"毛泽东思想和中国特色社会主义理论体系概论","weekday":"星期二","periods":"01-03小节","classroom":"Ⅳ-A204","weeks":"1-5,7-14(周)","teacher":"刘承昊","courseCode":"15045305","courseSequence":"19","courseType":"必修","rawText":"毛泽东思想和中国特色社会主义理论体系概论\n刘承昊\n1-5,7-14(周)\nⅣ-A204"},{"courseName":"毛泽东思想和中国特色社会主义理论体系概论","weekday":"星期六","periods":"01-03小节","classroom":"Ⅳ-A204","weeks":"6(周)","teacher":"刘承昊","courseCode":"15045305","courseSequence":"19","courseType":"必修","rawText":"毛泽东思想和中国特色社会主义理论体系概论\n刘承昊\n6(周)\nⅣ-A204"},{"courseName":"控制概论","weekday":"星期三","periods":"01-03小节","classroom":"I-301","weeks":"1-3(周)","teacher":"谢蓉华","courseCode":"10065103","courseSequence":"0","courseType":"必修","rawText":"控制概论\n谢蓉华\n1-3(周)\nI-301"},{"courseName":"控制概论","weekday":"星期五","periods":"06-07小节","classroom":"I-301","weeks":"1-3(周)","teacher":"谢蓉华","courseCode":"10065103","courseSequence":"0","courseType":"必修","rawText":"控制概论\n谢蓉华\n1-3(周)\nI-301"},{"courseName":"离散数学","weekday":"星期一","periods":"04-05小节","classroom":"Ⅳ-C104","weeks":"1-6(周)","teacher":"郭玲","courseCode":"10062501","courseSequence":"0","courseType":"必修","rawText":"离散数学\n郭玲\n1-6(周)\nⅣ-C104"},{"courseName":"离散数学","weekday":"星期四","periods":"08-10小节","classroom":"Ⅳ-C104","weeks":"1-6(周)","teacher":"郭玲","courseCode":"10062501","courseSequence":"0","courseType":"必修","rawText":"离散数学\n郭玲\n1-6(周)\nⅣ-C104"},{"courseName":"概率与统计","weekday":"星期三","periods":"04-05小节","classroom":"Ⅳ-C103","weeks":"1-12(周)","teacher":"梁思玉","courseCode":"11022601","courseSequence":"1","courseType":"必修","rawText":"概率与统计\n梁思玉\n1-12(周)\nⅣ-C103"},{"courseName":"概率与统计","weekday":"星期五","periods":"08-09小节","classroom":"Ⅳ-C103","weeks":"1-12(周)","teacher":"梁思玉","courseCode":"11022601","courseSequence":"1","courseType":"必修","rawText":"概率与统计\n梁思玉\n1-12(周)\nⅣ-C103"},{"courseName":"模拟电子线路","weekday":"星期一","periods":"08-09小节","classroom":"I-106","weeks":"1-14(周)","teacher":"乌兰图雅","courseCode":"04026804","courseSequence":"8","courseType":"必修","rawText":"模拟电子线路\n乌兰图雅\n1-14(周)\nI-106"},{"courseName":"模拟电子线路","weekday":"星期四","periods":"04-05小节","classroom":"I-106","weeks":"1-14(周)","teacher":"乌兰图雅","courseCode":"04026804","courseSequence":"8","courseType":"必修","rawText":"模拟电子线路\n乌兰图雅\n1-14(周)\nI-106"},{"courseName":"数字逻辑电路","weekday":"星期二","periods":"08-09小节","classroom":"I-105","weeks":"1-12,14-15(周)","teacher":"姜萍","courseCode":"04026304","courseSequence":"9","courseType":"必修","rawText":"数字逻辑电路\n姜萍\n1-12,14-15(周)\nI-105"},{"courseName":"数字逻辑电路","weekday":"星期五","periods":"04-05小节","classroom":"I-105","weeks":"1-12,14-15(周)","teacher":"姜萍","courseCode":"04026304","courseSequence":"9","courseType":"必修","rawText":"数字逻辑电路\n姜萍\n1-12,14-15(周)\nI-105"},{"courseName":"形势与政策（Ⅳ）","weekday":"星期一","periods":"14-14小节","classroom":"线上","weeks":"9-12(周)","teacher":"肖兰兰","courseCode":"36400002","courseSequence":"5","courseType":"必修","rawText":"形势与政策（Ⅳ）\n肖兰兰\n9-12(周)\n线上"},{"courseName":"数据通信与网络","weekday":"星期一","periods":"06-07小节","classroom":"Ⅳ-A302","weeks":"4-8(周)","teacher":"赵燕","courseCode":"10031702","courseSequence":"2","courseType":"必修","rawText":"数据通信与网络\n赵燕\n4-8(周)\nⅣ-A302"},{"courseName":"数据通信与网络","weekday":"星期三","periods":"01-03小节","classroom":"Ⅳ-A302","weeks":"4-7(周)","teacher":"赵燕","courseCode":"10031702","courseSequence":"2","courseType":"必修","rawText":"数据通信与网络\n赵燕\n4-7(周)\nⅣ-A302"},{"courseName":"数据通信与网络","weekday":"星期五","periods":"11-13小节","classroom":"Ⅳ-A102","weeks":"8(周)","teacher":"赵燕","courseCode":"10031702","courseSequence":"2","courseType":"必修","rawText":"数据通信与网络\n赵燕\n8(周)\nⅣ-A102"},{"courseName":"电子线路综合实验","weekday":"星期一","periods":"04-13小节","classroom":"","weeks":"16(周)","teacher":"丁淑艳","courseCode":"04061701","courseSequence":"3","courseType":"必修","rawText":"电子线路综合实验\n丁淑艳\n16(周)"},{"courseName":"电子线路综合实验","weekday":"星期二","periods":"01-13小节","classroom":"","weeks":"16(周)","teacher":"丁淑艳","courseCode":"04061701","courseSequence":"3","courseType":"必修","rawText":"电子线路综合实验\n丁淑艳\n16(周)"},{"courseName":"电子线路综合实验","weekday":"星期三","periods":"01-13小节","classroom":"","weeks":"16(周)","teacher":"丁淑艳","courseCode":"04061701","courseSequence":"3","courseType":"必修","rawText":"电子线路综合实验\n丁淑艳\n16(周)"},{"courseName":"电子线路综合实验","weekday":"星期四","periods":"01-13小节","classroom":"","weeks":"16(周)","teacher":"丁淑艳","courseCode":"04061701","courseSequence":"3","courseType":"必修","rawText":"电子线路综合实验\n丁淑艳\n16(周)"},{"courseName":"电子线路综合实验","weekday":"星期五","periods":"01-13小节","classroom":"","weeks":"16(周)","teacher":"丁淑艳","courseCode":"04061701","courseSequence":"3","courseType":"必修","rawText":"电子线路综合实验\n丁淑艳\n16(周)"},{"courseName":"走进交响乐","weekday":"星期六","periods":"08-10小节","classroom":"艺文馆303","weeks":"1-11(周)","teacher":"骆达","courseCode":"00000573","courseSequence":"0","courseType":"公选","rawText":"走进交响乐\n骆达\n1-11(周)\n艺文馆303"},{"courseName":"体育（Ⅳ）","weekday":"星期一","periods":"02-03小节","classroom":"二运篮球场","weeks":"1-16(周)","teacher":"高士博","courseCode":"21420102","courseSequence":"1127","courseType":"必修","rawText":"体育（Ⅳ）\n篮球\n高士博\n1-16(周)\n二运篮球场"},{"courseName":"改革开放史","weekday":"星期四","periods":"14-14小节","classroom":"","weeks":"6(周)","teacher":"课程中心","courseCode":"00W00154","courseSequence":"0","courseType":"公选","rawText":"改革开放史\n课程中心\n6(周)"}];
+    const courses = [{"courseName":"毛泽东思想和中国特色社会主义理论体系概论","weekday":"星期二","periods":"01-03小节","classroom":"Ⅳ-A204","weeks":"1-5,7-14(周)","teacher":"刘承昊","courseCode":"15045305","courseSequence":"19","courseType":"必修","rawText":"毛泽东思想和中国特色社会主义理论体系概论\n刘承昊\n1-5,7-14(周)\nⅣ-A204"},{"courseName":"毛泽东思想和中国特色社会主义理论体系概论","weekday":"星期六","periods":"01-03小节","classroom":"Ⅳ-A204","weeks":"6(周)","teacher":"刘承昊","courseCode":"15045305","courseSequence":"19","courseType":"必修","rawText":"毛泽东思想和中国特色社会主义理论体系概论\n刘承昊\n6(周)\nⅣ-A204"},{"courseName":"控制概论","weekday":"星期三","periods":"01-03小节","classroom":"I-301","weeks":"1-3(周)","teacher":"谢蓉华","courseCode":"10065103","courseSequence":"0","courseType":"必修","rawText":"控制概论\n谢蓉华\n1-3(周)\nI-301"},{"courseName":"控制概论","weekday":"星期五","periods":"06-07小节","classroom":"I-301","weeks":"1-3(周)","teacher":"谢蓉华","courseCode":"10065103","courseSequence":"0","courseType":"必修","rawText":"控制概论\n谢蓉华\n1-3(周)\nI-301"},{"courseName":"离散数学","weekday":"星期一","periods":"04-05小节","classroom":"Ⅳ-C104","weeks":"1-6(周)","teacher":"郭玲","courseCode":"10062501","courseSequence":"0","courseType":"必修","rawText":"离散数学\n郭玲\n1-6(周)\nⅣ-C104"},{"courseName":"离散数学","weekday":"星期四","periods":"08-10小节","classroom":"Ⅳ-C104","weeks":"1-6(周)","teacher":"郭玲","courseCode":"10062501","courseSequence":"0","courseType":"必修","rawText":"离散数学\n郭玲\n1-6(周)\nⅣ-C104"},{"courseName":"概率与统计","weekday":"星期三","periods":"04-05小节","classroom":"Ⅳ-C103","weeks":"1-12(周)","teacher":"梁思玉","courseCode":"11022601","courseSequence":"1","courseType":"必修","rawText":"概率与统计\n梁思玉\n1-12(周)\nⅣ-C103"},{"courseName":"概率与统计","weekday":"星期五","periods":"08-09小节","classroom":"Ⅳ-C103","weeks":"1-12(周)","teacher":"梁思玉","courseCode":"11022601","courseSequence":"1","courseType":"必修","rawText":"概率与统计\n梁思玉\n1-12(周)\nⅣ-C103"},{"courseName":"模拟电子线路","weekday":"星期一","periods":"08-09小节","classroom":"I-106","weeks":"1-14(周)","teacher":"乌兰图雅","courseCode":"04026804","courseSequence":"8","courseType":"必修","rawText":"模拟电子线路\n乌兰图雅\n1-14(周)\nI-106"},{"courseName":"模拟电子线路","weekday":"星期四","periods":"04-05小节","classroom":"I-106","weeks":"1-14(周)","teacher":"乌兰图雅","courseCode":"04026804","courseSequence":"8","courseType":"必修","rawText":"模拟电子线路\n乌兰图雅\n1-14(周)\nI-106"},{"courseName":"数字逻辑电路","weekday":"星期二","periods":"08-09小节","classroom":"I-105","weeks":"1-12,14-15(周)","teacher":"姜萍","courseCode":"04026304","courseSequence":"9","courseType":"必修","rawText":"数字逻辑电路\n姜萍\n1-12,14-15(周)\nI-105"},{"courseName":"数字逻辑电路","weekday":"星期五","periods":"04-05小节","classroom":"I-105","weeks":"1-12,14-15(周)","teacher":"姜萍","courseCode":"04026304","courseSequence":"9","courseType":"必修","rawText":"数字逻辑电路\n姜萍\n1-12,14-15(周)\nI-105"},{"courseName":"形势与政策（Ⅳ）","weekday":"星期一","periods":"14-14小节","classroom":"线上","weeks":"9-12(周)","teacher":"肖兰兰","courseCode":"36400002","courseSequence":"5","courseType":"必修","rawText":"形势与政策（Ⅳ）\n肖兰兰\n9-12(周)\n线上"},{"courseName":"数据通信与网络","weekday":"星期一","periods":"06-07小节","classroom":"Ⅳ-A302","weeks":"4-8(周)","teacher":"赵燕","courseCode":"10031702","courseSequence":"2","courseType":"必修","rawText":"数据通信与网络\n赵燕\n4-8(周)\nⅣ-A302"},{"courseName":"数据通信与网络","weekday":"星期三","periods":"01-03小节","classroom":"Ⅳ-A302","weeks":"4-7(周)","teacher":"赵燕","courseCode":"10031702","courseSequence":"2","courseType":"必修","rawText":"数据通信与网络\n赵燕\n4-7(周)\nⅣ-A302"},{"courseName":"数据通信与网络","weekday":"星期五","periods":"11-13小节","classroom":"Ⅳ-A102","weeks":"8(周)","teacher":"赵燕","courseCode":"10031702","courseSequence":"2","courseType":"必修","rawText":"数据通信与网络\n赵燕\n8(周)\nⅣ-A102"},{"courseName":"电子线路综合实验","weekday":"星期一","periods":"04-13小节","classroom":"","weeks":"16(周)","teacher":"丁淑艳","courseCode":"04061701","courseSequence":"3","courseType":"必修","rawText":"电子线路综合实验\n丁淑艳\n16(周)"},{"courseName":"电子线路综合实验","weekday":"星期二","periods":"01-13小节","classroom":"","weeks":"16(周)","teacher":"丁淑艳","courseCode":"04061701","courseSequence":"3","courseType":"必修","rawText":"电子线路综合实验\n丁淑艳\n16(周)"},{"courseName":"电子线路综合实验","weekday":"星期三","periods":"01-13小节","classroom":"","weeks":"16(周)","teacher":"丁淑艳","courseCode":"04061701","courseSequence":"3","courseType":"必修","rawText":"电子线路综合实验\n丁淑艳\n16(周)"},{"courseName":"电子线路综合实验","weekday":"星期四","periods":"01-13小节","classroom":"","weeks":"16(周)","teacher":"丁淑艳","courseCode":"04061701","courseSequence":"3","courseType":"必修","rawText":"电子线路综合实验\n丁淑艳\n16(周)"},{"courseName":"电子线路综合实验","weekday":"星期五","periods":"01-13小节","classroom":"","weeks":"16(周)","teacher":"丁淑艳","courseCode":"04061701","courseSequence":"3","courseType":"必修","rawText":"电子线路综合实验\n丁淑艳\n16(周)"},{"courseName":"走进交响乐","weekday":"星期六","periods":"08-10小节","classroom":"艺文馆303","weeks":"1-11(周)","teacher":"骆达","courseCode":"00000573","courseSequence":"0","courseType":"公选","rawText":"走进交响乐\n骆达\n1-11(周)\n艺文馆303"},{"courseName":"体育（Ⅳ）","weekday":"星期一","periods":"02-03小节","classroom":"二运篮球场","weeks":"1-16(周)","teacher":"高士博","courseCode":"21420102","courseSequence":"1127","courseType":"必修","rawText":"体育（Ⅳ）\n篮球\n高士博\n1-16(周)\n二运篮球场"},{"courseName":"改革开放史","weekday":"星期四","periods":"14-14小节","classroom":"","weeks":"6(周)","teacher":"课程中心","courseCode":"00W00154","courseSequence":"0","courseType":"公选","rawText":"改革开放史\n课程中心\n6(周)"},{"courseName":"DEMO MON LONG","weekday":"星期一","periods":"06-09小节","classroom":"ROOM-M1","weeks":"9(周)","teacher":"DEMO-TEACHER-01","courseCode":"DEMO-OVERLAP-001","courseSequence":"9001","courseType":"TEST","rawText":"DEMO MON LONG\nDEMO-TEACHER-01\n9(周)\nROOM-M1"},{"courseName":"DEMO MON SHORT B","weekday":"星期一","periods":"06-07小节","classroom":"ROOM-M2","weeks":"9(周)","teacher":"DEMO-TEACHER-02","courseCode":"DEMO-OVERLAP-002","courseSequence":"9002","courseType":"TEST","rawText":"DEMO MON SHORT B\nDEMO-TEACHER-02\n9(周)\nROOM-M2"},{"courseName":"DEMO MON SHORT C","weekday":"星期一","periods":"06-07小节","classroom":"ROOM-M3","weeks":"9(周)","teacher":"DEMO-TEACHER-03","courseCode":"DEMO-OVERLAP-003","courseSequence":"9003","courseType":"TEST","rawText":"DEMO MON SHORT C\nDEMO-TEACHER-03\n9(周)\nROOM-M3"},{"courseName":"DEMO MID LONG","weekday":"星期三","periods":"08-11小节","classroom":"ROOM-W1","weeks":"9(周)","teacher":"DEMO-TEACHER-04","courseCode":"DEMO-OVERLAP-004","courseSequence":"9010","courseType":"TEST","rawText":"DEMO MID LONG\nDEMO-TEACHER-04\n9(周)\nROOM-W1"},{"courseName":"DEMO MID SHORT A","weekday":"星期三","periods":"08-09小节","classroom":"ROOM-W2","weeks":"9(周)","teacher":"DEMO-TEACHER-05","courseCode":"DEMO-OVERLAP-005","courseSequence":"9011","courseType":"TEST","rawText":"DEMO MID SHORT A\nDEMO-TEACHER-05\n9(周)\nROOM-W2"},{"courseName":"DEMO MID SHORT B","weekday":"星期三","periods":"08-09小节","classroom":"ROOM-W3","weeks":"9(周)","teacher":"DEMO-TEACHER-06","courseCode":"DEMO-OVERLAP-006","courseSequence":"9012","courseType":"TEST","rawText":"DEMO MID SHORT B\nDEMO-TEACHER-06\n9(周)\nROOM-W3"},{"courseName":"DEMO MID TALL C","weekday":"星期三","periods":"09-11小节","classroom":"ROOM-W4","weeks":"9(周)","teacher":"DEMO-TEACHER-07","courseCode":"DEMO-OVERLAP-007","courseSequence":"9013","courseType":"TEST","rawText":"DEMO MID TALL C\nDEMO-TEACHER-07\n9(周)\nROOM-W4"},{"courseName":"DEMO MID MINI D","weekday":"星期三","periods":"10-10小节","classroom":"ROOM-W5","weeks":"9(周)","teacher":"DEMO-TEACHER-08","courseCode":"DEMO-OVERLAP-008","courseSequence":"9014","courseType":"TEST","rawText":"DEMO MID MINI D\nDEMO-TEACHER-08\n9(周)\nROOM-W5"},{"courseName":"DEMO SUN LONG","weekday":"星期日","periods":"02-05小节","classroom":"ROOM-S1","weeks":"9(周)","teacher":"DEMO-TEACHER-09","courseCode":"DEMO-OVERLAP-009","courseSequence":"9020","courseType":"TEST","rawText":"DEMO SUN LONG\nDEMO-TEACHER-09\n9(周)\nROOM-S1"},{"courseName":"DEMO SUN SHORT A","weekday":"星期日","periods":"02-03小节","classroom":"ROOM-S2","weeks":"9(周)","teacher":"DEMO-TEACHER-10","courseCode":"DEMO-OVERLAP-010","courseSequence":"9021","courseType":"TEST","rawText":"DEMO SUN SHORT A\nDEMO-TEACHER-10\n9(周)\nROOM-S2"},{"courseName":"DEMO SUN SHORT B","weekday":"星期日","periods":"02-03小节","classroom":"ROOM-S3","weeks":"9(周)","teacher":"DEMO-TEACHER-11","courseCode":"DEMO-OVERLAP-011","courseSequence":"9022","courseType":"TEST","rawText":"DEMO SUN SHORT B\nDEMO-TEACHER-11\n9(周)\nROOM-S3"},{"courseName":"DEMO SUN MICRO","weekday":"星期日","periods":"04-04小节","classroom":"ROOM-S4","weeks":"9(周)","teacher":"DEMO-TEACHER-12","courseCode":"DEMO-OVERLAP-012","courseSequence":"9023","courseType":"TEST","rawText":"DEMO SUN MICRO\nDEMO-TEACHER-12\n9(周)\nROOM-S4"},{"courseName":"DEMO OVERFLOW 1","weekday":"星期四","periods":"11-13小节","classroom":"ROOM-O1","weeks":"9(周)","teacher":"DEMO-TEACHER-13","courseCode":"DEMO-OVERLAP-013","courseSequence":"9101","courseType":"TEST","rawText":"DEMO OVERFLOW 1\nDEMO-TEACHER-13\n9(周)\nROOM-O1"},{"courseName":"DEMO OVERFLOW 2","weekday":"星期四","periods":"11-12小节","classroom":"ROOM-O2","weeks":"9(周)","teacher":"DEMO-TEACHER-14","courseCode":"DEMO-OVERLAP-014","courseSequence":"9102","courseType":"TEST","rawText":"DEMO OVERFLOW 2\nDEMO-TEACHER-14\n9(周)\nROOM-O2"},{"courseName":"DEMO OVERFLOW 3","weekday":"星期四","periods":"11-12小节","classroom":"ROOM-O3","weeks":"9(周)","teacher":"DEMO-TEACHER-15","courseCode":"DEMO-OVERLAP-015","courseSequence":"9103","courseType":"TEST","rawText":"DEMO OVERFLOW 3\nDEMO-TEACHER-15\n9(周)\nROOM-O3"},{"courseName":"DEMO OVERFLOW 4","weekday":"星期四","periods":"11-13小节","classroom":"ROOM-O4","weeks":"9(周)","teacher":"DEMO-TEACHER-16","courseCode":"DEMO-OVERLAP-016","courseSequence":"9104","courseType":"TEST","rawText":"DEMO OVERFLOW 4\nDEMO-TEACHER-16\n9(周)\nROOM-O4"},{"courseName":"DEMO OVERFLOW 5","weekday":"星期四","periods":"12-13小节","classroom":"ROOM-O5","weeks":"9(周)","teacher":"DEMO-TEACHER-17","courseCode":"DEMO-OVERLAP-017","courseSequence":"9105","courseType":"TEST","rawText":"DEMO OVERFLOW 5\nDEMO-TEACHER-17\n9(周)\nROOM-O5"},{"courseName":"DEMO OVERFLOW 6","weekday":"星期四","periods":"11-11小节","classroom":"ROOM-O6","weeks":"9(周)","teacher":"DEMO-TEACHER-18","courseCode":"DEMO-OVERLAP-018","courseSequence":"9106","courseType":"TEST","rawText":"DEMO OVERFLOW 6\nDEMO-TEACHER-18\n9(周)\nROOM-O6"},{"courseName":"DEMO OVERFLOW 7","weekday":"星期四","periods":"12-12小节","classroom":"ROOM-O7","weeks":"9(周)","teacher":"DEMO-TEACHER-19","courseCode":"DEMO-OVERLAP-019","courseSequence":"9107","courseType":"TEST","rawText":"DEMO OVERFLOW 7\nDEMO-TEACHER-19\n9(周)\nROOM-O7"},{"courseName":"DEMO OVERFLOW 8","weekday":"星期四","periods":"13-13小节","classroom":"ROOM-O8","weeks":"9(周)","teacher":"DEMO-TEACHER-20","courseCode":"DEMO-OVERLAP-020","courseSequence":"9108","courseType":"TEST","rawText":"DEMO OVERFLOW 8\nDEMO-TEACHER-20\n9(周)\nROOM-O8"},{"courseName":"DEMO OVERFLOW 9","weekday":"星期四","periods":"11-13小节","classroom":"ROOM-O9","weeks":"9(周)","teacher":"DEMO-TEACHER-21","courseCode":"DEMO-OVERLAP-021","courseSequence":"9109","courseType":"TEST","rawText":"DEMO OVERFLOW 9\nDEMO-TEACHER-21\n9(周)\nROOM-O9"}];
     const weekdays = ["星期一","星期二","星期三","星期四","星期五","星期六","星期日"];
     const periodSlots = {"1":{"start":"08:00","end":"08:45"},"2":{"start":"08:50","end":"09:35"},"3":{"start":"09:40","end":"10:25"},"4":{"start":"10:40","end":"11:25"},"5":{"start":"11:30","end":"12:15"},"6":{"start":"14:00","end":"14:45"},"7":{"start":"14:50","end":"15:35"},"8":{"start":"15:50","end":"16:35"},"9":{"start":"16:40","end":"17:25"},"10":{"start":"17:30","end":"18:15"},"11":{"start":"19:00","end":"19:45"},"12":{"start":"19:50","end":"20:35"},"13":{"start":"20:40","end":"21:25"},"14":{"start":"12:15","end":"14:00"}};
     const palette = [["#f39ac3","#d97daa"],["#ffd36f","#f0ba4d"],["#7ed2aa","#66bf94"],["#78b7ee","#5f9de0"],["#628fe2","#4a7cd1"],["#96cf6e","#80ba5a"],["#e25555","#cf4444"],["#6e7fd8","#5a69c2"],["#ffb287","#ef9367"],["#7fd7d0","#5dbbb4"],["#b799f2","#9b7ddb"],["#f2c66d","#dfaa47"],["#84c3a4","#68aa8a"],["#f08ca4","#d96c87"],["#85aef7","#668fe4"]];
     const anchorWeek = 6;
     const anchorMonday = new Date("2026-04-06" + 'T00:00:00');
 
-    const normalizeCourses = courses.map((course) => {
+    const normalizeCourses = courses.map((course, index) => {
       const periodMatch = course.periods.match(/(\d+)-(\d+)/);
       const startPeriod = periodMatch ? Number(periodMatch[1]) : 1;
       const endPeriod = periodMatch ? Number(periodMatch[2]) : startPeriod;
       const weeks = [];
+      const sequenceNumber = Number(course.courseSequence);
 
       for (const token of course.weeks.match(/\d+(?:-\d+)?/g) || []) {
         if (token.includes('-')) {
@@ -763,13 +843,43 @@ const courses = [{"courseName":"毛泽东思想和中国特色社会主义理论
 
       return {
         ...course,
+        uid: 'course-' + index,
         startPeriod,
         endPeriod,
+        duration: endPeriod - startPeriod + 1,
         weeks,
         weeksText: course.weeks,
         paletteKey: course.courseName,
-        courseKind: course.courseType || '未分类'
+        courseKind: course.courseType || '未分类',
+        sequenceNumber: Number.isFinite(sequenceNumber) ? sequenceNumber : Number.MAX_SAFE_INTEGER,
+        primaryMajorSectionId: 0,
+        majorSectionIds: []
       };
+    });
+
+    const getMajorSectionId = (period) => {
+      if (period >= 1 && period <= 3) return 0;
+      if (period >= 4 && period <= 5) return 1;
+      if (period >= 6 && period <= 7) return 2;
+      if (period >= 8 && period <= 10) return 3;
+      if (period >= 11 && period <= 13) return 4;
+      return 5;
+    };
+
+    const getCoveredSectionIds = (startPeriod, endPeriod) => {
+      const sectionIds = [];
+      for (let period = startPeriod; period <= endPeriod; period += 1) {
+        const sectionId = getMajorSectionId(period);
+        if (!sectionIds.includes(sectionId)) {
+          sectionIds.push(sectionId);
+        }
+      }
+      return sectionIds;
+    };
+
+    normalizeCourses.forEach((course) => {
+      course.majorSectionIds = getCoveredSectionIds(course.startPeriod, course.endPeriod);
+      course.primaryMajorSectionId = course.majorSectionIds[0] ?? getMajorSectionId(course.startPeriod);
     });
 
     const allWeeks = [...new Set(normalizeCourses.flatMap((course) => course.weeks))].sort((a, b) => a - b);
@@ -790,14 +900,16 @@ const courses = [{"courseName":"毛泽东思想和中国特色社会主义理论
     const schedule = document.getElementById('schedule');
     const legend = document.getElementById('legend');
     const emptyState = document.getElementById('emptyState');
-    const hero = document.querySelector('.hero');
     const footerBar = document.querySelector('.footer-bar');
+    const footerCenter = document.querySelector('.footer-center');
     const footerDay = document.getElementById('footerDay');
     const weekLabel = document.getElementById('weekLabel');
+    const modeToggle = document.getElementById('modeToggle');
+    const prevWeekButton = document.getElementById('prevWeek');
+    const nextWeekButton = document.getElementById('nextWeek');
     const sheetOverlay = document.getElementById('sheetOverlay');
     const focusedCardLayer = document.getElementById('focusedCardLayer');
     const detailSheet = document.getElementById('detailSheet');
-    const sheetTopbarLeft = document.getElementById('sheetTopbarLeft');
     const sheetWeekDay = document.getElementById('sheetWeekDay');
     const sheetPeriodLine = document.getElementById('sheetPeriodLine');
     const sheetTitle = document.getElementById('sheetTitle');
@@ -808,6 +920,7 @@ const courses = [{"courseName":"毛泽东思想和中国特色社会主义理论
     const sheetWatermark = document.getElementById('sheetWatermark');
     const sheetTag = document.getElementById('sheetTag');
     const sheetClose = document.getElementById('sheetClose');
+    const sheetDots = document.getElementById('sheetDots');
 
     const formatDateLabel = (date) => (date.getMonth() + 1) + '月' + date.getDate();
 
@@ -851,46 +964,34 @@ const courses = [{"courseName":"毛泽东思想和中国特色社会主义理论
 
     const state = {
       week: getInitialStateWeek(),
-      activeCourse: null
+      viewMode: 'week',
+      activeGroupId: null,
+      activeCourseIndex: 0
     };
 
-    const touchState = {
-      startX: 0,
-      startY: 0
-    };
+    const touchState = { startX: 0, startY: 0 };
+    const sheetTouchState = { startX: 0, startY: 0 };
 
-    let focusedCardClone = null;
+    let currentCardsByUid = new Map();
+    let currentGroupsById = new Map();
+    let currentGroupLayouts = new Map();
+    let currentCourseMetaByUid = new Map();
+    let focusedCardClones = [];
 
-    const removeFocusedCardClone = () => {
-      if (focusedCardClone) {
-        focusedCardClone.remove();
-        focusedCardClone = null;
-      }
-    };
-
-    const showFocusedCardClone = (card) => {
-      removeFocusedCardClone();
-      const rect = card.getBoundingClientRect();
-      const clone = card.cloneNode(true);
-      clone.classList.remove('active');
-      clone.classList.add('focused-card-clone');
-      clone.style.left = rect.left + 'px';
-      clone.style.top = rect.top + 'px';
-      clone.style.width = rect.width + 'px';
-      clone.style.height = rect.height + 'px';
-      clone.style.transform = 'translateY(-3px) scale(1.03)';
-      clone.style.boxShadow = '0 20px 34px rgba(64, 92, 138, 0.34)';
-      focusedCardLayer.appendChild(clone);
-      focusedCardClone = clone;
+    const clearFocusedCardClones = () => {
+      focusedCardClones.forEach((clone) => clone.remove());
+      focusedCardClones = [];
     };
 
     const closeSheet = () => {
+      state.activeGroupId = null;
+      state.activeCourseIndex = 0;
       detailSheet.classList.remove('show');
       sheetOverlay.classList.remove('show');
       detailSheet.setAttribute('aria-hidden', 'true');
       document.body.classList.remove('sheet-open');
       schedule.querySelectorAll('.course-card.active').forEach((card) => card.classList.remove('active'));
-      removeFocusedCardClone();
+      clearFocusedCardClones();
     };
 
     const toMinutes = (time) => {
@@ -904,27 +1005,8 @@ const courses = [{"courseName":"毛泽东思想和中国特色社会主义理论
       return start + '-' + end;
     };
 
-    const openSheet = (course, card) => {
-      state.activeCourse = course;
-      schedule.querySelectorAll('.course-card.active').forEach((node) => node.classList.remove('active'));
-      card.classList.add('active');
-      showFocusedCardClone(card);
-      sheetWeekDay.textContent = state.week + '周' + course.weekday.replace('星期', '周');
-      sheetPeriodLine.textContent = course.periods.replace('小节', '节 ') + getCourseTimeRange(course);
-      sheetTitle.textContent = course.courseName;
-      sheetTeacher.textContent = course.teacher || '未标注教师';
-      sheetRoom.textContent = course.classroom || '待定地点';
-      sheetWeeks.textContent = course.weeksText || '全学期';
-      sheetCode.textContent = course.courseCode || '-';
-      sheetWatermark.textContent = String(course.startPeriod) + String(course.endPeriod);
-      sheetTag.textContent = course.courseKind;
-      detailSheet.classList.add('show');
-      sheetOverlay.classList.add('show');
-      detailSheet.setAttribute('aria-hidden', 'false');
-      document.body.classList.add('sheet-open');
-    };
-
     const getCurrentDayIndex = () => {
+      if (state.viewMode === 'full') return -1;
       if (state.week !== getCurrentWeekByAnchor()) return -1;
       const now = new Date();
       const labels = getWeekDates(state.week).map(formatDateLabel);
@@ -938,13 +1020,11 @@ const courses = [{"courseName":"毛泽东思想和中国特色社会主义理论
       const now = new Date();
       const minutesNow = now.getHours() * 60 + now.getMinutes();
       const timelineEntries = Object.entries(periodSlots)
-        .map(([period, slot]) => {
-          return {
-            period: Number(period),
-            startMinutes: toMinutes(slot.start),
-            endMinutes: toMinutes(slot.end)
-          };
-        })
+        .map(([period, slot]) => ({
+          period: Number(period),
+          startMinutes: toMinutes(slot.start),
+          endMinutes: toMinutes(slot.end)
+        }))
         .sort((left, right) => left.startMinutes - right.startMinutes);
 
       const firstMinutes = timelineEntries[0]?.startMinutes;
@@ -1039,13 +1119,12 @@ const courses = [{"courseName":"毛泽东思想和中国特色社会主义理论
         return;
       }
 
-      const heroHeight = hero?.getBoundingClientRect().height || 0;
       const headerHeight = headerRow.getBoundingClientRect().height || 32;
       const footerHeight = footerBar?.getBoundingClientRect().height || 56;
       const gap = 2;
       const gridGapHeight = gap * 13;
       const boardVerticalPadding = 12;
-      const availableHeight = Math.max(14 * 20, viewportHeight - heroHeight - headerHeight - footerHeight - boardVerticalPadding - gridGapHeight);
+      const availableHeight = Math.max(14 * 20, viewportHeight - headerHeight - footerHeight - boardVerticalPadding - gridGapHeight);
       const rowHeight = Math.max(20, Math.floor(availableHeight / 14));
       const axisWidth = viewportWidth <= 390 ? 15 : 16;
 
@@ -1126,17 +1205,328 @@ const courses = [{"courseName":"毛泽东思想和中国特色社会主义理论
       }).join('');
     };
 
+    const compareVisibleOrder = (left, right) => {
+      const dayDiff = weekdays.indexOf(left.weekday) - weekdays.indexOf(right.weekday);
+      if (dayDiff !== 0) return dayDiff;
+      if (left.primaryMajorSectionId !== right.primaryMajorSectionId) return left.primaryMajorSectionId - right.primaryMajorSectionId;
+      if (left.startPeriod !== right.startPeriod) return left.startPeriod - right.startPeriod;
+      if (left.endPeriod !== right.endPeriod) return left.endPeriod - right.endPeriod;
+      return left.sequenceNumber - right.sequenceNumber;
+    };
+
+    const compareConflictStackOrder = (left, right) => {
+      if (left.duration !== right.duration) return right.duration - left.duration;
+      if (left.startPeriod !== right.startPeriod) return left.startPeriod - right.startPeriod;
+      if (left.sequenceNumber !== right.sequenceNumber) return left.sequenceNumber - right.sequenceNumber;
+      return left.uid.localeCompare(right.uid);
+    };
+
+    const buildConflictState = (visibleCourses) => {
+      const sortedCourses = [...visibleCourses].sort(compareVisibleOrder);
+      const groupsById = new Map();
+      const courseMetaByUid = new Map();
+      let groupSerial = 0;
+
+      weekdays.forEach((weekday) => {
+        const dayCourses = sortedCourses.filter((course) => course.weekday === weekday);
+        const bySection = new Map();
+
+        dayCourses.forEach((course) => {
+          course.majorSectionIds.forEach((key) => {
+            if (!bySection.has(key)) {
+              bySection.set(key, []);
+            }
+            bySection.get(key).push(course);
+          });
+        });
+
+        [...bySection.entries()]
+          .sort((left, right) => left[0] - right[0])
+          .forEach(([majorSectionId, sectionCourses]) => {
+            const ordered = [...sectionCourses].sort(compareConflictStackOrder);
+            const groupId = 'group-' + groupSerial++;
+            const group = {
+              id: groupId,
+              weekday,
+              dayIndex: weekdays.indexOf(weekday),
+              majorSectionId,
+              courses: ordered
+            };
+
+            groupsById.set(groupId, group);
+            ordered.forEach((course, stackIndex) => {
+              const nextMeta = {
+                groupId,
+                stackIndex,
+                stackSize: ordered.length,
+                majorSectionId
+              };
+              const existing = courseMetaByUid.get(course.uid) || [];
+              existing.push(nextMeta);
+              courseMetaByUid.set(course.uid, existing);
+            });
+          });
+      });
+
+      return { sortedCourses, groupsById, courseMetaByUid };
+    };
+
+    const getSlotFrame = (dayIndex, startPeriod, endPeriod) => {
+      const startCell = schedule.querySelector('.slot-cell[data-day-index="' + dayIndex + '"][data-period="' + startPeriod + '"]');
+      const endCell = schedule.querySelector('.slot-cell[data-day-index="' + dayIndex + '"][data-period="' + endPeriod + '"]');
+      const startRect = startCell?.getBoundingClientRect();
+      const endRect = endCell?.getBoundingClientRect();
+      if (!startRect || !endRect) return null;
+
+      return {
+        left: startRect.left,
+        top: startRect.top,
+        width: startRect.width,
+        height: endRect.bottom - startRect.top
+      };
+    };
+
+    const buildSpreadTargets = (baseDayIndex, count) => {
+      const targets = [];
+      const deltas = [];
+      const usedDays = new Set([baseDayIndex]);
+
+      for (let step = 1; step < weekdays.length; step += 1) {
+        deltas.push(step, -step);
+      }
+
+      let overflowLevel = 1;
+
+      for (let index = 0; index < count; index += 1) {
+        let targetDayIndex = null;
+
+        for (const delta of deltas) {
+          const candidate = baseDayIndex + delta;
+          if (candidate < 0 || candidate >= weekdays.length || usedDays.has(candidate)) {
+            continue;
+          }
+
+          usedDays.add(candidate);
+          targetDayIndex = candidate;
+          break;
+        }
+
+        if (targetDayIndex === null) {
+          targets.push({ dayIndex: baseDayIndex, liftLevel: overflowLevel });
+          overflowLevel += 1;
+        } else {
+          targets.push({ dayIndex: targetDayIndex, liftLevel: 0 });
+        }
+      }
+
+      return targets;
+    };
+
+    const buildGroupLayout = (group) => {
+      const placements = new Map();
+      const spreadTargets = buildSpreadTargets(group.dayIndex, Math.max(0, group.courses.length - 1));
+      placements.set(group.courses[0].uid, { dayIndex: group.dayIndex, liftLevel: 0 });
+      group.courses.slice(1).forEach((course, index) => placements.set(course.uid, spreadTargets[index]));
+
+      const displayCourses = [...group.courses].sort((left, right) => {
+        const leftPlacement = placements.get(left.uid) || { dayIndex: group.dayIndex, liftLevel: 0 };
+        const rightPlacement = placements.get(right.uid) || { dayIndex: group.dayIndex, liftLevel: 0 };
+        if (leftPlacement.dayIndex !== rightPlacement.dayIndex) {
+          return leftPlacement.dayIndex - rightPlacement.dayIndex;
+        }
+        if (leftPlacement.liftLevel !== rightPlacement.liftLevel) {
+          return leftPlacement.liftLevel - rightPlacement.liftLevel;
+        }
+        return compareConflictStackOrder(left, right);
+      });
+
+      return { placements, displayCourses };
+    };
+
+    const detectClickedSectionId = (course, card, clientY) => {
+      if (!course.majorSectionIds || course.majorSectionIds.length <= 1) {
+        return course.primaryMajorSectionId;
+      }
+
+      const rect = card.getBoundingClientRect();
+      const ratio = rect.height > 0 ? Math.min(0.999, Math.max(0, (clientY - rect.top) / rect.height)) : 0;
+      const rawPeriod = course.startPeriod + ratio * course.duration;
+      const approximatePeriod = Math.min(course.endPeriod, Math.max(course.startPeriod, Math.floor(rawPeriod)));
+      const sectionId = getMajorSectionId(approximatePeriod);
+      return course.majorSectionIds.includes(sectionId) ? sectionId : course.primaryMajorSectionId;
+    };
+
+    const createCardClone = (card, frame, selected) => {
+      const clone = card.cloneNode(true);
+      clone.classList.remove('active');
+      clone.classList.add('focused-card-clone');
+      clone.style.left = frame.left + 'px';
+      clone.style.top = frame.top + 'px';
+      clone.style.width = frame.width + 'px';
+      clone.style.height = frame.height + 'px';
+      clone.style.transform = selected ? 'translateY(-6px) scale(1.075)' : 'translateY(-1px) scale(1.01)';
+      clone.style.zIndex = selected ? '1099' : '1092';
+      clone.style.boxShadow = selected
+        ? '0 26px 38px rgba(64, 92, 138, 0.4)'
+        : '0 14px 24px rgba(64, 92, 138, 0.26)';
+      clone.style.opacity = selected ? '1' : '0.96';
+      focusedCardLayer.appendChild(clone);
+      focusedCardClones.push(clone);
+    };
+
+    const updateSheetDots = (group) => {
+      const total = group.courses.length;
+      const showDots = total > 1;
+      sheetDots.hidden = !showDots;
+      if (!showDots) {
+        sheetDots.innerHTML = '';
+        return;
+      }
+
+      sheetDots.innerHTML = group.courses.map((_, index) =>
+        '<button class="sheet-dot' + (index === state.activeCourseIndex ? ' active' : '') + '" type="button" data-dot-index="' + index + '" aria-label="切换到第' + (index + 1) + '门"></button>'
+      ).join('');
+
+      sheetDots.querySelectorAll('[data-dot-index]').forEach((dot) => {
+        dot.addEventListener('click', () => {
+          const nextIndex = Number(dot.getAttribute('data-dot-index'));
+          if (!Number.isFinite(nextIndex) || nextIndex === state.activeCourseIndex) {
+            return;
+          }
+          state.activeCourseIndex = nextIndex;
+          refreshOpenSheet();
+        });
+      });
+    };
+
+    const updateSheetContent = (course, group) => {
+      sheetWeekDay.textContent = state.week + '周' + course.weekday.replace('星期', '周');
+      sheetPeriodLine.textContent = course.periods.replace('小节', '节 ') + getCourseTimeRange(course);
+      sheetTitle.textContent = course.courseName;
+      sheetTeacher.textContent = course.teacher || '未标注教师';
+      sheetRoom.textContent = course.classroom || '待定地点';
+      sheetWeeks.textContent = course.weeksText || '全学期';
+      sheetCode.textContent = course.courseCode || '-';
+      sheetWatermark.textContent = String(course.startPeriod) + String(course.endPeriod);
+      sheetTag.textContent = course.courseKind;
+      updateSheetDots(group);
+    };
+
+    const updateExpandedCards = () => {
+      clearFocusedCardClones();
+      schedule.querySelectorAll('.course-card.active').forEach((card) => card.classList.remove('active'));
+
+      if (!state.activeGroupId) return;
+
+      const group = currentGroupsById.get(state.activeGroupId);
+      if (!group) {
+        closeSheet();
+        return;
+      }
+
+      const layout = currentGroupLayouts.get(group.id) || buildGroupLayout(group);
+      currentGroupLayouts.set(group.id, layout);
+      const selectedCourse = layout.displayCourses[state.activeCourseIndex] || layout.displayCourses[0] || group.courses[0];
+      const placements = layout.placements;
+
+      group.courses.forEach((course) => {
+        const placement = placements.get(course.uid);
+        const card = currentCardsByUid.get(course.uid);
+        if (!placement || !card) return;
+
+        const frame = getSlotFrame(placement.dayIndex, course.startPeriod, course.endPeriod);
+        if (!frame) return;
+
+        const liftedFrame = {
+          ...frame,
+          top: frame.top - placement.liftLevel * 14
+        };
+
+        if (course.uid === selectedCourse.uid) {
+          card.classList.add('active');
+        }
+
+        createCardClone(card, liftedFrame, course.uid === selectedCourse.uid);
+      });
+    };
+
+    const refreshOpenSheet = () => {
+      const group = currentGroupsById.get(state.activeGroupId);
+      if (!group) {
+        closeSheet();
+        return;
+      }
+
+      const layout = currentGroupLayouts.get(group.id) || buildGroupLayout(group);
+      currentGroupLayouts.set(group.id, layout);
+      const course = layout.displayCourses[state.activeCourseIndex] || layout.displayCourses[0] || group.courses[0];
+      updateSheetContent(course, group);
+      updateExpandedCards();
+      detailSheet.classList.add('show');
+      sheetOverlay.classList.add('show');
+      detailSheet.setAttribute('aria-hidden', 'false');
+      document.body.classList.add('sheet-open');
+    };
+
+    const openSheetForCourse = (course, event, card) => {
+      const metaList = currentCourseMetaByUid.get(course.uid);
+      if (!metaList || metaList.length === 0) return;
+
+      const clickedSectionId = detectClickedSectionId(course, card, event.clientY);
+      const meta = metaList.find((item) => item.majorSectionId === clickedSectionId) || metaList[0];
+      if (!meta) return;
+
+      const group = currentGroupsById.get(meta.groupId);
+      if (!group) return;
+      const layout = currentGroupLayouts.get(group.id) || buildGroupLayout(group);
+      currentGroupLayouts.set(group.id, layout);
+
+      state.activeGroupId = meta.groupId;
+      state.activeCourseIndex = Math.max(0, layout.displayCourses.findIndex((item) => item.uid === course.uid));
+      refreshOpenSheet();
+    };
+
+    const shiftActiveCourse = (offset) => {
+      if (!state.activeGroupId) return;
+      const group = currentGroupsById.get(state.activeGroupId);
+      if (!group || group.courses.length <= 1) return;
+
+      const layout = currentGroupLayouts.get(group.id) || buildGroupLayout(group);
+      currentGroupLayouts.set(group.id, layout);
+      const total = layout.displayCourses.length;
+      if (total <= 1) return;
+
+      state.activeCourseIndex = (state.activeCourseIndex + offset + total) % total;
+      refreshOpenSheet();
+    };
+
     const renderCards = (visibleCourses) => {
-      for (const course of visibleCourses) {
+      const { sortedCourses, groupsById, courseMetaByUid } = buildConflictState(visibleCourses);
+      currentCardsByUid = new Map();
+      currentGroupsById = groupsById;
+      currentGroupLayouts = new Map();
+      currentCourseMetaByUid = courseMetaByUid;
+
+      groupsById.forEach((group) => {
+        currentGroupLayouts.set(group.id, buildGroupLayout(group));
+      });
+
+      for (const course of sortedCourses) {
         const dayIndex = weekdays.indexOf(course.weekday);
         if (dayIndex === -1) continue;
 
         const [from] = colorMap.get(course.paletteKey);
+        const metaList = courseMetaByUid.get(course.uid) || [];
+        const meta = metaList[0];
+        const stackIndex = meta?.stackIndex ?? 0;
+        const stackSize = meta?.stackSize ?? 1;
         const card = document.createElement('article');
-        card.className = 'course-card';
+        card.className = 'course-card' + (stackSize > 1 ? ' stacked' : '');
         card.style.gridColumn = String(dayIndex + 2);
         card.style.gridRow = course.startPeriod + ' / ' + (course.endPeriod + 1);
         card.style.background = from;
+        card.style.zIndex = String(120 + stackIndex);
+        card.style.transform = stackSize > 1 ? 'translate(' + (stackIndex * 2) + 'px,' + (-stackIndex * 2) + 'px)' : '';
 
         const time = periodSlots[course.startPeriod]?.start || '';
         const room = (course.classroom || '').trim();
@@ -1146,25 +1536,25 @@ const courses = [{"courseName":"毛泽东思想和中国特色社会主义理论
         ].join('');
 
         card.title = course.courseName + ' | ' + course.weekday + ' ' + course.periods;
-        card.addEventListener('click', () => openSheet(course, card));
+        card.addEventListener('click', (event) => openSheetForCourse(course, event, card));
+        currentCardsByUid.set(course.uid, card);
         schedule.appendChild(card);
       }
     };
 
     const render = () => {
-      const visibleCourses = normalizeCourses
-        .filter((course) => course.weeks.length === 0 || course.weeks.includes(state.week))
-        .sort((left, right) => {
-          const dayDiff = weekdays.indexOf(left.weekday) - weekdays.indexOf(right.weekday);
-          if (dayDiff !== 0) return dayDiff;
-          return left.startPeriod - right.startPeriod;
-        });
+      const visibleCourses = normalizeCourses.filter((course) =>
+        state.viewMode === 'full' || course.weeks.length === 0 || course.weeks.includes(state.week)
+      );
 
       closeSheet();
       renderHeader();
       syncViewportLayout();
-      weekLabel.textContent = '第' + state.week + '周';
-      footerDay.textContent = getCurrentWeekdayLabel();
+      weekLabel.textContent = state.viewMode === 'full' ? '全学期' : ('第' + state.week + '周');
+      footerDay.textContent = state.viewMode === 'full' ? '总课表' : getCurrentWeekdayLabel();
+      modeToggle.textContent = state.viewMode === 'full' ? '全' : '周';
+      if (prevWeekButton) prevWeekButton.hidden = state.viewMode === 'full';
+      if (nextWeekButton) nextWeekButton.hidden = state.viewMode === 'full';
       renderBoardHighlight();
       renderBackgroundGrid();
       renderCards(visibleCourses);
@@ -1178,21 +1568,30 @@ const courses = [{"courseName":"毛泽东思想和中国特色社会主义理论
     };
 
     const shiftWeek = (offset) => {
+      if (state.viewMode === 'full') return;
       const currentIndex = allWeeks.indexOf(state.week);
       const nextIndex = Math.min(allWeeks.length - 1, Math.max(0, currentIndex + offset));
       state.week = allWeeks[nextIndex] || state.week;
       render();
     };
 
+    const toggleViewMode = () => {
+      state.viewMode = state.viewMode === 'week' ? 'full' : 'week';
+      render();
+    };
+
     document.getElementById('prevWeek').addEventListener('click', () => shiftWeek(-1));
     document.getElementById('nextWeek').addEventListener('click', () => shiftWeek(1));
+    modeToggle.addEventListener('click', toggleViewMode);
     sheetOverlay.addEventListener('click', closeSheet);
     sheetClose.addEventListener('click', closeSheet);
+
     schedule.addEventListener('touchstart', (event) => {
       const touch = event.changedTouches[0];
       touchState.startX = touch.clientX;
       touchState.startY = touch.clientY;
     }, { passive: true });
+
     schedule.addEventListener('touchend', (event) => {
       if (detailSheet.classList.contains('show')) return;
       const touch = event.changedTouches[0];
@@ -1205,6 +1604,41 @@ const courses = [{"courseName":"毛泽东思想和中国特色社会主义理论
 
       shiftWeek(deltaX < 0 ? 1 : -1);
     }, { passive: true });
+
+    detailSheet.addEventListener('touchstart', (event) => {
+      const touch = event.changedTouches[0];
+      sheetTouchState.startX = touch.clientX;
+      sheetTouchState.startY = touch.clientY;
+    }, { passive: true });
+
+    detailSheet.addEventListener('touchend', (event) => {
+      if (!state.activeGroupId) return;
+      const group = currentGroupsById.get(state.activeGroupId);
+      if (!group || group.courses.length <= 1) return;
+
+      const touch = event.changedTouches[0];
+      const deltaX = touch.clientX - sheetTouchState.startX;
+      const deltaY = touch.clientY - sheetTouchState.startY;
+
+      if (Math.abs(deltaX) < 36 || Math.abs(deltaX) <= Math.abs(deltaY)) {
+        return;
+      }
+
+      shiftActiveCourse(deltaX < 0 ? 1 : -1);
+    }, { passive: true });
+
+    detailSheet.addEventListener('wheel', (event) => {
+      if (!state.activeGroupId) return;
+      const group = currentGroupsById.get(state.activeGroupId);
+      if (!group || group.courses.length <= 1) return;
+
+      const primaryDelta = Math.abs(event.deltaX) >= Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+      if (Math.abs(primaryDelta) < 10) return;
+
+      event.preventDefault();
+      shiftActiveCourse(primaryDelta > 0 ? 1 : -1);
+    }, { passive: false });
+
     window.addEventListener('resize', render);
 
     render();
