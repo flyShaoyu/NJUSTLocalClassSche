@@ -180,6 +180,29 @@ object TimetableParser {
     return null
   }
 
+  private fun pickBestClassroom(
+    index: MutableMap<String, ArrayDeque<GridMeeting>>,
+    courseName: String,
+    teacher: String,
+    weekday: String,
+    fallbackClassroom: String,
+    classrooms: List<String>
+  ): String {
+    val candidates = buildList {
+      if (fallbackClassroom.isNotBlank()) add(fallbackClassroom)
+      classrooms.filter { it.isNotBlank() && it != fallbackClassroom }.forEach(::add)
+    }
+
+    for (candidate in candidates) {
+      val exact = buildKey(courseName, teacher, candidate, weekday)
+      if ((index[exact]?.isNotEmpty()) == true) {
+        return candidate
+      }
+    }
+
+    return fallbackClassroom
+  }
+
   private fun parseDetailMeetings(document: Document, gridMeetings: List<GridMeeting>): List<TimetableCourse> {
     val index = buildGridIndex(gridMeetings)
     val meetings = mutableListOf<TimetableCourse>()
@@ -197,7 +220,15 @@ object TimetableParser {
       val courseType = cleanInlineText(cells[8].text())
 
       timeEntries.forEachIndexed { indexInRow, entry ->
-        val classroom = classrooms.getOrNull(indexInRow) ?: classrooms.firstOrNull().orEmpty()
+        val indexedClassroom = classrooms.getOrNull(indexInRow) ?: classrooms.firstOrNull().orEmpty()
+        val classroom = pickBestClassroom(
+          index,
+          courseName,
+          teacher,
+          entry.first,
+          indexedClassroom,
+          classrooms
+        )
         val matched = takeWeeks(index, courseName, teacher, classroom, entry.first)
 
         meetings += TimetableCourse(

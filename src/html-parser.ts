@@ -217,6 +217,29 @@ const takeWeeks = (
   return { weeks: "", rawText: "" };
 };
 
+const pickBestClassroom = (
+  index: Map<string, GridMeeting[]>,
+  courseName: string,
+  teacher: string,
+  weekday: string,
+  fallbackClassroom: string,
+  classrooms: string[]
+): string => {
+  const uniqueClassrooms = [
+    fallbackClassroom,
+    ...classrooms.filter((classroom) => classroom !== fallbackClassroom)
+  ].filter(Boolean);
+
+  for (const candidate of uniqueClassrooms) {
+    const exact = buildKey(courseName, teacher, candidate, weekday);
+    if ((index.get(exact)?.length ?? 0) > 0) {
+      return candidate;
+    }
+  }
+
+  return fallbackClassroom;
+};
+
 const parseDataListMeetings = ($: cheerio.CheerioAPI, gridMeetings: GridMeeting[]): DetailMeeting[] => {
   const index = buildGridMeetingIndex(gridMeetings);
   const meetings: DetailMeeting[] = [];
@@ -239,7 +262,15 @@ const parseDataListMeetings = ($: cheerio.CheerioAPI, gridMeetings: GridMeeting[
       const courseType = cleanInlineText($(cells[8]).text());
 
       timeEntries.forEach((entry, indexInRow) => {
-        const classroom = classrooms[indexInRow] ?? classrooms[0] ?? "";
+        const indexedClassroom = classrooms[indexInRow] ?? classrooms[0] ?? "";
+        const classroom = pickBestClassroom(
+          index,
+          courseName,
+          teacher,
+          entry.weekday,
+          indexedClassroom,
+          classrooms
+        );
         const matched = takeWeeks(index, courseName, teacher, classroom, entry.weekday);
 
         meetings.push({

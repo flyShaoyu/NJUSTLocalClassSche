@@ -172,12 +172,24 @@
     "weekday": "星期三",
     "periods": "01-03小节",
     "classroom": "Ⅳ-A302",
-    "weeks": "4-8(周)",
+    "weeks": "4-7(周)",
     "teacher": "赵燕",
     "courseCode": "10031702",
     "courseSequence": "2",
     "courseType": "必修",
-    "rawText": "数据通信与网络\n赵燕\n4-8(周)\nⅣ-A302"
+    "rawText": "数据通信与网络\n赵燕\n4-7(周)\nⅣ-A302"
+  },
+  {
+    "courseName": "数据通信与网络",
+    "weekday": "星期五",
+    "periods": "11-13小节",
+    "classroom": "Ⅳ-A102",
+    "weeks": "8(周)",
+    "teacher": "赵燕",
+    "courseCode": "10031702",
+    "courseSequence": "2",
+    "courseType": "必修",
+    "rawText": "数据通信与网络\n赵燕\n8(周)\nⅣ-A102"
   },
   {
     "courseName": "电子线路综合实验",
