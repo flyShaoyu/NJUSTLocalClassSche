@@ -1,35 +1,41 @@
 # ClassSche
 
-一个用于抓取、解析、渲染并打包课表的项目。
-
-它包含两条主线：
+一个面向 NJUST 教务课表的本地化项目，包含两条主链路：
 
 - 桌面端：`Node.js + TypeScript + Playwright`
 - 移动端：`Android WebView APK`
 
-当前能力包括：
+项目目标链路为：
 
-- 打开教务登录页
-- 复用已保存登录态
-- 登录失效时回退到人工登录
-- 抓取课表 HTML
-- 解析生成 `timetable.json`
-- 渲染本地课表页面
-- 导出到 Android 资源并打包 APK
+1. 登录教务系统
+2. 抓取课表 HTML
+3. 解析为结构化 JSON
+4. 渲染为本地课表页面
+5. 导出到 Android 并打包 APK
 
-## 下载发布版
+## 发布下载
 
 - GitHub Releases：
   [https://github.com/flyShaoyu/NJUSTLocalClassSche/releases](https://github.com/flyShaoyu/NJUSTLocalClassSche/releases)
 
-## 目录说明
+## 当前能力
+
+- 复用桌面端登录态 `artifacts/storageState.json`
+- 登录态失效后切回人工登录
+- 抓取课表页并保存原始 HTML
+- 解析课程名称、星期、节次、教室、周次、教师、课程代码、课程序号、课程性质
+- 生成移动端风格的本地课表页面
+- 导出 Android `assets`
+- Android 端本地登录、验证码显示、课表缓存显示
+
+## 目录结构
 
 - `src/`
-  核心脚本，包含登录、抓取、解析、渲染、Android 导出逻辑。
+  核心脚本，包含登录、抓取、解析、渲染、Android 导出逻辑
 - `artifacts/`
-  本地抓取与渲染产物，例如 `timetable.html`、`timetable.json`、`timetable-view.html`。
+  本地产物目录，包含抓取结果、解析结果、渲染页面
 - `android/`
-  Android 工程，用于把本地课表页面封装成 APK，并在手机端执行登录与缓存展示。
+  Android 工程
 
 ## 环境要求
 
@@ -39,7 +45,7 @@
 - Android Studio / Android SDK
 - JDK 17
 
-## 初始化
+## 初次使用
 
 1. 安装依赖
 
@@ -63,13 +69,13 @@ copy .env.example .env
 
 ## 常用命令
 
-抓取课表并更新本地缓存：
+抓取课表并更新本地产物：
 
 ```bash
 npm run start
 ```
 
-仅解析已抓到的 HTML：
+仅重解析已有 HTML：
 
 ```bash
 npm run parse
@@ -93,54 +99,79 @@ npm run export:android
 npm run check
 ```
 
-## 主要产物
+## Android 构建
+
+`gradlew.bat` 在 `android/` 目录下，不在仓库根目录。
+
+推荐命令：
+
+```powershell
+cd D:\document\CLassSche\android
+$env:JAVA_HOME='C:\Users\43631\.jdks\jbr-17.0.14'
+$env:Path="$env:JAVA_HOME\bin;$env:Path"
+.\gradlew.bat :app:assembleDebug
+```
+
+## 产物说明
 
 - `artifacts/timetable.html`
   原始课表 HTML
 - `artifacts/timetable.json`
-  解析后的课表数据
+  解析后的结构化课表
 - `artifacts/timetable-view.html`
-  本地课表前端页面
+  本地课表页面
+- `artifacts/home-view.html`
+  本地首页页面
 - `artifacts/storageState.json`
   Playwright 登录态
 
-## 登录流程
+## 串行执行说明
 
-桌面端流程：
+这一步很重要：`render:ui` 和 `export:android` 不能并行跑。
+
+正确顺序是：
+
+1. `npm run render:ui`
+2. `npm run export:android`
+3. `./gradlew.bat :app:assembleDebug`
+
+原因是 `export:android` 依赖 `render:ui` 刚生成的新 HTML。若并行执行，Android 很容易打进上一个版本的页面，表现为“网页是新的，app 落后一版”。
+
+## 登录与缓存
+
+桌面端：
 
 1. 优先复用 `artifacts/storageState.json`
-2. 若登录态失效，打开登录页
-3. 允许手工输入账号、密码、验证码
-4. 登录成功后重新保存登录态
+2. 若失效则打开登录页
+3. 用户手工输入账号、密码、验证码
+4. 登录成功后重存登录态
 5. 访问课表页并抓取 HTML
-6. 解析并渲染本地课表页面
 
-移动端流程：
+Android 端：
 
-1. 本地登录表单输入账号、密码、验证码
-2. 隐藏 `WebView` 加载真实登录页
-3. 从真实页面读取验证码图
-4. 提交真实表单并跳转课表页
-5. 读取课表 HTML 并刷新本地缓存展示
+1. 本地登录页输入账号、密码、验证码
+2. 隐藏 `WebView` 打开真实登录页
+3. 拉取验证码图
+4. 提交真实表单
+5. 登录成功后抓取课表并更新本地缓存
 
 ## 安全说明
 
-- `.env`、`artifacts/`、构建产物、APK 都已加入 `.gitignore`
-- 本仓库默认不提交账号、密码、登录态、抓取结果
-- 如需分享仓库，请确认未手动加入敏感文件
+- `.env`
+- `artifacts/`
+- Android 构建产物
+- APK
+- 登录态
+
+以上都不应提交到 git。
 
 ## 相关文档
 
-- `ANDROID.md`
-  Android 说明
-- `API.md`
-  主要模块和脚本接口
-- `AGENT.md`
-  协作与维护约定
-- `PROMPTS.md`
-  常用提示词与操作入口
-- `CHANGELOG.md`
-  当前版本变更记录
+- [ANDROID.md](/d:/document/CLassSche/ANDROID.md)
+- [API.md](/d:/document/CLassSche/API.md)
+- [AGENT.md](/d:/document/CLassSche/AGENT.md)
+- [PROMPTS.md](/d:/document/CLassSche/PROMPTS.md)
+- [CHANGELOG.md](/d:/document/CLassSche/CHANGELOG.md)
 
 ## 写在最后
  - 本仓库完全由codex生成，几乎无人工痕迹
