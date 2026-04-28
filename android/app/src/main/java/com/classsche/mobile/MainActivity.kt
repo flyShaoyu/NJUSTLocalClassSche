@@ -160,16 +160,16 @@ class MainActivity : AppCompatActivity() {
     private const val PREF_ASSET_EXPORT_ID = "asset_export_id"
     private const val CACHE_META_ASSET = "cache-meta.json"
     private val HOME_MENU_ITEMS = listOf(
-      HomeMenuEntry("exam", "考试安排", android.R.drawable.ic_menu_agenda, false),
-      HomeMenuEntry("score", "成绩查询", android.R.drawable.ic_menu_sort_by_size, false),
-      HomeMenuEntry("level", "等级考试", android.R.drawable.ic_menu_edit, false),
-      HomeMenuEntry("add", "添加课表", android.R.drawable.ic_menu_add, false),
-      HomeMenuEntry("schedule", "课表查询", android.R.drawable.ic_menu_today, true),
-      HomeMenuEntry("room", "空闲教室", android.R.drawable.ic_menu_my_calendar, false),
-      HomeMenuEntry("site", "常用网站", android.R.drawable.ic_menu_compass, false),
-      HomeMenuEntry("refresh", "更新课表", android.R.drawable.ic_popup_sync, false),
-      HomeMenuEntry("library", "图书搜索", android.R.drawable.ic_menu_search, false),
-      HomeMenuEntry("borrow", "借阅信息", android.R.drawable.ic_menu_info_details, false)
+      HomeMenuEntry("exam", "考试安排", R.drawable.ic_home_exam, false),
+      HomeMenuEntry("score", "成绩查询", R.drawable.ic_home_score, false),
+      HomeMenuEntry("level", "等级考试", R.drawable.ic_home_level, false),
+      HomeMenuEntry("add", "添加课表", R.drawable.ic_home_add, false),
+      HomeMenuEntry("schedule", "课表查询", R.drawable.ic_home_schedule, true),
+      HomeMenuEntry("room", "空闲教室", R.drawable.ic_home_room, false),
+      HomeMenuEntry("site", "常用网站", R.drawable.ic_home_site, false),
+      HomeMenuEntry("refresh", "更新课表", R.drawable.ic_home_refresh, false),
+      HomeMenuEntry("library", "图书搜索", R.drawable.ic_home_library, false),
+      HomeMenuEntry("borrow", "借阅信息", R.drawable.ic_home_borrow, false)
     )
     private val HOME_WEEKDAYS = listOf("星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日")
     private val HOME_WEEK_TITLES = listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
@@ -933,9 +933,13 @@ class MainActivity : AppCompatActivity() {
       button.setTextColor(if (selected) activeColor else inactiveColor)
       button.iconTint = android.content.res.ColorStateList.valueOf(if (selected) activeColor else inactiveColor)
       button.strokeWidth = 0
+      button.elevation = 0f
+      button.translationZ = 0f
+      button.stateListAnimator = null
       button.backgroundTintList = android.content.res.ColorStateList.valueOf(Color.TRANSPARENT)
-      button.rippleColor = android.content.res.ColorStateList.valueOf(Color.parseColor("#223A5E8C"))
-      button.isChecked = selected
+      button.rippleColor = android.content.res.ColorStateList.valueOf(Color.TRANSPARENT)
+      button.isPressed = false
+      button.isSelected = selected
     }
   }
 
@@ -1496,7 +1500,7 @@ class MainActivity : AppCompatActivity() {
       val itemView = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
         gravity = android.view.Gravity.CENTER
-        setPadding(dpToPx(2), 0, dpToPx(2), 0)
+        setPadding(dpToPx(4), dpToPx(4), dpToPx(4), dpToPx(2))
         layoutParams = GridLayout.LayoutParams().apply {
           width = 0
           columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f)
@@ -1505,18 +1509,21 @@ class MainActivity : AppCompatActivity() {
       }
 
       val icon = ImageView(this).apply {
-        layoutParams = LinearLayout.LayoutParams(dpToPx(50), dpToPx(50))
+        layoutParams = LinearLayout.LayoutParams(dpToPx(48), dpToPx(48))
         setImageResource(item.iconRes)
-        imageTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#9CA6B5"))
-        alpha = if (item.enabled) 1f else 0.92f
+        background = null
+        alpha = 1f
+        scaleType = ImageView.ScaleType.FIT_CENTER
+        adjustViewBounds = true
       }
 
       val label = TextView(this).apply {
         text = item.label
-        textSize = 11f
-        setTextColor(Color.parseColor("#77818F"))
+        textSize = 14f
+        setTextColor(Color.parseColor("#6B7380"))
         gravity = android.view.Gravity.CENTER
         minLines = 2
+        includeFontPadding = false
       }
 
       itemView.addView(icon)
@@ -1592,10 +1599,11 @@ class MainActivity : AppCompatActivity() {
           val start = parseTime(PERIOD_SLOTS[course.startPeriod]?.first ?: "00:00")
           val end = parseTime(PERIOD_SLOTS[course.endPeriod]?.second ?: "23:59")
           val isAlert = offset == 0 && ((now >= start && now <= end) || (now < start && ChronoUnit.MINUTES.between(now, start) in 0..15))
+          val majorLabel = formatMajorPeriodLabel(course.startPeriod, course.endPeriod)
           result += HomeRecentEntry(
             displayDay = if (offset == 0) "今日" else "明日",
             title = course.course.courseName,
-            meta = "第${course.startPeriod}大节 ${PERIOD_SLOTS[course.startPeriod]?.first.orEmpty()}-${PERIOD_SLOTS[course.endPeriod]?.second.orEmpty()}",
+            meta = "$majorLabel ${PERIOD_SLOTS[course.startPeriod]?.first.orEmpty()}-${PERIOD_SLOTS[course.endPeriod]?.second.orEmpty()}",
             room = course.course.classroom.ifBlank { "待定" },
             isToday = offset == 0,
             isAlert = isAlert
@@ -1617,6 +1625,22 @@ class MainActivity : AppCompatActivity() {
         sequenceOf(token.toInt())
       }
     }.toList()
+  }
+
+  private fun formatMajorPeriodLabel(startPeriod: Int, endPeriod: Int): String {
+    if (startPeriod == 14 || endPeriod == 14) {
+      return "线上"
+    }
+
+    val majorIndex = when (startPeriod) {
+      in 1..3 -> 1
+      in 4..5 -> 2
+      in 6..7 -> 3
+      in 8..10 -> 4
+      in 11..13 -> 5
+      else -> startPeriod
+    }
+    return "第${majorIndex}大节"
   }
 
   private fun parseTime(value: String): LocalTime = runCatching { LocalTime.parse(value) }.getOrElse { LocalTime.MIN }
