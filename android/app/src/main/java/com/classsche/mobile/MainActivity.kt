@@ -4,6 +4,9 @@ import android.animation.AnimatorSet
 import android.animation.ObjectAnimator
 import android.animation.ValueAnimator
 import android.annotation.SuppressLint
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.content.Context
@@ -27,6 +30,7 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.GridLayout
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
@@ -55,6 +59,7 @@ class MainActivity : AppCompatActivity() {
   private val mainHandler = Handler(Looper.getMainLooper())
   private val ioExecutor = Executors.newSingleThreadExecutor()
   private val prefs by lazy { getSharedPreferences("classsche_prefs", Context.MODE_PRIVATE) }
+  private var syncingNotificationSwitch = false
   private var baseToolbarPaddingLeft = 0
   private var baseToolbarPaddingTop = 0
   private var baseToolbarPaddingRight = 0
@@ -110,6 +115,16 @@ class MainActivity : AppCompatActivity() {
   private val homeBitmapCache = object : LruCache<String, Bitmap>(12) {}
   private val homeViewerTransitionStates = mutableMapOf<String, HomeViewerTransformState>()
   private lateinit var homeViewerScaleDetector: ScaleGestureDetector
+  private val notificationPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+    if (granted) {
+      attemptEnableNotificationAfterPermission()
+    } else {
+      CourseNotificationService.saveEnabled(this, false)
+      setNotificationSwitchChecked(false)
+      Toast.makeText(this, "未授予通知权限，无法开启课表通知", Toast.LENGTH_SHORT).show()
+    }
+    refreshNotificationInputEnabledState()
+  }
   private val homeCarouselRunnable = object : Runnable {
     override fun run() {
       if (currentWebScreen == WebScreen.HOME && binding.homePage.visibility == View.VISIBLE && currentHomeImages.size > 1) {
@@ -144,6 +159,8 @@ class MainActivity : AppCompatActivity() {
 
   private enum class WebScreen {
     HOME,
+    PROFILE,
+    LOGIN,
     TIMETABLE
   }
 
@@ -231,6 +248,9 @@ class MainActivity : AppCompatActivity() {
     setupContentWebView()
     setupActions()
     restoreSavedCredentials()
+    setupNotificationSettings()
+    restoreNotificationSettings()
+    CourseNotificationScheduler.sync(this)
 
     showHomePage()
     binding.root.post {
@@ -250,9 +270,20 @@ class MainActivity : AppCompatActivity() {
     super.onDestroy()
   }
 
+  override fun onResume() {
+    super.onResume()
+    updateNotificationLeadTimeSummary()
+    refreshNotificationInputEnabledState()
+  }
+
   override fun onBackPressed() {
     if (homeViewerVisible) {
       closeHomeImageViewer()
+      return
+    }
+
+    if (binding.loginPage.visibility == View.VISIBLE) {
+      showProfilePage()
       return
     }
 
@@ -277,8 +308,10 @@ class MainActivity : AppCompatActivity() {
     binding.toolbar.title = getString(R.string.toolbar_title_home)
     binding.toolbar.navigationIcon = null
     binding.toolbar.setNavigationOnClickListener {
-      if (currentWebScreen == WebScreen.TIMETABLE) {
-        showHomePage()
+      when (currentWebScreen) {
+        WebScreen.TIMETABLE -> showHomePage()
+        WebScreen.LOGIN -> showProfilePage()
+        else -> Unit
       }
     }
     ViewCompat.setOnApplyWindowInsetsListener(binding.toolbar) { view, insets ->
@@ -395,7 +428,11 @@ class MainActivity : AppCompatActivity() {
   private fun setupActions() {
     updateBottomNavSelection(binding.navHomeButton.id)
     binding.navHomeButton.setOnClickListener { showHomePage() }
-    binding.navProfileButton.setOnClickListener { showLoginPage() }
+    binding.navProfileButton.setOnClickListener { showProfilePage() }
+    binding.profileAccountCard.setOnClickListener { showLoginPage() }
+    binding.profileOpenNotificationRow.setOnClickListener {
+      startActivity(Intent(this, NotificationSettingsActivity::class.java))
+    }
 
     binding.openLoginButton.setOnClickListener {
       bootstrapLoginSession(forceReload = true)
@@ -420,6 +457,70 @@ class MainActivity : AppCompatActivity() {
 
   }
 
+  private fun setupNotificationSettings() {
+    binding.notificationSwitch.setOnCheckedChangeListener { _, isChecked ->
+      if (syncingNotificationSwitch) return@setOnCheckedChangeListener
+      onNotificationToggleRequested(isChecked)
+    }
+  }
+
+  private fun restoreNotificationSettings() {
+    setNotificationSwitchChecked(CourseNotificationService.isEnabled(this))
+    updateNotificationLeadTimeSummary()
+    refreshNotificationInputEnabledState()
+  }
+
+  private fun onNotificationToggleRequested(enabled: Boolean) {
+    if (enabled) {
+      if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+        val hasPermission = ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+        if (!hasPermission) {
+          notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+          return
+        }
+      }
+      attemptEnableNotificationAfterPermission()
+      return
+    }
+    CourseNotificationService.saveEnabled(this, enabled)
+    CourseNotificationScheduler.cancelAll(this)
+    refreshNotificationInputEnabledState()
+  }
+
+  private fun attemptEnableNotificationAfterPermission() {
+    if (!CourseNotificationScheduler.canScheduleExactAlarms(this)) {
+      CourseNotificationService.saveEnabled(this, false)
+      setNotificationSwitchChecked(false)
+      Toast.makeText(this, "请先开启系统的精确闹钟权限，才能保证清后台后准时提醒", Toast.LENGTH_LONG).show()
+      startActivity(Intent(this, NotificationSettingsActivity::class.java))
+      refreshNotificationInputEnabledState()
+      return
+    }
+    CourseNotificationService.saveEnabled(this, true)
+    setNotificationSwitchChecked(true)
+    CourseNotificationScheduler.sync(this)
+    refreshNotificationInputEnabledState()
+  }
+
+  private fun setNotificationSwitchChecked(checked: Boolean) {
+    syncingNotificationSwitch = true
+    binding.notificationSwitch.isChecked = checked
+    syncingNotificationSwitch = false
+  }
+
+  private fun refreshNotificationInputEnabledState() {
+    val enabled = binding.notificationSwitch.isChecked
+    binding.profileOpenNotificationRow.isEnabled = enabled
+    binding.profileOpenNotificationRow.alpha = if (enabled) 1f else 0.45f
+    binding.notificationSettingSummary.alpha = if (enabled) 1f else 0.45f
+  }
+
+  private fun updateNotificationLeadTimeSummary() {
+    val hours = CourseNotificationService.getLeadHours(this)
+    val minutes = CourseNotificationService.getLeadMinutePart(this)
+    binding.notificationSettingSummary.text = getString(R.string.notification_setting_summary_format, hours, minutes)
+  }
+
   private fun bootstrapLoginSession(forceReload: Boolean = false) {
     if (loginSessionBootstrapped && !forceReload) {
       return
@@ -438,7 +539,28 @@ class MainActivity : AppCompatActivity() {
     closeHomeImageViewer(resumeCarousel = false)
     bootstrapLoginSession()
     clearInputFocus()
+    currentWebScreen = WebScreen.LOGIN
     binding.loginPage.visibility = View.VISIBLE
+    binding.profilePage.visibility = View.GONE
+    binding.homePage.visibility = View.GONE
+    binding.homeWebView.visibility = View.GONE
+    binding.timetablePage.visibility = View.GONE
+    binding.bottomNavGroup.visibility = View.GONE
+    updateBottomNavSelection(binding.navProfileButton.id)
+    binding.toolbar.title = getString(R.string.toolbar_title_login)
+    binding.toolbar.navigationIcon = ContextCompat.getDrawable(this, androidx.appcompat.R.drawable.abc_ic_ab_back_material)?.mutate()?.apply {
+      setTint(Color.WHITE)
+    }
+    applyToolbarLayout()
+    updateToolbarNavigationButtonLayout()
+  }
+
+  private fun showProfilePage() {
+    closeHomeImageViewer(resumeCarousel = false)
+    currentWebScreen = WebScreen.PROFILE
+    updateProfileWelcome()
+    binding.loginPage.visibility = View.GONE
+    binding.profilePage.visibility = View.VISIBLE
     binding.homePage.visibility = View.GONE
     binding.homeWebView.visibility = View.GONE
     binding.timetablePage.visibility = View.GONE
@@ -446,6 +568,8 @@ class MainActivity : AppCompatActivity() {
     updateBottomNavSelection(binding.navProfileButton.id)
     binding.toolbar.title = getString(R.string.toolbar_title_profile)
     binding.toolbar.navigationIcon = null
+    applyToolbarLayout()
+    updateToolbarNavigationButtonLayout()
   }
 
   private fun applyWebScreen(screen: WebScreen) {
@@ -458,29 +582,48 @@ class MainActivity : AppCompatActivity() {
     when (screen) {
       WebScreen.HOME -> {
         binding.loginPage.visibility = View.GONE
+        binding.profilePage.visibility = View.GONE
         binding.homePage.visibility = View.VISIBLE
+        binding.homeWebView.visibility = View.GONE
+        binding.timetablePage.visibility = View.GONE
+      }
+      WebScreen.PROFILE -> {
+        binding.loginPage.visibility = View.GONE
+        binding.profilePage.visibility = View.VISIBLE
+        binding.homePage.visibility = View.GONE
+        binding.homeWebView.visibility = View.GONE
+        binding.timetablePage.visibility = View.GONE
+      }
+      WebScreen.LOGIN -> {
+        binding.loginPage.visibility = View.VISIBLE
+        binding.profilePage.visibility = View.GONE
+        binding.homePage.visibility = View.GONE
         binding.homeWebView.visibility = View.GONE
         binding.timetablePage.visibility = View.GONE
       }
       WebScreen.TIMETABLE -> {
         binding.loginPage.visibility = View.GONE
+        binding.profilePage.visibility = View.GONE
         binding.homePage.visibility = View.GONE
         binding.homeWebView.visibility = View.GONE
         binding.timetablePage.visibility = View.VISIBLE
       }
     }
 
-    val showControls = screen == WebScreen.TIMETABLE
-    binding.bottomNavGroup.visibility = if (showControls || homeViewerVisible) View.GONE else View.VISIBLE
-    if (!showControls) {
+    val hideBottomNav = screen == WebScreen.TIMETABLE || screen == WebScreen.LOGIN
+    binding.bottomNavGroup.visibility = if (hideBottomNav || homeViewerVisible) View.GONE else View.VISIBLE
+    if (screen == WebScreen.HOME) {
       updateBottomNavSelection(binding.navHomeButton.id)
+    } else if (screen == WebScreen.PROFILE || screen == WebScreen.LOGIN) {
+      updateBottomNavSelection(binding.navProfileButton.id)
     }
-    binding.toolbar.title = if (showControls) {
-      getString(R.string.toolbar_title_timetable)
-    } else {
-      getString(R.string.toolbar_title_home)
+    binding.toolbar.title = when (screen) {
+      WebScreen.HOME -> getString(R.string.toolbar_title_home)
+      WebScreen.PROFILE -> getString(R.string.toolbar_title_profile)
+      WebScreen.LOGIN -> getString(R.string.toolbar_title_login)
+      WebScreen.TIMETABLE -> getString(R.string.toolbar_title_timetable)
     }
-    binding.toolbar.navigationIcon = if (showControls) {
+    binding.toolbar.navigationIcon = if (screen == WebScreen.TIMETABLE || screen == WebScreen.LOGIN) {
       ContextCompat.getDrawable(this, androidx.appcompat.R.drawable.abc_ic_ab_back_material)?.mutate()?.apply {
         setTint(Color.WHITE)
       }
@@ -495,6 +638,12 @@ class MainActivity : AppCompatActivity() {
       if (currentHomeImages.size > 1) {
         mainHandler.postDelayed(homeCarouselRunnable, 4200)
       }
+    } else if (screen == WebScreen.PROFILE) {
+      binding.profilePage.requestFocus()
+      mainHandler.removeCallbacks(homeCarouselRunnable)
+    } else if (screen == WebScreen.LOGIN) {
+      binding.loginPage.requestFocus()
+      mainHandler.removeCallbacks(homeCarouselRunnable)
     } else {
       binding.contentWebView.requestFocus()
       mainHandler.removeCallbacks(homeCarouselRunnable)
@@ -763,8 +912,9 @@ class MainActivity : AppCompatActivity() {
   }
 
   private fun applyToolbarLayout() {
-    val extraBottom = if (currentWebScreen == WebScreen.HOME) dpToPx(10) else 0
-    val minHeight = if (currentWebScreen == WebScreen.HOME) dpToPx(56) else 0
+    val usesPrimaryPageToolbar = currentWebScreen == WebScreen.HOME || currentWebScreen == WebScreen.PROFILE
+    val extraBottom = if (usesPrimaryPageToolbar) dpToPx(10) else 0
+    val minHeight = if (usesPrimaryPageToolbar) dpToPx(56) else 0
 
     binding.toolbar.minimumHeight = minHeight
     binding.toolbar.setPadding(
@@ -855,6 +1005,7 @@ class MainActivity : AppCompatActivity() {
 
   private fun refreshGeneratedCacheAfterStartup() {
     syncAssetExportId()
+    CourseNotificationScheduler.sync(this)
     renderedHomeSignature = null
 
     if (currentWebScreen == WebScreen.HOME) {
@@ -1077,7 +1228,7 @@ class MainActivity : AppCompatActivity() {
     binding.homeImageViewerImage.setImageDrawable(null)
     binding.homeImageViewerNextImage.setImageDrawable(null)
     binding.bottomNavGroup.visibility =
-      if (currentWebScreen == WebScreen.HOME && binding.loginPage.visibility != View.VISIBLE) View.VISIBLE else View.GONE
+      if ((currentWebScreen == WebScreen.HOME || currentWebScreen == WebScreen.PROFILE) && binding.loginPage.visibility != View.VISIBLE) View.VISIBLE else View.GONE
     if (resumeCarousel && currentWebScreen == WebScreen.HOME && currentHomeImages.size > 1) {
       mainHandler.removeCallbacks(homeCarouselRunnable)
       mainHandler.postDelayed(homeCarouselRunnable, 4200)
@@ -1570,31 +1721,7 @@ class MainActivity : AppCompatActivity() {
   }
 
   private fun loadCoursesFromCacheJson(): List<TimetableCourse> {
-    val cacheJsonFile = File(filesDir, CACHE_JSON_FILE)
-    if (!cacheJsonFile.exists() || cacheJsonFile.length() <= 2L) return emptyList()
-    val rawJson = runCatching { cacheJsonFile.readText(Charsets.UTF_8) }.getOrNull() ?: return emptyList()
-    return runCatching {
-      val array = JSONArray(rawJson)
-      buildList {
-        for (index in 0 until array.length()) {
-          val item = array.optJSONObject(index) ?: continue
-          add(
-            TimetableCourse(
-              courseName = item.optString("courseName"),
-              weekday = item.optString("weekday"),
-              periods = item.optString("periods"),
-              classroom = item.optString("classroom"),
-              weeks = item.optString("weeks"),
-              teacher = item.optString("teacher"),
-              courseCode = item.optString("courseCode"),
-              courseSequence = item.optString("courseSequence"),
-              courseType = item.optString("courseType"),
-              rawText = item.optString("rawText")
-            )
-          )
-        }
-      }
-    }.getOrDefault(emptyList())
+    return TimetableScheduleHelper.loadCoursesFromCacheJson(this)
   }
 
   private fun buildRecentCourses(courses: List<TimetableCourse>): List<HomeRecentEntry> {
@@ -1926,6 +2053,7 @@ class MainActivity : AppCompatActivity() {
           mainHandler.post {
             cacheCaptureInProgress = false
             updateStatus("本地缓存已更新，共解析 ${courses.size} 条课程。")
+            CourseNotificationScheduler.sync(this@MainActivity)
             showCachedTimetable()
           }
         } catch (error: Exception) {
@@ -1945,6 +2073,16 @@ class MainActivity : AppCompatActivity() {
   private fun restoreSavedCredentials() {
     binding.usernameInput.editText?.setText(prefs.getString(PREF_USERNAME, "").orEmpty())
     binding.passwordInput.editText?.setText(prefs.getString(PREF_PASSWORD, "").orEmpty())
+    updateProfileWelcome()
+  }
+
+  private fun updateProfileWelcome() {
+    val username = prefs.getString(PREF_USERNAME, "").orEmpty().trim()
+    binding.profileUsernameText.text = if (username.isBlank()) {
+      getString(R.string.profile_welcome_guest)
+    } else {
+      getString(R.string.profile_welcome_format, username)
+    }
   }
 
   private fun clearInputFocus() {
@@ -1969,6 +2107,7 @@ class MainActivity : AppCompatActivity() {
       .putString(PREF_USERNAME, username)
       .putString(PREF_PASSWORD, password)
       .apply()
+    updateProfileWelcome()
   }
 
   private fun syncAssetExportId() {
