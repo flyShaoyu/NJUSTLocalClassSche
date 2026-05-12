@@ -43,6 +43,9 @@ import android.widget.Toast
 import com.classsche.mobile.databinding.ActivityMainBinding
 import org.json.JSONArray
 import org.json.JSONObject
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import java.io.BufferedInputStream
 import java.io.File
 import java.net.HttpURLConnection
@@ -67,6 +70,8 @@ class MainActivity : AppCompatActivity() {
   private var lastStatusBarInsetTop = 0
 
   private var loginSubmitted = false
+  private var isAutoUpdating = false
+  private var autoUpdateFailedAttempts = 0
   private var cacheCaptureInProgress = false
   private var showingLiveTimetable = false
   private var currentWebScreen = WebScreen.HOME
@@ -435,6 +440,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     binding.openLoginButton.setOnClickListener {
+      isAutoUpdating = false
       bootstrapLoginSession(forceReload = true)
     }
 
@@ -1712,6 +1718,17 @@ class MainActivity : AppCompatActivity() {
       itemView.setOnClickListener {
         if (item.key == "schedule") {
           showCachedTimetable()
+        } else if (item.key == "refresh") {
+          val user = prefs.getString(PREF_USERNAME, "")
+          val pwd = prefs.getString(PREF_PASSWORD, "")
+          if (user.isNullOrBlank() || pwd.isNullOrBlank()) {
+             Toast.makeText(this, "请先在个人中心填写账号密码", Toast.LENGTH_SHORT).show()
+          } else {
+             isAutoUpdating = true
+             autoUpdateFailedAttempts = 0
+             Toast.makeText(this, "开始后台自动更新课表...", Toast.LENGTH_SHORT).show()
+             bootstrapLoginSession(forceReload = true)
+          }
         } else {
           Toast.makeText(this, "该功能入口已预留，暂未实现", Toast.LENGTH_SHORT).show()
         }
@@ -1884,7 +1901,7 @@ class MainActivity : AppCompatActivity() {
     }
   }
 
-  private fun refreshCaptchaInWebView() {
+  private fun refreshCaptchaInWebView(retryCount: Int = 0) {
     updateStatus(getString(R.string.status_refreshing_captcha))
     binding.authWebView.evaluateJavascript(
       """
@@ -1901,11 +1918,11 @@ class MainActivity : AppCompatActivity() {
       })();
       """.trimIndent()
     ) { _ ->
-      mainHandler.postDelayed({ fetchCaptchaFromWebView() }, 500)
+      mainHandler.postDelayed({ fetchCaptchaFromWebView(retryCount) }, 500)
     }
   }
 
-  private fun fetchCaptchaFromWebView() {
+  private fun fetchCaptchaFromWebView(retryCount: Int = 0) {
     binding.authWebView.evaluateJavascript(
       """
       (function() {
@@ -1920,11 +1937,11 @@ class MainActivity : AppCompatActivity() {
         return@evaluateJavascript
       }
 
-      loadCaptchaImage(relativeUrl)
+      loadCaptchaImage(relativeUrl, retryCount)
     }
   }
 
-  private fun loadCaptchaImage(relativeUrl: String) {
+  private fun loadCaptchaImage(relativeUrl: String, retryCount: Int = 0) {
     val absoluteUrl = URL(URL(LOGIN_URL), relativeUrl).toString()
     val cookie = CookieManager.getInstance().getCookie(LOGIN_URL).orEmpty()
 
@@ -1947,6 +1964,43 @@ class MainActivity : AppCompatActivity() {
             binding.captchaImage.contentDescription = getString(R.string.captcha_loaded)
             updateStatus(getString(R.string.status_captcha_loaded))
           }
+          
+          if (bitmap != null) {
+            val processedBitmap = preprocessCaptcha(bitmap)
+            val image = InputImage.fromBitmap(processedBitmap, 0)
+            val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+            recognizer.process(image)
+              .addOnSuccessListener { visionText ->
+                val text = visionText.text.replace(Regex("[^a-zA-Z0-9]"), "")
+                if (text.length == 4) {
+                  mainHandler.post {
+                    binding.captchaInput.editText?.setText(text)
+                    updateStatus("验证码识别成功")
+                    if (isAutoUpdating) {
+                      submitLogin()
+                    }
+                  }
+                } else if (retryCount < 5) {
+                  mainHandler.post { 
+                    updateStatus("验证码识别失败，正在重试...")
+                    refreshCaptchaInWebView(retryCount + 1) 
+                  }
+                } else {
+                  mainHandler.post {
+                    binding.captchaInput.editText?.setText(text)
+                    updateStatus("验证码识别达到最大重试次数")
+                  }
+                }
+              }
+              .addOnFailureListener {
+                if (retryCount < 5) {
+                  mainHandler.post { 
+                    updateStatus("验证码识别异常，正在重试...")
+                    refreshCaptchaInWebView(retryCount + 1) 
+                  }
+                }
+              }
+          }
         }
       } catch (error: Exception) {
         mainHandler.post {
@@ -1954,6 +2008,35 @@ class MainActivity : AppCompatActivity() {
         }
       }
     }
+  }
+
+  private fun preprocessCaptcha(src: Bitmap): Bitmap {
+    val scale = 3f
+    val scaledWidth = (src.width * scale).toInt()
+    val scaledHeight = (src.height * scale).toInt()
+    val scaledBitmap = Bitmap.createScaledBitmap(src, scaledWidth, scaledHeight, true)
+    
+    val result = Bitmap.createBitmap(scaledWidth, scaledHeight, Bitmap.Config.ARGB_8888)
+    val canvas = android.graphics.Canvas(result)
+    val paint = android.graphics.Paint()
+    val colorMatrix = android.graphics.ColorMatrix().apply {
+      setSaturation(0f)
+    }
+    paint.colorFilter = android.graphics.ColorMatrixColorFilter(colorMatrix)
+    canvas.drawBitmap(scaledBitmap, 0f, 0f, paint)
+
+    val pixels = IntArray(scaledWidth * scaledHeight)
+    result.getPixels(pixels, 0, scaledWidth, 0, 0, scaledWidth, scaledHeight)
+    for (i in pixels.indices) {
+      val p = pixels[i]
+      val r = Color.red(p)
+      val g = Color.green(p)
+      val b = Color.blue(p)
+      val gray = (r * 0.299 + g * 0.587 + b * 0.114).toInt()
+      pixels[i] = if (gray > 165) Color.WHITE else Color.BLACK
+    }
+    result.setPixels(pixels, 0, scaledWidth, 0, 0, scaledWidth, scaledHeight)
+    return result
   }
 
   private fun submitLogin() {
@@ -2010,6 +2093,10 @@ class MainActivity : AppCompatActivity() {
       mainHandler.postDelayed({
         if (binding.authWebView.url?.let(::looksLikeLoginUrl) == true) {
           loginSubmitted = false
+          if (isAutoUpdating) {
+            autoUpdateFailedAttempts++
+            updateStatus("登录失败，正在进行第 ${autoUpdateFailedAttempts} 次重试...")
+          }
           fetchCaptchaFromWebView()
         }
       }, 1200)
@@ -2054,6 +2141,11 @@ class MainActivity : AppCompatActivity() {
             cacheCaptureInProgress = false
             updateStatus("本地缓存已更新，共解析 ${courses.size} 条课程。")
             CourseNotificationScheduler.sync(this@MainActivity)
+            if (isAutoUpdating) {
+              val msg = if (autoUpdateFailedAttempts == 0) "更新成功 (1次通过)" else "更新成功 (失败 ${autoUpdateFailedAttempts} 次后)"
+              Toast.makeText(this@MainActivity, msg, Toast.LENGTH_LONG).show()
+              isAutoUpdating = false
+            }
             showCachedTimetable()
           }
         } catch (error: Exception) {

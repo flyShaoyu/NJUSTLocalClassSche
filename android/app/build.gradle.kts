@@ -48,4 +48,5 @@ dependencies {
   implementation("androidx.activity:activity-ktx:1.9.2")
   implementation("androidx.webkit:webkit:1.11.0")
   implementation("org.jsoup:jsoup:1.18.1")
+  implementation("com.google.mlkit:text-recognition:16.0.1")
 }

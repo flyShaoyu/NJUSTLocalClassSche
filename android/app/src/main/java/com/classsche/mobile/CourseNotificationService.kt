@@ -69,6 +69,7 @@ class CourseNotificationService : Service() {
       CourseNotificationScheduler.sync(this)
       return
     }
+
     val notification = buildOngoingNotification(activeCourse)
     val manager = getSystemService(NotificationManager::class.java)
     if (!foregroundStarted) {
@@ -108,19 +109,22 @@ class CourseNotificationService : Service() {
       .setContentIntent(pendingIntent)
       .setOnlyAlertOnce(true)
       .setOngoing(true)
+      .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
       .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
       .build()
   }
 
   private fun ensureChannels() {
     val manager = getSystemService(NotificationManager::class.java)
+    LEGACY_CHANNEL_IDS.forEach(manager::deleteNotificationChannel)
     val ongoingChannel = NotificationChannel(
       ONGOING_CHANNEL_ID,
-      "课表常驻通知",
-      NotificationManager.IMPORTANCE_LOW
+      "课表提醒",
+      NotificationManager.IMPORTANCE_DEFAULT
     ).apply {
-      description = "显示课表提醒状态和即将开始的课程"
+      description = "显示课前到上课期间的课程提醒"
       setShowBadge(false)
+      lockscreenVisibility = Notification.VISIBILITY_PUBLIC
     }
     manager.createNotificationChannel(ongoingChannel)
   }
@@ -138,9 +142,7 @@ class CourseNotificationService : Service() {
   }
 
   private fun scheduleRecoveryIfNeeded() {
-    if (stopRequestedByApp || !isEnabled(this)) {
-      return
-    }
+    if (stopRequestedByApp || !isEnabled(this)) return
     val courses = TimetableScheduleHelper.loadCoursesFromCacheJson(this)
     val leadMinutes = getLeadMinutes(this)
     val activeCourse = TimetableScheduleHelper.findNotificationWindowCourse(courses, leadMinutes)
@@ -154,8 +156,12 @@ class CourseNotificationService : Service() {
     const val PREF_NOTIFICATION_ENABLED = "notification_enabled"
     const val PREF_NOTIFICATION_LEAD_HOURS = "notification_lead_hours"
     const val PREF_NOTIFICATION_LEAD_MINUTES = "notification_lead_minutes"
-    private const val ONGOING_CHANNEL_ID = "classsche_course_ongoing"
+    private const val ONGOING_CHANNEL_ID = "classsche_course_ongoing_v2"
     private const val ONGOING_NOTIFICATION_ID = 2001
+    private val LEGACY_CHANNEL_IDS = listOf(
+      "classsche_course_ongoing",
+      "classsche_course_reminder"
+    )
 
     fun isEnabled(context: Context): Boolean =
       prefs(context).getBoolean(PREF_NOTIFICATION_ENABLED, false)
