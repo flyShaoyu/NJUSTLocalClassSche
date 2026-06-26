@@ -8,6 +8,9 @@ import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
 import android.util.TypedValue
+import android.view.View
+import android.widget.AdapterView
+import android.widget.ArrayAdapter
 import android.widget.ImageButton
 import android.widget.NumberPicker
 import android.widget.Toast
@@ -23,6 +26,7 @@ class NotificationSettingsActivity : AppCompatActivity() {
   private var baseToolbarPaddingRight = 0
   private var baseToolbarPaddingBottom = 0
   private var lastStatusBarInsetTop = 0
+  private var restoringValues = false
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
@@ -64,10 +68,26 @@ class NotificationSettingsActivity : AppCompatActivity() {
     setupPicker(binding.notifyHourPicker, 0, 23)
     setupPicker(binding.notifyMinutePicker, 0, 59)
     val listener = NumberPicker.OnValueChangeListener { _, _, _ ->
+      if (restoringValues) return@OnValueChangeListener
       persistLeadTime()
     }
     binding.notifyHourPicker.setOnValueChangedListener(listener)
     binding.notifyMinutePicker.setOnValueChangedListener(listener)
+    val examAdapter = ArrayAdapter(
+      this,
+      android.R.layout.simple_spinner_item,
+      ExamOngoingNotificationScheduler.leadOptions().map(ExamOngoingNotificationScheduler::formatLeadLabel)
+    )
+    examAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+    binding.examLeadSpinner.adapter = examAdapter
+    binding.examLeadSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+      override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+        if (restoringValues) return
+        persistExamLeadTime()
+      }
+
+      override fun onNothingSelected(parent: AdapterView<*>?) = Unit
+    }
     binding.openExactAlarmButton.setOnClickListener {
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:$packageName")))
@@ -76,8 +96,15 @@ class NotificationSettingsActivity : AppCompatActivity() {
   }
 
   private fun restoreValues() {
+    restoringValues = true
     binding.notifyHourPicker.value = CourseNotificationService.getLeadHours(this)
     binding.notifyMinutePicker.value = CourseNotificationService.getLeadMinutePart(this)
+    val examIndex = ExamOngoingNotificationScheduler.leadOptions()
+      .indexOf(ExamOngoingNotificationScheduler.getLeadMinutes(this))
+      .coerceAtLeast(0)
+    binding.examLeadSpinner.setSelection(examIndex, false)
+    restoringValues = false
+    renderLeadTimeSummaries()
   }
 
   private fun setupManagementActions() {
@@ -92,19 +119,31 @@ class NotificationSettingsActivity : AppCompatActivity() {
   private fun persistLeadTime() {
     CourseNotificationService.saveLeadTime(this, binding.notifyHourPicker.value, binding.notifyMinutePicker.value)
     CourseNotificationScheduler.sync(this)
-    binding.currentSummary.text = getString(
-      R.string.notification_setting_summary_format,
-      binding.notifyHourPicker.value,
-      binding.notifyMinutePicker.value
-    )
+    renderLeadTimeSummaries()
   }
 
-  private fun renderExactAlarmState() {
+  private fun persistExamLeadTime() {
+    val minutes = ExamOngoingNotificationScheduler.leadOptions()
+      .getOrElse(binding.examLeadSpinner.selectedItemPosition) { ExamOngoingNotificationScheduler.defaultLeadMinutes() }
+    ExamOngoingNotificationScheduler.saveLeadMinutes(this, minutes)
+    ExamOngoingNotificationScheduler.sync(this)
+    renderLeadTimeSummaries()
+  }
+
+  private fun renderLeadTimeSummaries() {
     binding.currentSummary.text = getString(
       R.string.notification_setting_summary_format,
       CourseNotificationService.getLeadHours(this),
       CourseNotificationService.getLeadMinutePart(this)
     )
+    binding.examCurrentSummary.text = getString(
+      R.string.notification_exam_setting_summary_format,
+      ExamOngoingNotificationScheduler.formatLeadLabel(ExamOngoingNotificationScheduler.getLeadMinutes(this))
+    )
+  }
+
+  private fun renderExactAlarmState() {
+    renderLeadTimeSummaries()
     val supported = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
     val allowed = CourseNotificationScheduler.canScheduleExactAlarms(this)
     binding.exactAlarmHint.text = when {

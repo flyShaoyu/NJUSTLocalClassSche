@@ -63,7 +63,8 @@ class MainActivity : AppCompatActivity() {
   private val mainHandler = Handler(Looper.getMainLooper())
   private val ioExecutor = Executors.newSingleThreadExecutor()
   private val prefs by lazy { getSharedPreferences("classsche_prefs", Context.MODE_PRIVATE) }
-  private var syncingNotificationSwitch = false
+  private var syncingCourseNotificationSwitch = false
+  private var syncingExamNotificationSwitch = false
   private var baseToolbarPaddingLeft = 0
   private var baseToolbarPaddingTop = 0
   private var baseToolbarPaddingRight = 0
@@ -80,6 +81,7 @@ class MainActivity : AppCompatActivity() {
   private var currentAssetExportId: String? = null
   private var renderedHomeSignature: String? = null
   private var loginSessionBootstrapped = false
+  private var pendingNotificationToggleTarget: NotificationToggleTarget? = null
   private data class HomeImageAsset(
     val caption: String,
     val thumbAssetPath: String,
@@ -125,10 +127,21 @@ class MainActivity : AppCompatActivity() {
     if (granted) {
       attemptEnableNotificationAfterPermission()
     } else {
-      CourseNotificationService.saveEnabled(this, false)
-      setNotificationSwitchChecked(false)
-      Toast.makeText(this, "未授予通知权限，无法开启课表通知", Toast.LENGTH_SHORT).show()
+      when (pendingNotificationToggleTarget) {
+        NotificationToggleTarget.COURSE -> {
+          CourseNotificationService.saveEnabled(this, false)
+          setCourseNotificationSwitchChecked(false)
+          Toast.makeText(this, "未授予通知权限，无法开启上课通知", Toast.LENGTH_SHORT).show()
+        }
+        NotificationToggleTarget.EXAM -> {
+          ExamOngoingNotificationScheduler.saveEnabled(this, false)
+          setExamNotificationSwitchChecked(false)
+          Toast.makeText(this, "未授予通知权限，无法开启考试通知", Toast.LENGTH_SHORT).show()
+        }
+        null -> Unit
+      }
     }
+    pendingNotificationToggleTarget = null
     refreshNotificationInputEnabledState()
   }
   private val homeCarouselRunnable = object : Runnable {
@@ -146,6 +159,11 @@ class MainActivity : AppCompatActivity() {
     val iconRes: Int,
     val enabled: Boolean
   )
+
+  private enum class NotificationToggleTarget {
+    COURSE,
+    EXAM
+  }
 
   private data class HomeRecentEntry(
     val displayDay: String,
@@ -285,6 +303,7 @@ class MainActivity : AppCompatActivity() {
     setupNotificationSettings()
     restoreNotificationSettings()
     CourseNotificationScheduler.sync(this)
+    ExamOngoingNotificationScheduler.sync(this)
 
     showHomePage()
     binding.root.post {
@@ -306,6 +325,7 @@ class MainActivity : AppCompatActivity() {
 
   override fun onResume() {
     super.onResume()
+    restoreNotificationSettings()
     updateNotificationLeadTimeSummary()
     refreshNotificationInputEnabledState()
   }
@@ -496,20 +516,26 @@ class MainActivity : AppCompatActivity() {
   }
 
   private fun setupNotificationSettings() {
-    binding.notificationSwitch.setOnCheckedChangeListener { _, isChecked ->
-      if (syncingNotificationSwitch) return@setOnCheckedChangeListener
-      onNotificationToggleRequested(isChecked)
+    binding.courseNotificationSwitch.setOnCheckedChangeListener { _, isChecked ->
+      if (syncingCourseNotificationSwitch) return@setOnCheckedChangeListener
+      onNotificationToggleRequested(NotificationToggleTarget.COURSE, isChecked)
+    }
+    binding.examNotificationSwitch.setOnCheckedChangeListener { _, isChecked ->
+      if (syncingExamNotificationSwitch) return@setOnCheckedChangeListener
+      onNotificationToggleRequested(NotificationToggleTarget.EXAM, isChecked)
     }
   }
 
   private fun restoreNotificationSettings() {
-    setNotificationSwitchChecked(CourseNotificationService.isEnabled(this))
+    setCourseNotificationSwitchChecked(CourseNotificationService.isEnabled(this))
+    setExamNotificationSwitchChecked(ExamOngoingNotificationScheduler.isEnabled(this))
     updateNotificationLeadTimeSummary()
     refreshNotificationInputEnabledState()
   }
 
-  private fun onNotificationToggleRequested(enabled: Boolean) {
+  private fun onNotificationToggleRequested(target: NotificationToggleTarget, enabled: Boolean) {
     if (enabled) {
+      pendingNotificationToggleTarget = target
       if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
         val hasPermission = ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
         if (!hasPermission) {
@@ -520,43 +546,89 @@ class MainActivity : AppCompatActivity() {
       attemptEnableNotificationAfterPermission()
       return
     }
-    CourseNotificationService.saveEnabled(this, enabled)
-    CourseNotificationScheduler.cancelAll(this)
+    pendingNotificationToggleTarget = null
+    when (target) {
+      NotificationToggleTarget.COURSE -> {
+        CourseNotificationService.saveEnabled(this, false)
+        CourseNotificationScheduler.cancelAll(this)
+      }
+      NotificationToggleTarget.EXAM -> {
+        ExamOngoingNotificationScheduler.saveEnabled(this, false)
+        ExamOngoingNotificationScheduler.cancelAll(this)
+      }
+    }
     refreshNotificationInputEnabledState()
   }
 
   private fun attemptEnableNotificationAfterPermission() {
+    val target = pendingNotificationToggleTarget ?: return
     if (!CourseNotificationScheduler.canScheduleExactAlarms(this)) {
-      CourseNotificationService.saveEnabled(this, false)
-      setNotificationSwitchChecked(false)
-      Toast.makeText(this, "请先开启系统的精确闹钟权限，才能保证清后台后准时提醒", Toast.LENGTH_LONG).show()
+      when (target) {
+        NotificationToggleTarget.COURSE -> {
+          CourseNotificationService.saveEnabled(this, false)
+          setCourseNotificationSwitchChecked(false)
+        }
+        NotificationToggleTarget.EXAM -> {
+          ExamOngoingNotificationScheduler.saveEnabled(this, false)
+          setExamNotificationSwitchChecked(false)
+        }
+      }
+      Toast.makeText(this, "请先开启系统的精确闹钟权限，才能保证上课和考试提醒准时触发", Toast.LENGTH_LONG).show()
       startActivity(Intent(this, NotificationSettingsActivity::class.java))
+      pendingNotificationToggleTarget = null
       refreshNotificationInputEnabledState()
       return
     }
-    CourseNotificationService.saveEnabled(this, true)
-    setNotificationSwitchChecked(true)
-    CourseNotificationScheduler.sync(this)
+    when (target) {
+      NotificationToggleTarget.COURSE -> {
+        CourseNotificationService.saveEnabled(this, true)
+        setCourseNotificationSwitchChecked(true)
+        CourseNotificationScheduler.sync(this)
+      }
+      NotificationToggleTarget.EXAM -> {
+        ExamOngoingNotificationScheduler.saveEnabled(this, true)
+        setExamNotificationSwitchChecked(true)
+        ExamOngoingNotificationScheduler.sync(this)
+      }
+    }
+    pendingNotificationToggleTarget = null
     refreshNotificationInputEnabledState()
   }
 
-  private fun setNotificationSwitchChecked(checked: Boolean) {
-    syncingNotificationSwitch = true
-    binding.notificationSwitch.isChecked = checked
-    syncingNotificationSwitch = false
+  private fun setCourseNotificationSwitchChecked(checked: Boolean) {
+    syncingCourseNotificationSwitch = true
+    binding.courseNotificationSwitch.isChecked = checked
+    syncingCourseNotificationSwitch = false
+  }
+
+  private fun setExamNotificationSwitchChecked(checked: Boolean) {
+    syncingExamNotificationSwitch = true
+    binding.examNotificationSwitch.isChecked = checked
+    syncingExamNotificationSwitch = false
   }
 
   private fun refreshNotificationInputEnabledState() {
-    val enabled = binding.notificationSwitch.isChecked
+    val enabled = binding.courseNotificationSwitch.isChecked || binding.examNotificationSwitch.isChecked
     binding.profileOpenNotificationRow.isEnabled = enabled
     binding.profileOpenNotificationRow.alpha = if (enabled) 1f else 0.45f
     binding.notificationSettingSummary.alpha = if (enabled) 1f else 0.45f
   }
 
   private fun updateNotificationLeadTimeSummary() {
-    val hours = CourseNotificationService.getLeadHours(this)
-    val minutes = CourseNotificationService.getLeadMinutePart(this)
-    binding.notificationSettingSummary.text = getString(R.string.notification_setting_summary_format, hours, minutes)
+    val courseSummary = getString(
+      R.string.notification_setting_summary_format,
+      CourseNotificationService.getLeadHours(this),
+      CourseNotificationService.getLeadMinutePart(this)
+    )
+    val examSummary = getString(
+      R.string.notification_exam_setting_summary_format,
+      ExamOngoingNotificationScheduler.formatLeadLabel(ExamOngoingNotificationScheduler.getLeadMinutes(this))
+    )
+    binding.notificationSettingSummary.text = getString(
+      R.string.notification_profile_summary_format,
+      courseSummary,
+      examSummary
+    )
   }
 
   private fun bootstrapLoginSession(forceReload: Boolean = false) {
@@ -1059,6 +1131,7 @@ class MainActivity : AppCompatActivity() {
   private fun refreshGeneratedCacheAfterStartup() {
     syncAssetExportId()
     CourseNotificationScheduler.sync(this)
+    ExamOngoingNotificationScheduler.sync(this)
     renderedHomeSignature = null
 
     if (currentWebScreen == WebScreen.HOME) {
@@ -2354,6 +2427,7 @@ class MainActivity : AppCompatActivity() {
               updateStatus("课表缓存已更新，共解析 ${courses.size} 条课程；考试安排同步失败。")
             }
             CourseNotificationScheduler.sync(this@MainActivity)
+            ExamOngoingNotificationScheduler.sync(this@MainActivity)
             if (isAutoUpdating) {
               val msg = if (autoUpdateFailedAttempts == 0) "更新成功 (1次通过)" else "更新成功 (失败 ${autoUpdateFailedAttempts} 次后)"
               Toast.makeText(this@MainActivity, msg, Toast.LENGTH_LONG).show()

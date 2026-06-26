@@ -36,8 +36,17 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
+        <service
+            android:name=".ExamForegroundNotificationService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
         <receiver
             android:name=".CourseNotificationAlarmReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name=".ExamNotificationReceiver"
             android:exported="false" />
 
         <receiver
