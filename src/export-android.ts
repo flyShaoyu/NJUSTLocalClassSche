@@ -1,6 +1,8 @@
 import path from "node:path";
 import { access, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import {
+  examJsonPath,
+  examViewPath,
   homeImageArtifactsDir,
   homeViewPath,
   timetableHtmlPath,
@@ -50,7 +52,7 @@ const copyHomeGallery = async (): Promise<void> => {
   await Promise.all(
     targetEntries
       .filter((entry) => entry.isFile())
-      .map((entry) => rm(path.join(targetDir, entry.name), { force: true }))
+      .map((entry) => rm(path.join(targetDir, entry.name), { force: true }).catch(() => undefined))
   );
 
   if (sourceExists) {
@@ -72,6 +74,8 @@ const writeMetaFile = async (): Promise<void> => {
       timetableHtml: "timetable.html",
       timetableJson: "timetable.json",
       timetableView: "timetable-view.html",
+      examJson: "exam-list.json",
+      examView: "exam-view.html",
       homeView: "home-view.html"
     }
   };
@@ -85,8 +89,10 @@ const run = async (): Promise<void> => {
   await ensureDir(androidAssetsDir);
 
   await copyIfExists(timetableViewPath, path.join(androidAssetsDir, "timetable-view.html"));
+  await copyIfExists(examViewPath, path.join(androidAssetsDir, "exam-view.html"));
   await copyIfExists(homeViewPath, path.join(androidAssetsDir, "home-view.html"));
   await copyIfExists(timetableJsonPath, path.join(androidAssetsDir, "timetable.json"));
+  await copyIfExists(examJsonPath, path.join(androidAssetsDir, "exam-list.json"));
   await copyIfExists(timetableHtmlPath, path.join(androidAssetsDir, "timetable.html"));
   await copyHomeGallery();
   await writeMetaFile();

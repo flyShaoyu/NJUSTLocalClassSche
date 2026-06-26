@@ -25,7 +25,10 @@ export const openTimetablePage = async (
     await openPage(page, config.loginUrl, "login URL");
     await waitForManualLogin(page, config);
 
-    logStep("Manual login completed. Re-opening timetable page with the fresh session.");
+    logStep("Manual login completed. Waiting for 2 seconds for login to settle.");
+    await page.waitForTimeout(2000);
+
+    logStep("Re-opening timetable page with the fresh session.");
     await navigateToTimetable(page, config.timetableUrl);
 
     if (await looksLikeLoginPage(page)) {

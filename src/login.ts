@@ -68,9 +68,11 @@ const prefillSavedCredentials = async (page: Page, config: AppConfig): Promise<v
 };
 
 export const looksLikeLoginPage = async (page: Page): Promise<boolean> => {
-  const selector = await firstVisibleSelector(page, DEFAULT_PASSWORD_SELECTORS);
-  logStep(`Login page detection result: ${selector ? `matched ${selector}` : "not matched"}`);
-  return Boolean(selector);
+  const usernameSelector = await firstVisibleSelector(page, DEFAULT_USERNAME_SELECTORS);
+  const passwordSelector = await firstVisibleSelector(page, DEFAULT_PASSWORD_SELECTORS);
+  const isLogin = Boolean(usernameSelector && passwordSelector);
+  logStep(`Login page detection result: ${isLogin ? `matched ${usernameSelector} and ${passwordSelector}` : "not matched"}`);
+  return isLogin;
 };
 
 const hasSuccessIndicator = async (
@@ -98,17 +100,27 @@ export const waitForManualLogin = async (page: Page, config: AppConfig): Promise
 
   const successSelectors = buildSelectorList(config.loginSuccessSelector, DEFAULT_SUCCESS_SELECTORS);
   const deadline = Date.now() + config.manualLoginTimeoutMs;
+  let iteration = 0;
 
   while (Date.now() < deadline) {
+    iteration++;
     await page.waitForLoadState("domcontentloaded").catch(() => undefined);
+    const currentUrl = page.url();
 
     const successSelector = await hasSuccessIndicator(page, successSelectors);
     if (successSelector) {
-      logStep(`Manual login success indicator matched: ${successSelector}`);
+      logStep(`Manual login success indicator matched: ${successSelector}. URL: ${currentUrl}`);
       return;
     }
 
-    if (!(await looksLikeLoginPage(page))) {
+    const isLoginPage = await looksLikeLoginPage(page);
+    logStep(
+      `Login check #${iteration}: URL=${currentUrl}, success_found=${Boolean(
+        successSelector
+      )}, is_login_page=${isLoginPage}`
+    );
+
+    if (!isLoginPage) {
       logStep("The login form is no longer visible. Treating manual login as complete.");
       return;
     }

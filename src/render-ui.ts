@@ -3,6 +3,8 @@ import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import {
+  examJsonPath,
+  examViewPath,
   homeImageArtifactsDir,
   homeImageSourceDir,
   homeViewPath,
@@ -10,10 +12,11 @@ import {
   timetableViewPath
 } from "./config.js";
 import { ensureArtifactsDirectory, writeTextFile } from "./fs-utils.js";
+import { renderExamPage } from "./exam-ui.js";
 import { renderHomePage } from "./home-page-ui.js";
 import { logDivider, logStep } from "./logger.js";
 import { renderTimetablePage } from "./timetable-ui.js";
-import { TimetableCourse } from "./types.js";
+import { ExamArrangement, TimetableCourse } from "./types.js";
 
 const imageExtensions = new Set([".jpg", ".jpeg", ".png", ".webp", ".gif"]);
 const execFileAsync = promisify(execFile);
@@ -82,8 +85,16 @@ try {
 
 const collectHomeImages = async (): Promise<Array<{ fileName: string; src: string; detailSrc: string; fullSrc: string }>> => {
   await fs.mkdir(homeImageSourceDir, { recursive: true });
-  await fs.rm(homeImageArtifactsDir, { recursive: true, force: true });
   await fs.mkdir(homeImageArtifactsDir, { recursive: true });
+
+  const targetEntries = await fs.readdir(homeImageArtifactsDir, { withFileTypes: true }).catch(() => []);
+  await Promise.all(
+    targetEntries
+      .filter((entry) => entry.isFile())
+      .map((entry) =>
+        fs.rm(path.join(homeImageArtifactsDir, entry.name), { force: true }).catch(() => undefined)
+      )
+  );
 
   const entries = await fs.readdir(homeImageSourceDir, { withFileTypes: true });
   const imageEntries = entries.filter((entry) => entry.isFile() && imageExtensions.has(path.extname(entry.name).toLowerCase()));
@@ -111,8 +122,8 @@ const collectHomeImages = async (): Promise<Array<{ fileName: string; src: strin
         thumbSrc = `./resources/${thumbFileName}`;
         detailSrc = `./resources/${detailFileName}`;
       } catch {
-        await fs.rm(thumbTargetPath, { force: true });
-        await fs.rm(detailTargetPath, { force: true });
+        await fs.rm(thumbTargetPath, { force: true }).catch(() => undefined);
+        await fs.rm(detailTargetPath, { force: true }).catch(() => undefined);
       }
 
       return {
@@ -137,10 +148,23 @@ const run = async (): Promise<void> => {
   logStep("Rendering timetable frontend.");
   await writeTextFile(timetableViewPath, renderTimetablePage(courses));
 
+  let exams: ExamArrangement[] = [];
+  try {
+    logStep(`Reading exam JSON from ${examJsonPath}`);
+    const examContent = await fs.readFile(examJsonPath, "utf8");
+    exams = JSON.parse(examContent) as ExamArrangement[];
+    await writeTextFile(examViewPath, renderExamPage(exams));
+    logStep("Rendering exam frontend.");
+  } catch {
+    logStep(`Exam JSON not found, rendering empty exam frontend: ${examJsonPath}`);
+    await writeTextFile(examViewPath, renderExamPage([]));
+  }
+
   logStep("Rendering home frontend.");
   await writeTextFile(homeViewPath, renderHomePage(courses, homeImages));
 
   logStep(`Done. Frontend page saved to ${timetableViewPath}`);
+  logStep(`Done. Exam page saved to ${examViewPath}`);
   logStep(`Done. Home page saved to ${homeViewPath}`);
   logDivider("END");
 };

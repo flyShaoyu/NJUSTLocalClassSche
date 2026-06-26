@@ -5,6 +5,7 @@
   periodSlotsJson: string;
   menuItemsJson: string;
   timetablePageHrefJson: string;
+  examPageHrefJson: string;
   anchorWeek: number;
   anchorMondayJson: string;
 }
@@ -17,6 +18,7 @@ export const buildHomePageScript = (params: HomeScriptParams): string => `
     const periodSlots = ${params.periodSlotsJson};
     const menuItems = ${params.menuItemsJson};
     const timetablePageHref = ${params.timetablePageHrefJson};
+    const examPageHref = ${params.examPageHrefJson};
     const anchorWeek = ${params.anchorWeek};
     const anchorMonday = new Date(${params.anchorMondayJson});
 
@@ -218,9 +220,15 @@ export const buildHomePageScript = (params: HomeScriptParams): string => `
           '<span class="menu-icon">' + menuIcon(item.key) + "</span>" +
           '<span class="menu-label">' + escapeHtml(item.label) + "</span>";
 
-        return item.key === "schedule"
-          ? '<a class="' + classes + '" href="' + timetablePageHref + '">' + inner + "</a>"
-          : '<button type="button" class="' + classes + '" data-menu="' + escapeHtml(item.key) + '">' + inner + "</button>";
+        if (item.key === "schedule") {
+          return '<a class="' + classes + '" href="' + timetablePageHref + '">' + inner + "</a>";
+        }
+
+        if (item.key === "exam") {
+          return '<a class="' + classes + '" href="' + examPageHref + '">' + inner + "</a>";
+        }
+
+        return '<button type="button" class="' + classes + '" data-menu="' + escapeHtml(item.key) + '">' + inner + "</button>";
       }).join("");
     };
 

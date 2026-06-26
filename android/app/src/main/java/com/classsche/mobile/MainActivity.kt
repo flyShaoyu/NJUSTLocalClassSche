@@ -50,6 +50,7 @@ import java.io.BufferedInputStream
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
+import java.net.URLEncoder
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.temporal.ChronoUnit
@@ -155,6 +156,15 @@ class MainActivity : AppCompatActivity() {
     val isAlert: Boolean
   )
 
+  private data class HomeRecentExamEntry(
+    val displayDay: String,
+    val title: String,
+    val meta: String,
+    val roomSeat: String,
+    val isToday: Boolean,
+    val isAlert: Boolean
+  )
+
   private data class NormalizedCourse(
     val course: TimetableCourse,
     val startPeriod: Int,
@@ -162,11 +172,25 @@ class MainActivity : AppCompatActivity() {
     val weeks: List<Int>
   )
 
+  private data class ParsedExamTime(
+    val date: LocalDate,
+    val startTime: LocalTime,
+    val endTime: LocalTime
+  )
+
+  private data class NormalizedExam(
+    val exam: ExamArrangement,
+    val date: LocalDate,
+    val startTime: LocalTime,
+    val endTime: LocalTime
+  )
+
   private enum class WebScreen {
     HOME,
     PROFILE,
     LOGIN,
-    TIMETABLE
+    TIMETABLE,
+    EXAM
   }
 
   companion object {
@@ -176,20 +200,24 @@ class MainActivity : AppCompatActivity() {
     private const val GENERATED_HOME_HTML_FILE = "home-view-generated.html"
     private const val GENERATED_CACHE_HTML_FILE = "timetable-view-generated.html"
     private const val CACHE_JSON_FILE = "timetable.json"
+    private const val EXAM_JSON_FILE = "exam-list.json"
     private const val CACHE_RAW_HTML_FILE = "timetable.raw.html"
+    private const val EXAM_QUERY_URL = "http://202.119.81.112:9080/njlgdx/xsks/xsksap_query"
+    private const val EXAM_LIST_URL = "http://202.119.81.112:9080/njlgdx/xsks/xsksap_list"
+    private const val EXAM_DEFAULT_SEMESTER = "2025-2026-2"
     private const val PREF_USERNAME = "username"
     private const val PREF_PASSWORD = "password"
     private const val PREF_ASSET_EXPORT_ID = "asset_export_id"
     private const val CACHE_META_ASSET = "cache-meta.json"
     private val HOME_MENU_ITEMS = listOf(
-      HomeMenuEntry("exam", "考试安排", R.drawable.ic_home_exam, false),
+      HomeMenuEntry("exam", "考试安排", R.drawable.ic_home_exam, true),
       HomeMenuEntry("score", "成绩查询", R.drawable.ic_home_score, false),
       HomeMenuEntry("level", "等级考试", R.drawable.ic_home_level, false),
       HomeMenuEntry("add", "添加课表", R.drawable.ic_home_add, false),
       HomeMenuEntry("schedule", "课表查询", R.drawable.ic_home_schedule, true),
       HomeMenuEntry("room", "空闲教室", R.drawable.ic_home_room, false),
       HomeMenuEntry("site", "常用网站", R.drawable.ic_home_site, false),
-      HomeMenuEntry("refresh", "更新课表", R.drawable.ic_home_refresh, false),
+      HomeMenuEntry("refresh", "更新课表", R.drawable.ic_home_refresh, true),
       HomeMenuEntry("library", "图书搜索", R.drawable.ic_home_library, false),
       HomeMenuEntry("borrow", "借阅信息", R.drawable.ic_home_borrow, false)
     )
@@ -197,6 +225,7 @@ class MainActivity : AppCompatActivity() {
     private val HOME_WEEK_TITLES = listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
     private val HOME_ANCHOR_WEEK = 6
     private val HOME_ANCHOR_MONDAY: LocalDate = LocalDate.of(2026, 4, 6)
+    private val EXAM_TIME_REGEX = Regex("""^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})~(\d{2}:\d{2})""")
     private val PERIOD_SLOTS = mapOf(
       1 to ("08:00" to "08:45"),
       2 to ("08:50" to "09:35"),
@@ -314,7 +343,7 @@ class MainActivity : AppCompatActivity() {
     binding.toolbar.navigationIcon = null
     binding.toolbar.setNavigationOnClickListener {
       when (currentWebScreen) {
-        WebScreen.TIMETABLE -> showHomePage()
+        WebScreen.TIMETABLE, WebScreen.EXAM -> showHomePage()
         WebScreen.LOGIN -> showProfilePage()
         else -> Unit
       }
@@ -422,6 +451,9 @@ class MainActivity : AppCompatActivity() {
       override fun onPageFinished(view: WebView, url: String) {
         super.onPageFinished(view, url)
         when {
+          url.contains("exam-view", ignoreCase = true) -> {
+            applyWebScreen(WebScreen.EXAM)
+          }
           url.contains("timetable-view", ignoreCase = true) || looksLikeTimetableUrl(url) -> {
             applyWebScreen(WebScreen.TIMETABLE)
           }
@@ -614,9 +646,16 @@ class MainActivity : AppCompatActivity() {
         binding.homeWebView.visibility = View.GONE
         binding.timetablePage.visibility = View.VISIBLE
       }
+      WebScreen.EXAM -> {
+        binding.loginPage.visibility = View.GONE
+        binding.profilePage.visibility = View.GONE
+        binding.homePage.visibility = View.GONE
+        binding.homeWebView.visibility = View.GONE
+        binding.timetablePage.visibility = View.VISIBLE
+      }
     }
 
-    val hideBottomNav = screen == WebScreen.TIMETABLE || screen == WebScreen.LOGIN
+    val hideBottomNav = screen == WebScreen.TIMETABLE || screen == WebScreen.EXAM || screen == WebScreen.LOGIN
     binding.bottomNavGroup.visibility = if (hideBottomNav || homeViewerVisible) View.GONE else View.VISIBLE
     if (screen == WebScreen.HOME) {
       updateBottomNavSelection(binding.navHomeButton.id)
@@ -628,8 +667,9 @@ class MainActivity : AppCompatActivity() {
       WebScreen.PROFILE -> getString(R.string.toolbar_title_profile)
       WebScreen.LOGIN -> getString(R.string.toolbar_title_login)
       WebScreen.TIMETABLE -> getString(R.string.toolbar_title_timetable)
+      WebScreen.EXAM -> getString(R.string.toolbar_title_exam)
     }
-    binding.toolbar.navigationIcon = if (screen == WebScreen.TIMETABLE || screen == WebScreen.LOGIN) {
+    binding.toolbar.navigationIcon = if (screen == WebScreen.TIMETABLE || screen == WebScreen.EXAM || screen == WebScreen.LOGIN) {
       ContextCompat.getDrawable(this, androidx.appcompat.R.drawable.abc_ic_ab_back_material)?.mutate()?.apply {
         setTint(Color.WHITE)
       }
@@ -754,6 +794,7 @@ class MainActivity : AppCompatActivity() {
       }
     }
     binding.homeOpenTimetableButton.setOnClickListener { showCachedTimetable() }
+    binding.homeOpenExamButton.setOnClickListener { showCachedExamSchedule() }
     renderHomeMenu()
   }
 
@@ -980,6 +1021,12 @@ class MainActivity : AppCompatActivity() {
     showCachedTimetableOrEmpty()
   }
 
+  private fun showCachedExamSchedule() {
+    showingLiveTimetable = false
+    applyWebScreen(WebScreen.EXAM)
+    loadExamPageWithLatestData()
+  }
+
   private fun presentHomePage() {
     val targetSignature = currentHomeSignature()
     if (homePageLoaded && renderedHomeSignature == targetSignature) {
@@ -1021,6 +1068,11 @@ class MainActivity : AppCompatActivity() {
 
     if (currentWebScreen == WebScreen.TIMETABLE && !showingLiveTimetable) {
       showCachedTimetableOrEmpty()
+      return
+    }
+
+    if (currentWebScreen == WebScreen.EXAM) {
+      showCachedExamSchedule()
     }
   }
 
@@ -1058,6 +1110,71 @@ class MainActivity : AppCompatActivity() {
     }
   }
 
+  private fun hasUsableExamCache(cacheJsonFile: File): Boolean {
+    if (!cacheJsonFile.exists() || cacheJsonFile.length() <= 0L) {
+      return false
+    }
+
+    return try {
+      val raw = cacheJsonFile.readText(Charsets.UTF_8).trim()
+      raw.startsWith("[") && raw.endsWith("]") && JSONArray(raw).length() >= 0
+    } catch (_: Exception) {
+      false
+    }
+  }
+
+  private fun loadExamPageWithLatestData() {
+    val templateHtml = runCatching {
+      assets.open("exam-view.html").bufferedReader(Charsets.UTF_8).use { it.readText() }
+    }.getOrNull()
+
+    if (templateHtml.isNullOrBlank()) {
+      binding.contentWebView.stopLoading()
+      binding.contentWebView.clearHistory()
+      binding.contentWebView.clearCache(true)
+      binding.contentWebView.loadUrl("${HOME_ASSET_BASE_URL}exam-view.html?v=${System.currentTimeMillis()}")
+      return
+    }
+
+    val latestJson = readLatestExamJson()
+    val html = if (latestJson.isNullOrBlank()) {
+      templateHtml
+    } else {
+      injectExamJsonIntoTemplate(templateHtml, latestJson)
+    }
+
+    binding.contentWebView.stopLoading()
+    binding.contentWebView.clearHistory()
+    binding.contentWebView.clearCache(true)
+    binding.contentWebView.loadDataWithBaseURL(
+      HOME_ASSET_BASE_URL,
+      html,
+      "text/html",
+      "utf-8",
+      null
+    )
+  }
+
+  private fun readLatestExamJson(): String? {
+    val runtimeFile = File(filesDir, EXAM_JSON_FILE)
+    if (hasUsableExamCache(runtimeFile)) {
+      return runtimeFile.readText(Charsets.UTF_8)
+    }
+
+    return runCatching {
+      assets.open(EXAM_JSON_FILE).bufferedReader(Charsets.UTF_8).use { it.readText() }
+    }.getOrNull()
+  }
+
+  private fun injectExamJsonIntoTemplate(templateHtml: String, examsJson: String): String {
+    val pattern = Regex("""const exams = .*?;""", setOf(RegexOption.DOT_MATCHES_ALL))
+    return if (pattern.containsMatchIn(templateHtml)) {
+      templateHtml.replace(pattern, "const exams = $examsJson;")
+    } else {
+      templateHtml
+    }
+  }
+
   private fun loadGeneratedPage(
     webView: WebView,
     cacheFile: File,
@@ -1086,6 +1203,10 @@ class MainActivity : AppCompatActivity() {
     return when {
       url.contains("timetable-view", ignoreCase = true) -> {
         showCachedTimetable()
+        true
+      }
+      url.contains("exam-view", ignoreCase = true) -> {
+        showCachedExamSchedule()
         true
       }
       url.contains("home-view", ignoreCase = true) -> {
@@ -1119,15 +1240,29 @@ class MainActivity : AppCompatActivity() {
   private fun currentHomeSignature(): String {
     val homeCacheFile = File(filesDir, GENERATED_HOME_HTML_FILE)
     val cacheJsonFile = File(filesDir, CACHE_JSON_FILE)
+    val examJsonFile = File(filesDir, EXAM_JSON_FILE)
     val homePart = if (homeCacheFile.exists()) "${homeCacheFile.length()}:${homeCacheFile.lastModified()}" else "missing"
     val jsonPart = if (cacheJsonFile.exists()) "${cacheJsonFile.length()}:${cacheJsonFile.lastModified()}" else "missing"
-    return listOf(currentAssetExportId ?: "no-export", homePart, jsonPart).joinToString("|")
+    val examPart = if (examJsonFile.exists()) "${examJsonFile.length()}:${examJsonFile.lastModified()}" else "missing"
+    return listOf(currentAssetExportId ?: "no-export", homePart, jsonPart, examPart).joinToString("|")
   }
 
   private fun renderNativeHome() {
     currentHomeImages = loadHomeImages()
     currentHomeImageIndex = currentHomeImageIndex.coerceIn(0, max(0, currentHomeImages.lastIndex))
     setHomeImageIndex(currentHomeImageIndex)
+
+    val exams = loadExamsFromCacheJson()
+    val recentExams = buildRecentExams(exams)
+    binding.homeRecentExamHint.visibility = if (recentExams.isEmpty()) View.VISIBLE else View.GONE
+    binding.homeRecentExamHint.text = if (recentExams.isEmpty()) {
+      getString(R.string.home_recent_exam_empty)
+    } else {
+      getString(R.string.home_recent_exam_updated)
+    }
+    renderRecentExams(if (recentExams.isEmpty()) listOf(
+      HomeRecentExamEntry("空", "最近没有待考的科目", "可以点击下方按钮查看完整考试安排", "待定", false, false)
+    ) else recentExams)
 
     val courses = loadCoursesFromCacheJson()
     val recentItems = buildRecentCourses(courses)
@@ -1718,6 +1853,8 @@ class MainActivity : AppCompatActivity() {
       itemView.setOnClickListener {
         if (item.key == "schedule") {
           showCachedTimetable()
+        } else if (item.key == "exam") {
+          showCachedExamSchedule()
         } else if (item.key == "refresh") {
           val user = prefs.getString(PREF_USERNAME, "")
           val pwd = prefs.getString(PREF_PASSWORD, "")
@@ -1739,6 +1876,76 @@ class MainActivity : AppCompatActivity() {
 
   private fun loadCoursesFromCacheJson(): List<TimetableCourse> {
     return TimetableScheduleHelper.loadCoursesFromCacheJson(this)
+  }
+
+  private fun loadExamsFromCacheJson(): List<ExamArrangement> {
+    val raw = readLatestExamJson()?.trim().orEmpty()
+    if (raw.isBlank()) return emptyList()
+    val array = runCatching { JSONArray(raw) }.getOrNull() ?: return emptyList()
+    return buildList {
+      for (index in 0 until array.length()) {
+        val item = array.optJSONObject(index) ?: continue
+        add(
+          ExamArrangement(
+            index = item.optInt("index", index + 1),
+            examSession = item.optString("examSession"),
+            courseCode = item.optString("courseCode"),
+            courseName = item.optString("courseName"),
+            examTime = item.optString("examTime"),
+            examRoom = item.optString("examRoom"),
+            seatNumber = item.optString("seatNumber"),
+            teacher = item.optString("teacher"),
+            rawText = item.optString("rawText")
+          )
+        )
+      }
+    }
+  }
+
+  private fun parseExamTimeRange(value: String): ParsedExamTime? {
+    val match = EXAM_TIME_REGEX.find(value.trim()) ?: return null
+    val date = runCatching { LocalDate.parse(match.groupValues[1]) }.getOrNull() ?: return null
+    val startTime = runCatching { LocalTime.parse(match.groupValues[2]) }.getOrNull() ?: return null
+    val endTime = runCatching { LocalTime.parse(match.groupValues[3]) }.getOrNull() ?: return null
+    return ParsedExamTime(
+      date = date,
+      startTime = startTime,
+      endTime = endTime
+    )
+  }
+
+  private fun buildRecentExams(exams: List<ExamArrangement>): List<HomeRecentExamEntry> {
+    if (exams.isEmpty()) return emptyList()
+    val today = LocalDate.now()
+    val now = LocalTime.now()
+    return exams.mapNotNull { exam ->
+      val parsed = parseExamTimeRange(exam.examTime) ?: return@mapNotNull null
+      if (parsed.date.isBefore(today)) return@mapNotNull null
+      if (parsed.date == today && parsed.endTime.isBefore(now)) return@mapNotNull null
+      NormalizedExam(
+        exam = exam,
+        date = parsed.date,
+        startTime = parsed.startTime,
+        endTime = parsed.endTime
+      )
+    }
+      .sortedWith(compareBy<NormalizedExam> { it.date }.thenBy { it.startTime })
+      .take(2)
+      .map { item ->
+        val daysUntil = ChronoUnit.DAYS.between(today, item.date).toInt().coerceAtLeast(0)
+        val roomSeat = listOf(
+          item.exam.examRoom.trim().ifBlank { "待定" },
+          item.exam.seatNumber.trim().ifBlank { "" }
+        ).filter { it.isNotBlank() }.joinToString(" ")
+        HomeRecentExamEntry(
+          displayDay = HOME_WEEK_TITLES[(item.date.dayOfWeek.value - 1) % HOME_WEEK_TITLES.size],
+          title = item.exam.courseName.ifBlank { "未命名考试" },
+          meta = "${item.date} ${item.startTime} 剩${daysUntil}天",
+          roomSeat = roomSeat.ifBlank { "待定" },
+          isToday = daysUntil == 0,
+          isAlert = daysUntil <= 1
+        )
+      }
   }
 
   private fun buildRecentCourses(courses: List<TimetableCourse>): List<HomeRecentEntry> {
@@ -2136,10 +2343,16 @@ class MainActivity : AppCompatActivity() {
           File(filesDir, GENERATED_CACHE_HTML_FILE).writeText(renderedHtml, Charsets.UTF_8)
           File(filesDir, CACHE_JSON_FILE).writeText(json, Charsets.UTF_8)
           File(filesDir, CACHE_RAW_HTML_FILE).writeText(html, Charsets.UTF_8)
+          val examSyncResult = runCatching { syncExamCacheFromSession(courses) }
 
           mainHandler.post {
             cacheCaptureInProgress = false
-            updateStatus("本地缓存已更新，共解析 ${courses.size} 条课程。")
+            val examCount = examSyncResult.getOrNull()
+            if (examCount != null) {
+              updateStatus("本地缓存已更新，共解析 ${courses.size} 条课程，${examCount} 场考试。")
+            } else {
+              updateStatus("课表缓存已更新，共解析 ${courses.size} 条课程；考试安排同步失败。")
+            }
             CourseNotificationScheduler.sync(this@MainActivity)
             if (isAutoUpdating) {
               val msg = if (autoUpdateFailedAttempts == 0) "更新成功 (1次通过)" else "更新成功 (失败 ${autoUpdateFailedAttempts} 次后)"
@@ -2151,12 +2364,268 @@ class MainActivity : AppCompatActivity() {
         } catch (error: Exception) {
           mainHandler.post {
             cacheCaptureInProgress = false
-            updateStatus("课表解析失败：${error.message ?: "unknown"}")
+            updateStatus("缓存同步失败：${error.message ?: "unknown"}")
+            if (isAutoUpdating) {
+              isAutoUpdating = false
+            }
           }
         }
       }
     }
   }
+
+  private fun renderRecentExams(items: List<HomeRecentExamEntry>) {
+    binding.homeRecentExamList.removeAllViews()
+    items.forEachIndexed { index, item ->
+      val row = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = android.view.Gravity.CENTER_VERTICAL
+        setPadding(0, dpToPx(12), 0, dpToPx(12))
+      }
+
+      val badge = TextView(this).apply {
+        text = item.displayDay
+        gravity = android.view.Gravity.CENTER
+        textSize = 15f
+        layoutParams = LinearLayout.LayoutParams(dpToPx(52), dpToPx(52))
+        setTextColor(
+          Color.parseColor(
+            when {
+              item.isAlert -> "#B86F69"
+              item.isToday -> "#A88539"
+              else -> "#7D8798"
+            }
+          )
+        )
+        background = android.graphics.drawable.GradientDrawable().apply {
+          shape = android.graphics.drawable.GradientDrawable.OVAL
+          setColor(
+            Color.parseColor(
+              when {
+                item.isAlert -> "#F8D8D4"
+                item.isToday -> "#F7E39F"
+                else -> "#E4ECFB"
+              }
+            )
+          )
+        }
+      }
+
+      val middle = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).also {
+          it.marginStart = dpToPx(10)
+          it.marginEnd = dpToPx(10)
+        }
+      }
+
+      val title = TextView(this).apply {
+        text = item.title
+        textSize = 16f
+        setTextColor(Color.parseColor("#59626F"))
+        maxLines = 1
+        ellipsize = android.text.TextUtils.TruncateAt.END
+      }
+      val meta = TextView(this).apply {
+        text = item.meta
+        textSize = 11f
+        setTextColor(Color.parseColor("#B6BCC5"))
+      }
+      middle.addView(title)
+      middle.addView(meta)
+
+      val roomSeat = TextView(this).apply {
+        text = item.roomSeat
+        textSize = 16f
+        setTextColor(Color.parseColor("#8F959C"))
+      }
+
+      row.addView(badge)
+      row.addView(middle)
+      row.addView(roomSeat)
+      binding.homeRecentExamList.addView(row)
+      if (index < items.lastIndex) {
+        binding.homeRecentExamList.addView(View(this).apply {
+          layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            dpToPx(1)
+          )
+          setBackgroundColor(Color.parseColor("#33B0BCCB"))
+        })
+      }
+    }
+  }
+
+  private fun syncExamCacheFromSession(courses: List<TimetableCourse>): Int {
+    val exams = fetchExamArrangements(courses)
+    File(filesDir, EXAM_JSON_FILE).writeText(ExamRenderer.toJson(exams), Charsets.UTF_8)
+    return exams.size
+  }
+
+  private fun fetchExamArrangements(courses: List<TimetableCourse>): List<ExamArrangement> {
+    val queryDocument = fetchExamQueryDocument()
+    val form = queryDocument.selectFirst("form[name=ksapQueryForm]") ?: queryDocument.selectFirst("form")
+      ?: throw IllegalStateException("未找到考试查询表单")
+    val method = form.attr("method").ifBlank { "post" }
+    val actionUrl = resolveExamListUrl(form)
+    val parameters = extractExamFormParameters(form)
+    val examBytes = submitExamQuery(actionUrl, method, parameters)
+    return ExamParser.parseBytes(examBytes, actionUrl, courses)
+  }
+
+  private fun fetchExamQueryDocument() =
+    withSessionConnection(EXAM_QUERY_URL, method = "GET") { connection ->
+      val bytes = connection.inputStream.use { it.readBytes() }
+      org.jsoup.Jsoup.parse(java.io.ByteArrayInputStream(bytes), null, EXAM_QUERY_URL)
+    }
+
+  private fun resolveExamListUrl(form: org.jsoup.nodes.Element): String {
+    val rawAction = form.absUrl("action").ifBlank { form.attr("action") }
+    val resolved = when {
+      rawAction.isBlank() -> EXAM_LIST_URL
+      rawAction.contains("xsksap_list", ignoreCase = true) -> rawAction
+      else -> URL(URL(EXAM_QUERY_URL), rawAction).toString()
+    }
+    return if (resolved.contains("xsksap_list", ignoreCase = true)) resolved else EXAM_LIST_URL
+  }
+
+  private fun extractExamFormParameters(form: org.jsoup.nodes.Element): Map<String, String> {
+    val parameters = linkedMapOf<String, String>()
+
+    form.select("input[name], textarea[name], select[name]").forEach { field ->
+      val name = field.attr("name").trim()
+      if (name.isBlank()) {
+        return@forEach
+      }
+
+      when (field.tagName().lowercase()) {
+        "select" -> {
+          parameters[name] = resolveSelectValue(field)
+        }
+        "textarea" -> {
+          parameters[name] = field.text()
+        }
+        else -> {
+          val type = field.attr("type").lowercase()
+          when (type) {
+            "checkbox", "radio" -> if (field.hasAttr("checked")) {
+              parameters[name] = field.attr("value").ifBlank { "on" }
+            }
+            "submit", "button", "file", "image", "reset" -> Unit
+            else -> parameters[name] = field.attr("value")
+          }
+        }
+      }
+    }
+
+    val semesterField = form.selectFirst("select[name=xnxqid]")
+    if (semesterField != null) {
+      parameters["xnxqid"] = resolveSelectValue(semesterField)
+    } else if (parameters["xnxqid"].isNullOrBlank()) {
+      parameters["xnxqid"] = EXAM_DEFAULT_SEMESTER
+    }
+
+    return parameters
+  }
+
+  private fun resolveSelectValue(select: org.jsoup.nodes.Element): String {
+    val options = select.select("option")
+    val preferred = options.firstOrNull { option ->
+      option.hasAttr("selected") && option.attr("value").isNotBlank()
+    }?.attr("value")
+      ?: options.firstOrNull { option ->
+        option.attr("value") == EXAM_DEFAULT_SEMESTER
+      }?.attr("value")
+      ?: options.firstOrNull { option ->
+        option.attr("value").isNotBlank()
+      }?.attr("value")
+      ?: options.firstOrNull()?.attr("value")
+      ?: ""
+
+    return preferred.ifBlank { EXAM_DEFAULT_SEMESTER }
+  }
+
+  private fun submitExamQuery(
+    url: String,
+    method: String,
+    parameters: Map<String, String>
+  ): ByteArray {
+    val normalizedMethod = method.uppercase()
+    val requestUrl = if (normalizedMethod == "GET" && parameters.isNotEmpty()) {
+      val separator = if (url.contains("?")) "&" else "?"
+      url + separator + encodeFormBody(parameters)
+    } else {
+      url
+    }
+
+    return withSessionConnection(requestUrl, method = normalizedMethod, referer = EXAM_QUERY_URL) { connection ->
+      if (method.equals("post", ignoreCase = true)) {
+        connection.doOutput = true
+        connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+        connection.outputStream.use { output ->
+          output.write(encodeFormBody(parameters).toByteArray(Charsets.UTF_8))
+        }
+      }
+
+      connection.inputStream.use { it.readBytes() }
+    }
+  }
+
+  private inline fun <T> withSessionConnection(
+    url: String,
+    method: String,
+    referer: String? = null,
+    block: (HttpURLConnection) -> T
+  ): T {
+    val connection = openSessionConnection(url, method, referer)
+    return try {
+      block(connection)
+    } finally {
+      connection.disconnect()
+    }
+  }
+
+  private fun openSessionConnection(
+    url: String,
+    method: String,
+    referer: String? = null
+  ): HttpURLConnection {
+    val connection = URL(url).openConnection() as HttpURLConnection
+    connection.requestMethod = method.uppercase()
+    connection.useCaches = false
+    connection.instanceFollowRedirects = true
+    connection.connectTimeout = 10000
+    connection.readTimeout = 10000
+    connection.setRequestProperty("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+    connection.setRequestProperty("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.6")
+    connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome Mobile Safari/537.36")
+    referer?.let { connection.setRequestProperty("Referer", it) }
+    val cookie = buildCookieHeader(url)
+    if (cookie.isNotBlank()) {
+      connection.setRequestProperty("Cookie", cookie)
+    }
+    return connection
+  }
+
+  private fun buildCookieHeader(targetUrl: String): String {
+    val manager = CookieManager.getInstance()
+    return listOf(
+      targetUrl,
+      EXAM_QUERY_URL,
+      EXAM_LIST_URL,
+      TIMETABLE_URL,
+      LOGIN_URL
+    ).mapNotNull { candidate ->
+      manager.getCookie(candidate)?.trim()
+    }.filter { it.isNotBlank() }
+      .distinct()
+      .joinToString("; ")
+  }
+
+  private fun encodeFormBody(parameters: Map<String, String>): String =
+    parameters.entries.joinToString("&") { (key, value) ->
+      "${URLEncoder.encode(key, "UTF-8")}=${URLEncoder.encode(value, "UTF-8")}"
+    }
 
   private fun updateStatus(message: String) {
     binding.statusText.text = message
