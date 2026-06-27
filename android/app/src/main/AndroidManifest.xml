@@ -32,6 +32,10 @@
             android:name=".NotificationSettingsActivity"
             android:exported="false" />
 
+        <activity
+            android:name=".LogViewerActivity"
+            android:exported="false" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

@@ -80,11 +80,13 @@
     <string name="profile_open_login">进入教务登录</string>
     <string name="profile_open_notifications">通知设置</string>
     <string name="profile_check_updates">检查更新</string>
+    <string name="profile_open_logs">日志</string>
     <string name="profile_account_section">账号</string>
     <string name="profile_tools_section">提醒与后台保活</string>
     <string name="profile_login_hint">管理教务账号、验证码和课表缓存更新。</string>
     <string name="profile_notification_hint">调整上课与考试提醒时间，并检查后台启动、电池优化等系统设置。</string>
     <string name="profile_update_hint">优先检查 Gitee 发布页，失败后再检查 GitHub 发布页。</string>
+    <string name="profile_logs_hint">查看最近的抓取、解析、更新和错误日志，便于排查问题。</string>
     <string name="profile_current_version_format">当前版本：%1$s</string>
     <string name="profile_update_checking">当前版本：%1$s\n正在检查更新…</string>
     <string name="profile_update_latest_format">当前版本：%1$s\n已是最新版本</string>
@@ -96,4 +98,11 @@
     <string name="profile_release_gitee_hint">点击后在浏览器打开 Gitee 仓库主页。</string>
     <string name="profile_release_github">GitHub 主页</string>
     <string name="profile_release_github_hint">点击后在浏览器打开 GitHub 仓库主页。</string>
+    <string name="log_viewer_title">运行日志</string>
+    <string name="log_viewer_hint">这里会保存最近的抓取、解析、更新与错误日志，内容按时间倒序追加。</string>
+    <string name="log_copy_button">复制</string>
+    <string name="log_clear_button">清空</string>
+    <string name="log_empty_hint">暂无日志</string>
+    <string name="log_copy_done">日志已复制</string>
+    <string name="log_clear_done">日志已清空</string>
 </resources>

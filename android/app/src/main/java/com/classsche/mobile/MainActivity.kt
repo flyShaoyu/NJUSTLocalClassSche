@@ -548,6 +548,9 @@ class MainActivity : AppCompatActivity() {
     binding.profileCheckUpdateRow.setOnClickListener {
       checkForAppUpdate()
     }
+    binding.profileOpenLogsRow.setOnClickListener {
+      startActivity(Intent(this, LogViewerActivity::class.java))
+    }
     binding.profileSoftwareGiteeRow.setOnClickListener {
       openUrl(GITEE_HOME_URL)
     }
@@ -705,11 +708,13 @@ class MainActivity : AppCompatActivity() {
 
   private fun checkForAppUpdate() {
     if (updateCheckInProgress) {
+      appendDebugLog("UPDATE", "INFO", "重复触发检查更新，已忽略")
       Toast.makeText(this, "正在检查更新，请稍候", Toast.LENGTH_SHORT).show()
       return
     }
 
     val currentVersion = currentAppVersionName()
+    appendDebugLog("UPDATE", "START", "开始检查更新，当前版本=$currentVersion")
     updateCheckInProgress = true
     updateAppVersionSummary(getString(R.string.profile_update_checking, currentVersion))
     updateStatus("正在检查更新…")
@@ -720,6 +725,7 @@ class MainActivity : AppCompatActivity() {
         fetchLatestReleaseInfo("Gitee", GITEE_RELEASES_URL)
       } catch (error: Throwable) {
         giteeError = error
+        appendDebugLog("UPDATE", "WARN", "Gitee 检查失败，准备切换 GitHub：${error.message ?: "unknown"}")
         try {
           fetchLatestReleaseInfo("GitHub", GITHUB_RELEASES_URL)
         } catch (fallbackError: Throwable) {
@@ -737,9 +743,11 @@ class MainActivity : AppCompatActivity() {
         val latestVersion = release.versionName
         val comparison = compareVersionNames(latestVersion, currentVersion)
         if (comparison > 0) {
+          appendDebugLog("UPDATE", "SUCCESS", "发现新版本 $latestVersion，来源=${release.sourceLabel}")
           updateAppVersionSummary(getString(R.string.profile_update_available_format, currentVersion, latestVersion))
           showUpdateAvailableDialog(currentVersion, release)
         } else {
+          appendDebugLog("UPDATE", "SUCCESS", "当前已是最新版本，远端版本=$latestVersion")
           updateAppVersionSummary(getString(R.string.profile_update_latest_format, currentVersion))
           AlertDialog.Builder(this)
             .setTitle("已是最新版本")
@@ -754,6 +762,7 @@ class MainActivity : AppCompatActivity() {
   private fun showUpdateCheckFailedDialog(giteeError: Throwable?, githubError: Throwable?) {
     val giteeMessage = giteeError?.message?.takeIf { it.isNotBlank() } ?: "未知错误"
     val githubMessage = githubError?.message?.takeIf { it.isNotBlank() } ?: "未知错误"
+    appendDebugLog("UPDATE", "FAIL", "检查更新失败：Gitee=$giteeMessage；GitHub=$githubMessage")
     AlertDialog.Builder(this)
       .setTitle("检查更新失败")
       .setMessage("Gitee 检查失败：$giteeMessage\nGitHub 检查失败：$githubMessage")
@@ -791,10 +800,12 @@ class MainActivity : AppCompatActivity() {
   private fun downloadAndInstallReleaseApk(release: AppReleaseInfo) {
     val apkUrl = release.apkUrl
     if (apkUrl.isNullOrBlank()) {
+      appendDebugLog("UPDATE_DOWNLOAD", "WARN", "当前来源 ${release.sourceLabel} 未提供 APK 链接，直接打开 Gitee 页面")
       openUrl(giteeReleasePageUrlForVersion(release.versionName, release))
       return
     }
 
+    appendDebugLog("UPDATE_DOWNLOAD", "START", "开始下载版本 ${release.versionName}，首选来源=${release.sourceLabel}")
     updateStatus("正在下载 ${release.versionName} 安装包…")
     Toast.makeText(this, "开始下载 ${release.versionName} 安装包", Toast.LENGTH_SHORT).show()
     showUpdateDownloadDialog(release.versionName)
@@ -821,6 +832,7 @@ class MainActivity : AppCompatActivity() {
               totalBytes = -1L
             )
           }
+          appendDebugLog("UPDATE_DOWNLOAD", "INFO", "尝试从 ${candidate.sourceLabel} 下载 ${release.versionName}")
           downloadFile(candidateApkUrl, targetFile) { downloadedBytes, totalBytes ->
             mainHandler.post {
               updateUpdateDownloadProgress(
@@ -836,12 +848,14 @@ class MainActivity : AppCompatActivity() {
             updateStatus("安装包下载完成，准备安装…")
             promptInstallDownloadedApk(targetFile)
           }
+          appendDebugLog("UPDATE_DOWNLOAD", "SUCCESS", "已从 ${candidate.sourceLabel} 下载完成 ${targetFile.length()} bytes")
           return@execute
         } catch (error: Throwable) {
           if (targetFile.exists()) {
             targetFile.delete()
           }
           val message = error.message?.takeIf { it.isNotBlank() } ?: "unknown"
+          appendDebugLog("UPDATE_DOWNLOAD", "WARN", "${candidate.sourceLabel} 下载失败：$message")
           failureMessages += "${candidate.sourceLabel}：$message"
         }
       }
@@ -865,6 +879,7 @@ class MainActivity : AppCompatActivity() {
         }
         openUrl(giteePageUrl)
       }
+      appendDebugLog("UPDATE_DOWNLOAD", "FAIL", "双源下载失败，已回退到 $giteePageUrl")
     }
   }
 
@@ -958,6 +973,7 @@ class MainActivity : AppCompatActivity() {
   private fun promptInstallDownloadedApk(apkFile: File) {
     pendingApkInstallFile = apkFile
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
+      appendDebugLog("UPDATE_INSTALL", "WARN", "缺少未知来源安装权限，等待用户授权")
       AlertDialog.Builder(this)
         .setTitle("需要安装权限")
         .setMessage("安装包已经下载完成，请先允许本应用安装未知来源应用，返回后会自动继续安装。")
@@ -973,6 +989,7 @@ class MainActivity : AppCompatActivity() {
       return
     }
 
+    appendDebugLog("UPDATE_INSTALL", "INFO", "安装权限已满足，准备拉起安装器")
     installDownloadedApk(apkFile)
   }
 
@@ -991,11 +1008,13 @@ class MainActivity : AppCompatActivity() {
   private fun installDownloadedApk(apkFile: File) {
     if (!apkFile.exists()) {
       pendingApkInstallFile = null
+      appendDebugLog("UPDATE_INSTALL", "FAIL", "安装包不存在：${apkFile.absolutePath}")
       Toast.makeText(this, "安装包不存在，请重新下载", Toast.LENGTH_SHORT).show()
       return
     }
 
     pendingApkInstallFile = null
+    appendDebugLog("UPDATE_INSTALL", "SUCCESS", "拉起安装器：${apkFile.name}")
     val contentUri = FileProvider.getUriForFile(
       this,
       "$packageName.fileprovider",
@@ -3043,7 +3062,9 @@ class MainActivity : AppCompatActivity() {
           File(filesDir, CACHE_JSON_FILE).writeText(json, Charsets.UTF_8)
           File(filesDir, CACHE_RAW_HTML_FILE).writeText(html, Charsets.UTF_8)
           val examSyncResult = runCatching { syncExamCacheFromSession(courses) }
+            .onFailure { appendDebugLog("EXAM", "FAIL", it.message ?: "unknown") }
           val scoreSyncResult = runCatching { syncScoreCacheFromSession() }
+            .onFailure { appendDebugLog("SCORE", "FAIL", it.message ?: "unknown") }
 
           mainHandler.post {
             cacheCaptureInProgress = false
@@ -3163,14 +3184,18 @@ class MainActivity : AppCompatActivity() {
   }
 
   private fun syncExamCacheFromSession(courses: List<TimetableCourse>): Int {
+    appendDebugLog("EXAM", "START", "开始同步考试缓存，课程数=${courses.size}")
     val exams = fetchExamArrangements(courses)
     File(filesDir, EXAM_JSON_FILE).writeText(ExamRenderer.toJson(exams), Charsets.UTF_8)
+    appendDebugLog("EXAM", "SUCCESS", "考试缓存写入完成，共 ${exams.size} 场")
     return exams.size
   }
 
   private fun syncScoreCacheFromSession(): Int {
+    appendDebugLog("SCORE", "START", "开始同步成绩缓存")
     val scores = fetchScoreRecords()
     File(filesDir, SCORE_JSON_FILE).writeText(scores.toString(), Charsets.UTF_8)
+    appendDebugLog("SCORE", "SUCCESS", "成绩缓存写入完成，共 ${scores.length()} 条")
     return scores.length()
   }
 
@@ -3186,10 +3211,24 @@ class MainActivity : AppCompatActivity() {
   }
 
   private fun fetchScoreRecords(): JSONArray {
+    appendDebugLog("SCORE_FETCH", "START", "开始请求成绩页")
     val bytes = withSessionConnection(SCORE_LIST_URL, method = "GET", referer = TIMETABLE_URL) { connection ->
-      connection.inputStream.use { it.readBytes() }
+      val responseCode = connection.responseCode
+      appendDebugLog(
+        "SCORE_FETCH",
+        if (responseCode in 200..299) "INFO" else "WARN",
+        "响应码=$responseCode contentType=${connection.contentType ?: "-"}"
+      )
+      val input = if (responseCode in 200..299) {
+        connection.inputStream
+      } else {
+        connection.errorStream ?: connection.inputStream
+      }
+      input.use { it.readBytes() }
     }
+    appendDebugLog("SCORE_FETCH", "INFO", "成绩页响应体大小=${bytes.size} bytes")
     val document = org.jsoup.Jsoup.parse(java.io.ByteArrayInputStream(bytes), null, SCORE_LIST_URL)
+    appendDebugLog("SCORE_FETCH", "INFO", "成绩页标题=${document.title().ifBlank { "-" }}")
     return parseScoreDocument(document)
   }
 
@@ -3197,11 +3236,13 @@ class MainActivity : AppCompatActivity() {
     val rows = document.select("#dataList tr")
     if (rows.isEmpty()) {
       val title = document.title()
+      appendDebugLog("SCORE_PARSE", "FAIL", "未找到成绩表格，页面标题=${title.ifBlank { "-" }}")
       if (title.contains("登录") || title.contains("login", ignoreCase = true)) {
         throw IllegalStateException("未获取到成绩列表，会话可能已过期。当前页面: $title")
       }
       throw IllegalStateException("未在成绩页面中找到 #dataList 表格。当前页面: $title")
     }
+    appendDebugLog("SCORE_PARSE", "INFO", "检测到成绩表格行数=${rows.size}")
     val result = JSONArray()
 
     rows.drop(1).forEachIndexed { index, row ->
@@ -3244,6 +3285,7 @@ class MainActivity : AppCompatActivity() {
       result.put(item)
     }
 
+    appendDebugLog("SCORE_PARSE", "SUCCESS", "成绩解析完成，共 ${result.length()} 条")
     return result
   }
 
@@ -3378,6 +3420,11 @@ class MainActivity : AppCompatActivity() {
     if (cookie.isNotBlank()) {
       connection.setRequestProperty("Cookie", cookie)
     }
+    appendDebugLog(
+      "HTTP",
+      "INFO",
+      "${method.uppercase()} $url referer=${referer ?: "-"} cookieLength=${cookie.length}"
+    )
     return connection
   }
 
@@ -3403,6 +3450,11 @@ class MainActivity : AppCompatActivity() {
 
   private fun updateStatus(message: String) {
     binding.statusText.text = message
+    appendDebugLog("STATUS", "INFO", message)
+  }
+
+  private fun appendDebugLog(scope: String, status: String, message: String) {
+    AppDebugLog.append(this, scope, status, message)
   }
 
   private fun restoreSavedCredentials() {
