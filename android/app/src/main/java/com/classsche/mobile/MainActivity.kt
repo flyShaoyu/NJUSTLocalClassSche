@@ -1327,15 +1327,14 @@ class MainActivity : AppCompatActivity() {
 
     val exams = loadExamsFromCacheJson()
     val recentExams = buildRecentExams(exams)
-    binding.homeRecentExamHint.visibility = if (recentExams.isEmpty()) View.VISIBLE else View.GONE
-    binding.homeRecentExamHint.text = if (recentExams.isEmpty()) {
-      getString(R.string.home_recent_exam_empty)
+    binding.homeRecentExamCard.visibility = if (recentExams.isEmpty()) View.GONE else View.VISIBLE
+    if (recentExams.isNotEmpty()) {
+      binding.homeRecentExamHint.visibility = View.GONE
+      binding.homeRecentExamHint.text = getString(R.string.home_recent_exam_updated)
+      renderRecentExams(recentExams)
     } else {
-      getString(R.string.home_recent_exam_updated)
+      binding.homeRecentExamList.removeAllViews()
     }
-    renderRecentExams(if (recentExams.isEmpty()) listOf(
-      HomeRecentExamEntry("空", "最近没有待考的科目", "可以点击下方按钮查看完整考试安排", "待定", false, false)
-    ) else recentExams)
 
     val courses = loadCoursesFromCacheJson()
     val recentItems = buildRecentCourses(courses)

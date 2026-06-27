@@ -26,6 +26,11 @@ app/build/
 android/build/
 android/app/build/
 
+# Generated Android web assets
+android/app/src/main/assets/*.json
+android/app/src/main/assets/*.html
+android/app/src/main/assets/resources/
+
 # APK / App Bundle
 *.apk
 *.aab
