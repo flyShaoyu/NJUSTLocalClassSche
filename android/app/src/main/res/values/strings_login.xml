@@ -79,8 +79,21 @@
     <string name="profile_welcome_hint">账号信息会保存在本地，用来快速进入教务登录和课表提醒设置。</string>
     <string name="profile_open_login">进入教务登录</string>
     <string name="profile_open_notifications">通知设置</string>
+    <string name="profile_check_updates">检查更新</string>
     <string name="profile_account_section">账号</string>
     <string name="profile_tools_section">提醒与后台保活</string>
     <string name="profile_login_hint">管理教务账号、验证码和课表缓存更新。</string>
     <string name="profile_notification_hint">调整上课与考试提醒时间，并检查后台启动、电池优化等系统设置。</string>
+    <string name="profile_update_hint">优先检查 Gitee 发布页，失败后再检查 GitHub 发布页。</string>
+    <string name="profile_current_version_format">当前版本：%1$s</string>
+    <string name="profile_update_checking">当前版本：%1$s\n正在检查更新…</string>
+    <string name="profile_update_latest_format">当前版本：%1$s\n已是最新版本</string>
+    <string name="profile_update_available_format">当前版本：%1$s\n发现新版本 %2$s</string>
+    <string name="profile_update_failed_format">当前版本：%1$s\n检查失败，可点此重试</string>
+    <string name="profile_software_section">软件相关</string>
+    <string name="profile_software_acknowledgement">感谢小程序“周三课表”曾经带来的便利，也为它的停用感到惋惜。这个小项目的整理与补全过程中，也很感谢 GPT、Codex、Gemini 和 Copilot 提供的帮助与启发。</string>
+    <string name="profile_release_gitee">Gitee 主页</string>
+    <string name="profile_release_gitee_hint">点击后在浏览器打开 Gitee 仓库主页。</string>
+    <string name="profile_release_github">GitHub 主页</string>
+    <string name="profile_release_github_hint">点击后在浏览器打开 GitHub 仓库主页。</string>
 </resources>

@@ -5,6 +5,7 @@ import android.animation.ObjectAnimator
 import android.animation.ValueAnimator
 import android.annotation.SuppressLint
 import android.Manifest
+import android.net.Uri
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
@@ -12,9 +13,11 @@ import android.graphics.Color
 import android.content.Context
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 import android.util.LruCache
 import android.util.TypedValue
 import android.view.View
@@ -31,13 +34,16 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.GridLayout
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import com.classsche.mobile.databinding.ActivityMainBinding
@@ -47,7 +53,9 @@ import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import java.io.BufferedInputStream
+import java.io.BufferedOutputStream
 import java.io.File
+import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
@@ -82,6 +90,12 @@ class MainActivity : AppCompatActivity() {
   private var renderedHomeSignature: String? = null
   private var loginSessionBootstrapped = false
   private var pendingNotificationToggleTarget: NotificationToggleTarget? = null
+  private var updateCheckInProgress = false
+  private var pendingApkInstallFile: File? = null
+  private var updateDownloadDialog: AlertDialog? = null
+  private var updateDownloadTitleView: TextView? = null
+  private var updateDownloadProgressBar: ProgressBar? = null
+  private var updateDownloadProgressText: TextView? = null
   private data class HomeImageAsset(
     val caption: String,
     val thumbAssetPath: String,
@@ -203,6 +217,13 @@ class MainActivity : AppCompatActivity() {
     val endTime: LocalTime
   )
 
+  private data class AppReleaseInfo(
+    val sourceLabel: String,
+    val pageUrl: String,
+    val versionName: String,
+    val apkUrl: String?
+  )
+
   private enum class WebScreen {
     HOME,
     PROFILE,
@@ -225,6 +246,11 @@ class MainActivity : AppCompatActivity() {
     private const val EXAM_QUERY_URL = "http://202.119.81.112:9080/njlgdx/xsks/xsksap_query"
     private const val EXAM_LIST_URL = "http://202.119.81.112:9080/njlgdx/xsks/xsksap_list"
     private const val SCORE_LIST_URL = "http://202.119.81.112:9080/njlgdx/kscj/cjcx_list"
+    private const val GITEE_HOME_URL = "https://gitee.com/flyshaoyu/njust_localclasssche"
+    private const val GITHUB_HOME_URL = "https://github.com/flyShaoyu/NJUSTLocalClassSche"
+    private const val GITEE_RELEASES_URL = "https://gitee.com/flyshaoyu/njust_localclasssche/releases"
+    private const val GITHUB_RELEASES_URL = "https://github.com/flyShaoyu/NJUSTLocalClassSche/releases"
+    private const val UPDATE_USER_AGENT = "Mozilla/5.0 ClassScheMobile"
     private const val EXAM_DEFAULT_SEMESTER = "2025-2026-2"
     private const val PREF_USERNAME = "username"
     private const val PREF_PASSWORD = "password"
@@ -352,6 +378,8 @@ class MainActivity : AppCompatActivity() {
     restoreNotificationSettings()
     updateNotificationLeadTimeSummary()
     refreshNotificationInputEnabledState()
+    updateAppVersionSummary()
+    resumePendingApkInstallIfReady()
   }
 
   override fun onBackPressed() {
@@ -517,6 +545,15 @@ class MainActivity : AppCompatActivity() {
     binding.profileOpenNotificationRow.setOnClickListener {
       startActivity(Intent(this, NotificationSettingsActivity::class.java))
     }
+    binding.profileCheckUpdateRow.setOnClickListener {
+      checkForAppUpdate()
+    }
+    binding.profileSoftwareGiteeRow.setOnClickListener {
+      openUrl(GITEE_HOME_URL)
+    }
+    binding.profileSoftwareGithubRow.setOnClickListener {
+      openUrl(GITHUB_HOME_URL)
+    }
 
     binding.openLoginButton.setOnClickListener {
       isAutoUpdating = false
@@ -658,6 +695,485 @@ class MainActivity : AppCompatActivity() {
     )
   }
 
+  private fun updateAppVersionSummary(statusText: String? = null) {
+    val currentVersion = currentAppVersionName()
+    binding.profileCheckUpdateSummary.text = when {
+      statusText.isNullOrBlank() -> getString(R.string.profile_current_version_format, currentVersion)
+      else -> statusText
+    }
+  }
+
+  private fun checkForAppUpdate() {
+    if (updateCheckInProgress) {
+      Toast.makeText(this, "正在检查更新，请稍候", Toast.LENGTH_SHORT).show()
+      return
+    }
+
+    val currentVersion = currentAppVersionName()
+    updateCheckInProgress = true
+    updateAppVersionSummary(getString(R.string.profile_update_checking, currentVersion))
+    updateStatus("正在检查更新…")
+
+    ioExecutor.execute {
+      var giteeError: Throwable? = null
+      val release = try {
+        fetchLatestReleaseInfo("Gitee", GITEE_RELEASES_URL)
+      } catch (error: Throwable) {
+        giteeError = error
+        try {
+          fetchLatestReleaseInfo("GitHub", GITHUB_RELEASES_URL)
+        } catch (fallbackError: Throwable) {
+          mainHandler.post {
+            updateCheckInProgress = false
+            updateAppVersionSummary(getString(R.string.profile_update_failed_format, currentVersion))
+            showUpdateCheckFailedDialog(giteeError, fallbackError)
+          }
+          return@execute
+        }
+      }
+
+      mainHandler.post {
+        updateCheckInProgress = false
+        val latestVersion = release.versionName
+        val comparison = compareVersionNames(latestVersion, currentVersion)
+        if (comparison > 0) {
+          updateAppVersionSummary(getString(R.string.profile_update_available_format, currentVersion, latestVersion))
+          showUpdateAvailableDialog(currentVersion, release)
+        } else {
+          updateAppVersionSummary(getString(R.string.profile_update_latest_format, currentVersion))
+          AlertDialog.Builder(this)
+            .setTitle("已是最新版本")
+            .setMessage("当前版本 $currentVersion 已是最新版本。")
+            .setPositiveButton("知道了", null)
+            .show()
+        }
+      }
+    }
+  }
+
+  private fun showUpdateCheckFailedDialog(giteeError: Throwable?, githubError: Throwable?) {
+    val giteeMessage = giteeError?.message?.takeIf { it.isNotBlank() } ?: "未知错误"
+    val githubMessage = githubError?.message?.takeIf { it.isNotBlank() } ?: "未知错误"
+    AlertDialog.Builder(this)
+      .setTitle("检查更新失败")
+      .setMessage("Gitee 检查失败：$giteeMessage\nGitHub 检查失败：$githubMessage")
+      .setNegativeButton("取消", null)
+      .setNeutralButton("打开 GitHub") { _, _ -> openUrl(GITHUB_RELEASES_URL) }
+      .setPositiveButton("打开 Gitee") { _, _ -> openUrl(GITEE_RELEASES_URL) }
+      .show()
+  }
+
+  private fun showUpdateAvailableDialog(currentVersion: String, release: AppReleaseInfo) {
+    val message = buildString {
+      append("当前版本：").append(currentVersion).append('\n')
+      append("最新版本：").append(release.versionName).append('\n')
+      append("来源：").append(release.sourceLabel)
+      if (release.apkUrl.isNullOrBlank()) {
+        append("\n\n未在发布页中找到 APK 下载链接，可打开发布页手动下载安装。")
+      }
+    }
+
+    AlertDialog.Builder(this)
+      .setTitle("发现新版本")
+      .setMessage(message)
+      .setNegativeButton("取消", null)
+      .setNeutralButton("查看发布页") { _, _ -> openUrl(release.pageUrl) }
+      .setPositiveButton(if (release.apkUrl.isNullOrBlank()) "知道了" else "下载安装") { _, _ ->
+        if (release.apkUrl.isNullOrBlank()) {
+          openUrl(release.pageUrl)
+        } else {
+          downloadAndInstallReleaseApk(release)
+        }
+      }
+      .show()
+  }
+
+  private fun downloadAndInstallReleaseApk(release: AppReleaseInfo) {
+    val apkUrl = release.apkUrl
+    if (apkUrl.isNullOrBlank()) {
+      openUrl(giteeReleasePageUrlForVersion(release.versionName, release))
+      return
+    }
+
+    updateStatus("正在下载 ${release.versionName} 安装包…")
+    Toast.makeText(this, "开始下载 ${release.versionName} 安装包", Toast.LENGTH_SHORT).show()
+    showUpdateDownloadDialog(release.versionName)
+
+    ioExecutor.execute {
+      val targetDir = File(cacheDir, "updates").apply { mkdirs() }
+      val targetFile = File(targetDir, "classsche-${release.versionName}.apk")
+      val downloadCandidates = buildReleaseDownloadCandidates(release)
+      val failureMessages = mutableListOf<String>()
+
+      for (candidate in downloadCandidates) {
+        val candidateApkUrl = candidate.apkUrl
+        if (candidateApkUrl.isNullOrBlank()) {
+          failureMessages += "${candidate.sourceLabel}：未找到 APK 下载链接"
+          continue
+        }
+
+        try {
+          mainHandler.post {
+            updateUpdateDownloadProgress(
+              versionName = release.versionName,
+              sourceLabel = candidate.sourceLabel,
+              downloadedBytes = 0L,
+              totalBytes = -1L
+            )
+          }
+          downloadFile(candidateApkUrl, targetFile) { downloadedBytes, totalBytes ->
+            mainHandler.post {
+              updateUpdateDownloadProgress(
+                versionName = release.versionName,
+                sourceLabel = candidate.sourceLabel,
+                downloadedBytes = downloadedBytes,
+                totalBytes = totalBytes
+              )
+            }
+          }
+          mainHandler.post {
+            dismissUpdateDownloadDialog()
+            updateStatus("安装包下载完成，准备安装…")
+            promptInstallDownloadedApk(targetFile)
+          }
+          return@execute
+        } catch (error: Throwable) {
+          if (targetFile.exists()) {
+            targetFile.delete()
+          }
+          val message = error.message?.takeIf { it.isNotBlank() } ?: "unknown"
+          failureMessages += "${candidate.sourceLabel}：$message"
+        }
+      }
+
+      val giteePageUrl = giteeReleasePageUrlForVersion(release.versionName, release)
+      mainHandler.post {
+        dismissUpdateDownloadDialog()
+        updateStatus("安装包下载失败，已打开 Gitee 发布页")
+        Toast.makeText(this, "两边安装包都下载失败，已打开 Gitee 发布页", Toast.LENGTH_LONG).show()
+        if (failureMessages.isNotEmpty()) {
+          AlertDialog.Builder(this)
+            .setTitle("下载失败")
+            .setMessage(
+              buildString {
+                append("Gitee 和 GitHub 安装包都下载失败，已为你打开 Gitee 发布页。\n\n")
+                append(failureMessages.joinToString("\n"))
+              }
+            )
+            .setPositiveButton("知道了", null)
+            .show()
+        }
+        openUrl(giteePageUrl)
+      }
+    }
+  }
+
+  private fun showUpdateDownloadDialog(versionName: String) {
+    dismissUpdateDownloadDialog()
+
+    val container = LinearLayout(this).apply {
+      orientation = LinearLayout.VERTICAL
+      setPadding(dpToPx(24), dpToPx(20), dpToPx(24), dpToPx(12))
+    }
+
+    val titleView = TextView(this).apply {
+      text = "正在准备下载 $versionName"
+      textSize = 16f
+      setTextColor(Color.parseColor("#1F2937"))
+      includeFontPadding = false
+    }
+
+    val progressBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+      isIndeterminate = true
+      max = 100
+      progress = 0
+      layoutParams = LinearLayout.LayoutParams(
+        ViewGroup.LayoutParams.MATCH_PARENT,
+        ViewGroup.LayoutParams.WRAP_CONTENT
+      ).also { params ->
+        params.topMargin = dpToPx(14)
+      }
+    }
+
+    val progressText = TextView(this).apply {
+      text = "正在连接下载源…"
+      textSize = 13f
+      setTextColor(Color.parseColor("#6B7380"))
+      includeFontPadding = false
+      layoutParams = LinearLayout.LayoutParams(
+        ViewGroup.LayoutParams.MATCH_PARENT,
+        ViewGroup.LayoutParams.WRAP_CONTENT
+      ).also { params ->
+        params.topMargin = dpToPx(12)
+      }
+    }
+
+    container.addView(titleView)
+    container.addView(progressBar)
+    container.addView(progressText)
+
+    updateDownloadTitleView = titleView
+    updateDownloadProgressBar = progressBar
+    updateDownloadProgressText = progressText
+    updateDownloadDialog = AlertDialog.Builder(this)
+      .setTitle("下载安装包")
+      .setView(container)
+      .setCancelable(false)
+      .show()
+  }
+
+  private fun updateUpdateDownloadProgress(
+    versionName: String,
+    sourceLabel: String,
+    downloadedBytes: Long,
+    totalBytes: Long
+  ) {
+    updateDownloadTitleView?.text = "正在从 $sourceLabel 下载 $versionName"
+    val progressBar = updateDownloadProgressBar ?: return
+    val progressText = updateDownloadProgressText ?: return
+
+    if (totalBytes > 0L) {
+      progressBar.isIndeterminate = false
+      val percent = ((downloadedBytes.coerceAtLeast(0L) * 100) / totalBytes).toInt().coerceIn(0, 100)
+      progressBar.progress = percent
+      progressText.text = "已下载 ${formatFileSize(downloadedBytes)} / ${formatFileSize(totalBytes)} ($percent%)"
+    } else {
+      progressBar.isIndeterminate = true
+      progressText.text = if (downloadedBytes > 0L) {
+        "已下载 ${formatFileSize(downloadedBytes)}"
+      } else {
+        "正在连接下载源…"
+      }
+    }
+  }
+
+  private fun dismissUpdateDownloadDialog() {
+    updateDownloadDialog?.dismiss()
+    updateDownloadDialog = null
+    updateDownloadTitleView = null
+    updateDownloadProgressBar = null
+    updateDownloadProgressText = null
+  }
+
+  private fun promptInstallDownloadedApk(apkFile: File) {
+    pendingApkInstallFile = apkFile
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
+      AlertDialog.Builder(this)
+        .setTitle("需要安装权限")
+        .setMessage("安装包已经下载完成，请先允许本应用安装未知来源应用，返回后会自动继续安装。")
+        .setNegativeButton("取消", null)
+        .setPositiveButton("去开启") { _, _ ->
+          val intent = Intent(
+            Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+            Uri.parse("package:$packageName")
+          )
+          startActivity(intent)
+        }
+        .show()
+      return
+    }
+
+    installDownloadedApk(apkFile)
+  }
+
+  private fun resumePendingApkInstallIfReady() {
+    val apkFile = pendingApkInstallFile ?: return
+    if (!apkFile.exists()) {
+      pendingApkInstallFile = null
+      return
+    }
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
+      return
+    }
+    installDownloadedApk(apkFile)
+  }
+
+  private fun installDownloadedApk(apkFile: File) {
+    if (!apkFile.exists()) {
+      pendingApkInstallFile = null
+      Toast.makeText(this, "安装包不存在，请重新下载", Toast.LENGTH_SHORT).show()
+      return
+    }
+
+    pendingApkInstallFile = null
+    val contentUri = FileProvider.getUriForFile(
+      this,
+      "$packageName.fileprovider",
+      apkFile
+    )
+    val intent = Intent(Intent.ACTION_VIEW).apply {
+      setDataAndType(contentUri, "application/vnd.android.package-archive")
+      addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+      addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    startActivity(intent)
+  }
+
+  @Throws(IOException::class)
+  private fun downloadFile(
+    fileUrl: String,
+    targetFile: File,
+    onProgress: ((downloadedBytes: Long, totalBytes: Long) -> Unit)? = null
+  ) {
+    val connection = (URL(fileUrl).openConnection() as HttpURLConnection).apply {
+      requestMethod = "GET"
+      instanceFollowRedirects = true
+      connectTimeout = 15000
+      readTimeout = 30000
+      setRequestProperty("User-Agent", UPDATE_USER_AGENT)
+    }
+
+    try {
+      connection.connect()
+      if (connection.responseCode !in 200..299) {
+        throw IOException("HTTP ${connection.responseCode}")
+      }
+
+      val totalBytes = connection.contentLengthLong
+      val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+      var downloadedBytes = 0L
+      onProgress?.invoke(0L, totalBytes)
+
+      BufferedInputStream(connection.inputStream).use { input ->
+        BufferedOutputStream(targetFile.outputStream()).use { output ->
+          while (true) {
+            val count = input.read(buffer)
+            if (count < 0) {
+              break
+            }
+            output.write(buffer, 0, count)
+            downloadedBytes += count
+            onProgress?.invoke(downloadedBytes, totalBytes)
+          }
+          output.flush()
+        }
+      }
+    } finally {
+      connection.disconnect()
+    }
+  }
+
+  @Throws(IOException::class)
+  private fun fetchLatestReleaseInfo(sourceLabel: String, releasesUrl: String): AppReleaseInfo {
+    val document = org.jsoup.Jsoup.connect(releasesUrl)
+      .userAgent(UPDATE_USER_AGENT)
+      .timeout(15000)
+      .followRedirects(true)
+      .get()
+
+    val anchors = document.select("a[href]")
+    val apkAnchor = anchors.firstOrNull { anchor ->
+      val href = anchor.absUrl("href").ifBlank { anchor.attr("href") }
+      href.contains(".apk", ignoreCase = true)
+    }
+    val releaseAnchor = anchors.firstOrNull { anchor ->
+      val href = anchor.absUrl("href").ifBlank { anchor.attr("href") }
+      href.contains("/releases/tag/", ignoreCase = true) || extractVersionName(anchor.text()) != null
+    }
+
+    val versionName = listOf(
+      apkAnchor?.text(),
+      apkAnchor?.attr("title"),
+      apkAnchor?.absUrl("href"),
+      releaseAnchor?.text(),
+      releaseAnchor?.attr("title"),
+      releaseAnchor?.absUrl("href"),
+      document.title()
+    ).mapNotNull(::extractVersionName)
+      .firstOrNull()
+      ?: throw IOException("未能从 $sourceLabel 发布页中解析版本号")
+
+    val pageUrl = releaseAnchor?.absUrl("href")?.takeIf { it.isNotBlank() } ?: releasesUrl
+    val apkUrl = apkAnchor?.absUrl("href")?.takeIf { it.isNotBlank() }
+
+    return AppReleaseInfo(
+      sourceLabel = sourceLabel,
+      pageUrl = pageUrl,
+      versionName = versionName,
+      apkUrl = apkUrl
+    )
+  }
+
+  private fun buildReleaseDownloadCandidates(release: AppReleaseInfo): List<AppReleaseInfo> {
+    val candidates = mutableListOf(release)
+    val fallback = fetchAlternateReleaseInfo(release)
+    if (fallback != null) {
+      candidates += fallback
+    }
+    return candidates.distinctBy { "${it.sourceLabel}|${it.apkUrl}|${it.pageUrl}" }
+  }
+
+  private fun fetchAlternateReleaseInfo(release: AppReleaseInfo): AppReleaseInfo? {
+    val fallbackSource = if (release.sourceLabel.equals("Gitee", ignoreCase = true)) "GitHub" else "Gitee"
+    val fallbackUrl = if (fallbackSource == "Gitee") GITEE_RELEASES_URL else GITHUB_RELEASES_URL
+    return try {
+      fetchLatestReleaseInfo(fallbackSource, fallbackUrl)
+        .takeIf { compareVersionNames(it.versionName, release.versionName) == 0 }
+    } catch (_: Throwable) {
+      null
+    }
+  }
+
+  private fun giteeReleasePageUrlForVersion(versionName: String, release: AppReleaseInfo): String {
+    if (release.sourceLabel.equals("Gitee", ignoreCase = true) && release.pageUrl.isNotBlank()) {
+      return release.pageUrl
+    }
+    return "$GITEE_RELEASES_URL/tag/v$versionName"
+  }
+
+  private fun extractVersionName(raw: String?): String? {
+    val text = raw?.trim().orEmpty()
+    if (text.isBlank()) return null
+    return Regex("""(?i)v?(\d+(?:\.\d+){1,3})""")
+      .find(text)
+      ?.groupValues
+      ?.getOrNull(1)
+  }
+
+  private fun compareVersionNames(left: String, right: String): Int {
+    val leftParts = Regex("""\d+""").findAll(left).map { it.value.toIntOrNull() ?: 0 }.toList()
+    val rightParts = Regex("""\d+""").findAll(right).map { it.value.toIntOrNull() ?: 0 }.toList()
+    val maxSize = max(leftParts.size, rightParts.size)
+    for (index in 0 until maxSize) {
+      val leftValue = leftParts.getOrElse(index) { 0 }
+      val rightValue = rightParts.getOrElse(index) { 0 }
+      if (leftValue != rightValue) {
+        return leftValue.compareTo(rightValue)
+      }
+    }
+    return 0
+  }
+
+  private fun currentAppVersionName(): String {
+    val packageInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+      packageManager.getPackageInfo(packageName, PackageManager.PackageInfoFlags.of(0))
+    } else {
+      @Suppress("DEPRECATION")
+      packageManager.getPackageInfo(packageName, 0)
+    }
+    return packageInfo.versionName?.takeIf { it.isNotBlank() } ?: "0.0.0"
+  }
+
+  private fun openUrl(url: String) {
+    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+  }
+
+  private fun formatFileSize(bytes: Long): String {
+    if (bytes < 1024L) {
+      return "${bytes.coerceAtLeast(0L)} B"
+    }
+    val kilobytes = bytes / 1024.0
+    if (kilobytes < 1024.0) {
+      return String.format("%.1f KB", kilobytes)
+    }
+    val megabytes = kilobytes / 1024.0
+    if (megabytes < 1024.0) {
+      return String.format("%.1f MB", megabytes)
+    }
+    val gigabytes = megabytes / 1024.0
+    return String.format("%.2f GB", gigabytes)
+  }
+
   private fun bootstrapLoginSession(forceReload: Boolean = false) {
     if (loginSessionBootstrapped && !forceReload) {
       return
@@ -696,6 +1212,7 @@ class MainActivity : AppCompatActivity() {
     closeHomeImageViewer(resumeCarousel = false)
     currentWebScreen = WebScreen.PROFILE
     updateProfileWelcome()
+    updateAppVersionSummary()
     binding.loginPage.visibility = View.GONE
     binding.profilePage.visibility = View.VISIBLE
     binding.homePage.visibility = View.GONE
