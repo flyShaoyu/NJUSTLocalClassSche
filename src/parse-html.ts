@@ -3,6 +3,8 @@ import {
   examHtmlPath,
   examJsonPath,
   examViewPath,
+  scoreHtmlPath,
+  scoreJsonPath,
   timetableHtmlPath,
   timetableJsonPath,
   timetableViewPath
@@ -12,6 +14,7 @@ import { parseExamArrangementHtml } from "./exam-parser.js";
 import { renderExamPage } from "./exam-ui.js";
 import { parseTimetableHtml } from "./html-parser.js";
 import { logDivider, logStep } from "./logger.js";
+import { parseScoreHtml } from "./score-parser.js";
 import { renderTimetablePage } from "./timetable-ui.js";
 
 const run = async (): Promise<void> => {
@@ -40,6 +43,17 @@ const run = async (): Promise<void> => {
     logStep(`Done. Parsed ${exams.length} exam arrangement entries.`);
   } else {
     logStep(`Exam arrangement HTML not found, skipping: ${examHtmlPath}`);
+  }
+
+  if (await fileExists(scoreHtmlPath)) {
+    logStep(`Reading score HTML from ${scoreHtmlPath}`);
+    const scoreHtml = await fs.readFile(scoreHtmlPath, "utf8");
+    const scores = parseScoreHtml(scoreHtml);
+    await writeTextFile(scoreJsonPath, JSON.stringify(scores, null, 2));
+    logStep(`Done. Score JSON saved to ${scoreJsonPath}`);
+    logStep(`Done. Parsed ${scores.length} score entries.`);
+  } else {
+    logStep(`Score HTML not found, skipping: ${scoreHtmlPath}`);
   }
 
   logDivider("END");

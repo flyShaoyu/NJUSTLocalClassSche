@@ -3,6 +3,9 @@ import {
   examJsonPath,
   examViewPath,
   loadConfig,
+  scoreHtmlPath,
+  scoreJsonPath,
+  scoreViewPath,
   storageStatePath,
   timetableHtmlPath,
   timetableJsonPath,
@@ -17,6 +20,9 @@ import { renderTimetablePage } from "./timetable-ui.js";
 import { openExamPage } from "./exam-page.js";
 import { parseExamArrangementHtml } from "./exam-parser.js";
 import { renderExamPage } from "./exam-ui.js";
+import { openScorePage, readScorePageHtml } from "./score-page.js";
+import { parseScoreHtml } from "./score-parser.js";
+import { renderScorePage } from "./score-ui.js";
 
 const run = async (): Promise<void> => {
   logDivider("START");
@@ -66,6 +72,24 @@ const run = async (): Promise<void> => {
     logStep(`Done. Exam JSON saved to ${examJsonPath}`);
     logStep(`Done. Exam View saved to ${examViewPath}`);
     logStep(`Parsed ${exams.length} exam entries.`);
+
+    // --- Scores ---
+    logDivider("SCORES");
+    const scorePage = await openScorePage(context, config);
+
+    logStep("Capturing score page HTML.");
+    const scoreHtml = await readScorePageHtml(scorePage);
+    await writeTextFile(scoreHtmlPath, scoreHtml);
+    logStep(`Done. Score HTML saved to ${scoreHtmlPath}`);
+
+    logStep("Parsing score data from saved HTML.");
+    const scores = parseScoreHtml(scoreHtml);
+    await writeTextFile(scoreJsonPath, JSON.stringify(scores, null, 2));
+    await writeTextFile(scoreViewPath, renderScorePage(scores));
+
+    logStep(`Done. Score JSON saved to ${scoreJsonPath}`);
+    logStep(`Done. Score View saved to ${scoreViewPath}`);
+    logStep(`Parsed ${scores.length} score entries.`);
   } finally {
     logStep("Closing browser.");
     await context.close();

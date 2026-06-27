@@ -33,6 +33,9 @@ export const timetableViewPath = path.resolve("artifacts", "timetable-view.html"
 export const examHtmlPath = path.resolve("artifacts", "exam-list.html");
 export const examJsonPath = path.resolve("artifacts", "exam-list.json");
 export const examViewPath = path.resolve("artifacts", "exam-view.html");
+export const scoreHtmlPath = path.resolve("artifacts", "score-list.html");
+export const scoreJsonPath = path.resolve("artifacts", "score-list.json");
+export const scoreViewPath = path.resolve("artifacts", "score-view.html");
 export const homeViewPath = path.resolve("artifacts", "home-view.html");
 export const homeImageArtifactsDir = path.resolve("artifacts", "resources");
 export const homeImageSourceDir = path.resolve("resources");
@@ -49,6 +52,9 @@ export const loadConfig = (): AppConfig => ({
   examListUrl:
     process.env.EXAM_LIST_URL?.trim() ||
     "http://202.119.81.112:9080/njlgdx/xsks/xsksap_list",
+  scoreUrl:
+    process.env.SCORE_URL?.trim() ||
+    "http://202.119.81.112:9080/njlgdx/kscj/cjcx_list",
   username: getOptionalEnv("USERNAME"),
   password: getOptionalEnv("PASSWORD"),
   semester: process.env.SEMESTER?.trim() || "2025-2026-2",

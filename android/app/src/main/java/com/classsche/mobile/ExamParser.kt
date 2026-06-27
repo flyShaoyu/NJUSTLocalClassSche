@@ -16,7 +16,16 @@ object ExamParser {
     val teacherIndex = buildTeacherIndex(courses)
     val exams = mutableListOf<ExamArrangement>()
 
-    document.select("#dataList tr").drop(1).forEach { row ->
+    val rows = document.select("#dataList tr")
+    if (rows.isEmpty()) {
+      val title = document.title()
+      if (title.contains("登录") || title.contains("login", ignoreCase = true)) {
+        throw IllegalStateException("未获取到考试列表，会话可能已过期。当前页面: $title")
+      }
+      throw IllegalStateException("未在考试页面中找到 #dataList 表格。当前页面: $title")
+    }
+
+    rows.drop(1).forEach { row ->
       val cells = row.select("td")
       if (cells.size < 7) return@forEach
 

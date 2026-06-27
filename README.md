@@ -15,8 +15,21 @@
 
 ## 发布下载
 
+<div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;">
+  <a href="https://github.com/flyShaoyu/NJUSTLocalClassSche/releases" style="display:inline-block;padding:10px 16px;border-radius:10px;background:#24292f;color:#ffffff;text-decoration:none;font-weight:600;line-height:1;box-shadow:0 6px 16px rgba(36,41,47,0.18);">
+    GitHub Releases
+  </a>
+  <a href="https://gitee.com/flyshaoyu/njust_localclasssche/releases" style="display:inline-block;padding:10px 16px;border-radius:10px;background:#c71d23;color:#ffffff;text-decoration:none;font-weight:600;line-height:1;box-shadow:0 6px 16px rgba(199,29,35,0.18);">
+    Gitee Releases
+  </a>
+</div>
+
+
 - GitHub Releases：
   [https://github.com/flyShaoyu/NJUSTLocalClassSche/releases](https://github.com/flyShaoyu/NJUSTLocalClassSche/releases)
+
+- Gitee Releases：
+  [https://gitee.com/flyshaoyu/njust_localclasssche/releases](https://gitee.com/flyshaoyu/njust_localclasssche/releases)
 
 ## 当前能力
 

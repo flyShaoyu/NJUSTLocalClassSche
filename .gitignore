@@ -10,7 +10,10 @@ test-results/
 coverage/
 
 # Gradle
+.g/
 .gradle/
+android/.gradle/
+android/.gradle-user/
 
 # Local configuration
 local.properties

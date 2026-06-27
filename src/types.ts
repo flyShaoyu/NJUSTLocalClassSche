@@ -4,6 +4,7 @@ export interface AppConfig {
   timetableUrl: string;
   examQueryUrl: string;
   examListUrl: string;
+  scoreUrl: string;
   username?: string;
   password?: string;
   semester?: string;
@@ -34,5 +35,21 @@ export interface ExamArrangement {
   examRoom: string;
   seatNumber: string;
   teacher?: string;
+  rawText: string;
+}
+
+export interface ScoreRecord {
+  index: number;
+  semester: string;
+  courseCode: string;
+  courseName: string;
+  score: string;
+  scoreIdentifier: string;
+  credits: string;
+  totalHours: string;
+  assessmentMethod: string;
+  courseAttribute: string;
+  courseNature: string;
+  isHighlighted: boolean;
   rawText: string;
 }

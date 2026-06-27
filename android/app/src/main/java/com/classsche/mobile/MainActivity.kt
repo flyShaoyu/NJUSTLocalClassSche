@@ -208,7 +208,8 @@ class MainActivity : AppCompatActivity() {
     PROFILE,
     LOGIN,
     TIMETABLE,
-    EXAM
+    EXAM,
+    SCORE
   }
 
   companion object {
@@ -219,9 +220,11 @@ class MainActivity : AppCompatActivity() {
     private const val GENERATED_CACHE_HTML_FILE = "timetable-view-generated.html"
     private const val CACHE_JSON_FILE = "timetable.json"
     private const val EXAM_JSON_FILE = "exam-list.json"
+    private const val SCORE_JSON_FILE = "score-list.json"
     private const val CACHE_RAW_HTML_FILE = "timetable.raw.html"
     private const val EXAM_QUERY_URL = "http://202.119.81.112:9080/njlgdx/xsks/xsksap_query"
     private const val EXAM_LIST_URL = "http://202.119.81.112:9080/njlgdx/xsks/xsksap_list"
+    private const val SCORE_LIST_URL = "http://202.119.81.112:9080/njlgdx/kscj/cjcx_list"
     private const val EXAM_DEFAULT_SEMESTER = "2025-2026-2"
     private const val PREF_USERNAME = "username"
     private const val PREF_PASSWORD = "password"
@@ -229,7 +232,7 @@ class MainActivity : AppCompatActivity() {
     private const val CACHE_META_ASSET = "cache-meta.json"
     private val HOME_MENU_ITEMS = listOf(
       HomeMenuEntry("exam", "考试安排", R.drawable.ic_home_exam, true),
-      HomeMenuEntry("score", "成绩查询", R.drawable.ic_home_score, false),
+      HomeMenuEntry("score", "成绩查询", R.drawable.ic_home_score, true),
       HomeMenuEntry("level", "等级考试", R.drawable.ic_home_level, false),
       HomeMenuEntry("add", "添加课表", R.drawable.ic_home_add, false),
       HomeMenuEntry("schedule", "课表查询", R.drawable.ic_home_schedule, true),
@@ -284,6 +287,27 @@ class MainActivity : AppCompatActivity() {
       "input[name='randomcode']",
       "input[name='captcha']"
     )
+
+    private fun serializeForScript(json: String): String {
+      return json
+        .replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("&", "\\u0026")
+        .replace("\u2028", "\\u2028")
+        .replace("\u2029", "\\u2029")
+    }
+
+    private fun normalizeText(value: String): String =
+      value
+        .replace('\u00A0', ' ')
+        .replace("&nbsp;", " ")
+        .replace("\r", "\n")
+        .replace(Regex("[ \\t]+"), " ")
+        .replace(Regex("\\n{3,}"), "\n\n")
+        .trim()
+
+    private fun cleanInlineText(value: String): String =
+      normalizeText(value).replace(Regex("\\s*\\n\\s*"), " ")
   }
 
   @SuppressLint("SetJavaScriptEnabled")
@@ -363,7 +387,7 @@ class MainActivity : AppCompatActivity() {
     binding.toolbar.navigationIcon = null
     binding.toolbar.setNavigationOnClickListener {
       when (currentWebScreen) {
-        WebScreen.TIMETABLE, WebScreen.EXAM -> showHomePage()
+        WebScreen.TIMETABLE, WebScreen.EXAM, WebScreen.SCORE -> showHomePage()
         WebScreen.LOGIN -> showProfilePage()
         else -> Unit
       }
@@ -473,6 +497,9 @@ class MainActivity : AppCompatActivity() {
         when {
           url.contains("exam-view", ignoreCase = true) -> {
             applyWebScreen(WebScreen.EXAM)
+          }
+          url.contains("score-view", ignoreCase = true) -> {
+            applyWebScreen(WebScreen.SCORE)
           }
           url.contains("timetable-view", ignoreCase = true) || looksLikeTimetableUrl(url) -> {
             applyWebScreen(WebScreen.TIMETABLE)
@@ -725,9 +752,16 @@ class MainActivity : AppCompatActivity() {
         binding.homeWebView.visibility = View.GONE
         binding.timetablePage.visibility = View.VISIBLE
       }
+      WebScreen.SCORE -> {
+        binding.loginPage.visibility = View.GONE
+        binding.profilePage.visibility = View.GONE
+        binding.homePage.visibility = View.GONE
+        binding.homeWebView.visibility = View.GONE
+        binding.timetablePage.visibility = View.VISIBLE
+      }
     }
 
-    val hideBottomNav = screen == WebScreen.TIMETABLE || screen == WebScreen.EXAM || screen == WebScreen.LOGIN
+    val hideBottomNav = screen == WebScreen.TIMETABLE || screen == WebScreen.EXAM || screen == WebScreen.SCORE || screen == WebScreen.LOGIN
     binding.bottomNavGroup.visibility = if (hideBottomNav || homeViewerVisible) View.GONE else View.VISIBLE
     if (screen == WebScreen.HOME) {
       updateBottomNavSelection(binding.navHomeButton.id)
@@ -740,8 +774,9 @@ class MainActivity : AppCompatActivity() {
       WebScreen.LOGIN -> getString(R.string.toolbar_title_login)
       WebScreen.TIMETABLE -> getString(R.string.toolbar_title_timetable)
       WebScreen.EXAM -> getString(R.string.toolbar_title_exam)
+      WebScreen.SCORE -> "成绩查询"
     }
-    binding.toolbar.navigationIcon = if (screen == WebScreen.TIMETABLE || screen == WebScreen.EXAM || screen == WebScreen.LOGIN) {
+    binding.toolbar.navigationIcon = if (screen == WebScreen.TIMETABLE || screen == WebScreen.EXAM || screen == WebScreen.SCORE || screen == WebScreen.LOGIN) {
       ContextCompat.getDrawable(this, androidx.appcompat.R.drawable.abc_ic_ab_back_material)?.mutate()?.apply {
         setTint(Color.WHITE)
       }
@@ -1099,6 +1134,12 @@ class MainActivity : AppCompatActivity() {
     loadExamPageWithLatestData()
   }
 
+  private fun showCachedScorePage() {
+    showingLiveTimetable = false
+    applyWebScreen(WebScreen.SCORE)
+    loadScorePageWithLatestData()
+  }
+
   private fun presentHomePage() {
     val targetSignature = currentHomeSignature()
     if (homePageLoaded && renderedHomeSignature == targetSignature) {
@@ -1146,6 +1187,11 @@ class MainActivity : AppCompatActivity() {
 
     if (currentWebScreen == WebScreen.EXAM) {
       showCachedExamSchedule()
+      return
+    }
+
+    if (currentWebScreen == WebScreen.SCORE) {
+      showCachedScorePage()
     }
   }
 
@@ -1196,6 +1242,10 @@ class MainActivity : AppCompatActivity() {
     }
   }
 
+  private fun hasUsableScoreCache(cacheJsonFile: File): Boolean {
+    return hasUsableExamCache(cacheJsonFile)
+  }
+
   private fun loadExamPageWithLatestData() {
     val templateHtml = runCatching {
       assets.open("exam-view.html").bufferedReader(Charsets.UTF_8).use { it.readText() }
@@ -1239,10 +1289,62 @@ class MainActivity : AppCompatActivity() {
     }.getOrNull()
   }
 
+  private fun loadScorePageWithLatestData() {
+    val templateHtml = runCatching {
+      assets.open("score-view.html").bufferedReader(Charsets.UTF_8).use { it.readText() }
+    }.getOrNull()
+
+    if (templateHtml.isNullOrBlank()) {
+      binding.contentWebView.stopLoading()
+      binding.contentWebView.clearHistory()
+      binding.contentWebView.clearCache(true)
+      binding.contentWebView.loadUrl("${HOME_ASSET_BASE_URL}score-view.html?v=${System.currentTimeMillis()}")
+      return
+    }
+
+    val latestJson = readLatestScoreJson()
+    val html = if (latestJson.isNullOrBlank()) {
+      templateHtml
+    } else {
+      injectScoreJsonIntoTemplate(templateHtml, latestJson)
+    }
+
+    binding.contentWebView.stopLoading()
+    binding.contentWebView.clearHistory()
+    binding.contentWebView.clearCache(true)
+    binding.contentWebView.loadDataWithBaseURL(
+      HOME_ASSET_BASE_URL,
+      html,
+      "text/html",
+      "utf-8",
+      null
+    )
+  }
+
+  private fun readLatestScoreJson(): String? {
+    val runtimeFile = File(filesDir, SCORE_JSON_FILE)
+    if (hasUsableScoreCache(runtimeFile)) {
+      return runtimeFile.readText(Charsets.UTF_8)
+    }
+
+    return runCatching {
+      assets.open(SCORE_JSON_FILE).bufferedReader(Charsets.UTF_8).use { it.readText() }
+    }.getOrNull()
+  }
+
   private fun injectExamJsonIntoTemplate(templateHtml: String, examsJson: String): String {
     val pattern = Regex("""const exams = .*?;""", setOf(RegexOption.DOT_MATCHES_ALL))
     return if (pattern.containsMatchIn(templateHtml)) {
-      templateHtml.replace(pattern, "const exams = $examsJson;")
+      templateHtml.replace(pattern, "const exams = ${serializeForScript(examsJson)};")
+    } else {
+      templateHtml
+    }
+  }
+
+  private fun injectScoreJsonIntoTemplate(templateHtml: String, scoresJson: String): String {
+    val pattern = Regex("""const rawScores = .*?;""", setOf(RegexOption.DOT_MATCHES_ALL))
+    return if (pattern.containsMatchIn(templateHtml)) {
+      templateHtml.replace(pattern, "const rawScores = ${serializeForScript(scoresJson)};")
     } else {
       templateHtml
     }
@@ -1282,6 +1384,10 @@ class MainActivity : AppCompatActivity() {
         showCachedExamSchedule()
         true
       }
+      url.contains("score-view", ignoreCase = true) -> {
+        showCachedScorePage()
+        true
+      }
       url.contains("home-view", ignoreCase = true) -> {
         showHomePage()
         true
@@ -1314,10 +1420,12 @@ class MainActivity : AppCompatActivity() {
     val homeCacheFile = File(filesDir, GENERATED_HOME_HTML_FILE)
     val cacheJsonFile = File(filesDir, CACHE_JSON_FILE)
     val examJsonFile = File(filesDir, EXAM_JSON_FILE)
+    val scoreJsonFile = File(filesDir, SCORE_JSON_FILE)
     val homePart = if (homeCacheFile.exists()) "${homeCacheFile.length()}:${homeCacheFile.lastModified()}" else "missing"
     val jsonPart = if (cacheJsonFile.exists()) "${cacheJsonFile.length()}:${cacheJsonFile.lastModified()}" else "missing"
     val examPart = if (examJsonFile.exists()) "${examJsonFile.length()}:${examJsonFile.lastModified()}" else "missing"
-    return listOf(currentAssetExportId ?: "no-export", homePart, jsonPart, examPart).joinToString("|")
+    val scorePart = if (scoreJsonFile.exists()) "${scoreJsonFile.length()}:${scoreJsonFile.lastModified()}" else "missing"
+    return listOf(currentAssetExportId ?: "no-export", homePart, jsonPart, examPart, scorePart).joinToString("|")
   }
 
   private fun renderNativeHome() {
@@ -1927,6 +2035,8 @@ class MainActivity : AppCompatActivity() {
           showCachedTimetable()
         } else if (item.key == "exam") {
           showCachedExamSchedule()
+        } else if (item.key == "score") {
+          showCachedScorePage()
         } else if (item.key == "refresh") {
           val user = prefs.getString(PREF_USERNAME, "")
           val pwd = prefs.getString(PREF_PASSWORD, "")
@@ -2416,14 +2526,20 @@ class MainActivity : AppCompatActivity() {
           File(filesDir, CACHE_JSON_FILE).writeText(json, Charsets.UTF_8)
           File(filesDir, CACHE_RAW_HTML_FILE).writeText(html, Charsets.UTF_8)
           val examSyncResult = runCatching { syncExamCacheFromSession(courses) }
+          val scoreSyncResult = runCatching { syncScoreCacheFromSession() }
 
           mainHandler.post {
             cacheCaptureInProgress = false
             val examCount = examSyncResult.getOrNull()
-            if (examCount != null) {
-              updateStatus("本地缓存已更新，共解析 ${courses.size} 条课程，${examCount} 场考试。")
+            val scoreCount = scoreSyncResult.getOrNull()
+            if (examCount != null && scoreCount != null) {
+              updateStatus("本地缓存已更新，共解析 ${courses.size} 条课程，${examCount} 场考试，${scoreCount} 条成绩。")
+            } else if (examCount != null) {
+              updateStatus("课表缓存已更新，共解析 ${courses.size} 条课程，${examCount} 场考试；成绩同步失败。")
+            } else if (scoreCount != null) {
+              updateStatus("课表缓存已更新，共解析 ${courses.size} 条课程，${scoreCount} 条成绩；考试安排同步失败。")
             } else {
-              updateStatus("课表缓存已更新，共解析 ${courses.size} 条课程；考试安排同步失败。")
+              updateStatus("课表缓存已更新，共解析 ${courses.size} 条课程；考试安排和成绩同步失败。")
             }
             CourseNotificationScheduler.sync(this@MainActivity)
             ExamOngoingNotificationScheduler.sync(this@MainActivity)
@@ -2535,6 +2651,12 @@ class MainActivity : AppCompatActivity() {
     return exams.size
   }
 
+  private fun syncScoreCacheFromSession(): Int {
+    val scores = fetchScoreRecords()
+    File(filesDir, SCORE_JSON_FILE).writeText(scores.toString(), Charsets.UTF_8)
+    return scores.length()
+  }
+
   private fun fetchExamArrangements(courses: List<TimetableCourse>): List<ExamArrangement> {
     val queryDocument = fetchExamQueryDocument()
     val form = queryDocument.selectFirst("form[name=ksapQueryForm]") ?: queryDocument.selectFirst("form")
@@ -2544,6 +2666,68 @@ class MainActivity : AppCompatActivity() {
     val parameters = extractExamFormParameters(form)
     val examBytes = submitExamQuery(actionUrl, method, parameters)
     return ExamParser.parseBytes(examBytes, actionUrl, courses)
+  }
+
+  private fun fetchScoreRecords(): JSONArray {
+    val bytes = withSessionConnection(SCORE_LIST_URL, method = "GET", referer = TIMETABLE_URL) { connection ->
+      connection.inputStream.use { it.readBytes() }
+    }
+    val document = org.jsoup.Jsoup.parse(java.io.ByteArrayInputStream(bytes), null, SCORE_LIST_URL)
+    return parseScoreDocument(document)
+  }
+
+  private fun parseScoreDocument(document: org.jsoup.nodes.Document): JSONArray {
+    val rows = document.select("#dataList tr")
+    if (rows.isEmpty()) {
+      val title = document.title()
+      if (title.contains("登录") || title.contains("login", ignoreCase = true)) {
+        throw IllegalStateException("未获取到成绩列表，会话可能已过期。当前页面: $title")
+      }
+      throw IllegalStateException("未在成绩页面中找到 #dataList 表格。当前页面: $title")
+    }
+    val result = JSONArray()
+
+    rows.drop(1).forEachIndexed { index, row ->
+      val cells = row.select("> td")
+      if (cells.size < 11) {
+        return@forEachIndexed
+      }
+
+      val item = JSONObject().apply {
+        put("index", cleanInlineText(cells.getOrNull(0)?.text().orEmpty()).toIntOrNull() ?: (result.length() + 1))
+        put("semester", cleanInlineText(cells.getOrNull(1)?.text().orEmpty()))
+        put("courseCode", cleanInlineText(cells.getOrNull(2)?.text().orEmpty()))
+        put("courseName", cleanInlineText(cells.getOrNull(3)?.text().orEmpty()))
+        put("score", cleanInlineText(cells.getOrNull(4)?.text().orEmpty()))
+        put("scoreIdentifier", cleanInlineText(cells.getOrNull(5)?.text().orEmpty()))
+        put("credits", cleanInlineText(cells.getOrNull(6)?.text().orEmpty()))
+        put("totalHours", cleanInlineText(cells.getOrNull(7)?.text().orEmpty()))
+        put("assessmentMethod", cleanInlineText(cells.getOrNull(8)?.text().orEmpty()))
+        put("courseAttribute", cleanInlineText(cells.getOrNull(9)?.text().orEmpty()))
+        put("courseNature", cleanInlineText(cells.getOrNull(10)?.text().orEmpty()))
+        put("isHighlighted", cells.getOrNull(4)?.attr("style")?.contains("red", ignoreCase = true) == true)
+        put(
+          "rawText",
+          buildString {
+            cells.forEachIndexed { cellIndex, cell ->
+              if (cellIndex > 0) append('\n')
+              append(cleanInlineText(cell.text()))
+            }
+          }
+        )
+      }
+
+      val courseName = item.optString("courseName")
+      val semester = item.optString("semester")
+      val score = item.optString("score")
+      if (courseName.isBlank() && semester.isBlank() && score.isBlank()) {
+        return@forEachIndexed
+      }
+
+      result.put(item)
+    }
+
+    return result
   }
 
   private fun fetchExamQueryDocument() =

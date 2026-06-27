@@ -8,6 +8,8 @@ import {
   homeImageArtifactsDir,
   homeImageSourceDir,
   homeViewPath,
+  scoreJsonPath,
+  scoreViewPath,
   timetableJsonPath,
   timetableViewPath
 } from "./config.js";
@@ -15,8 +17,9 @@ import { ensureArtifactsDirectory, writeTextFile } from "./fs-utils.js";
 import { renderExamPage } from "./exam-ui.js";
 import { renderHomePage } from "./home-page-ui.js";
 import { logDivider, logStep } from "./logger.js";
+import { renderScorePage } from "./score-ui.js";
 import { renderTimetablePage } from "./timetable-ui.js";
-import { ExamArrangement, TimetableCourse } from "./types.js";
+import { ExamArrangement, ScoreRecord, TimetableCourse } from "./types.js";
 
 const imageExtensions = new Set([".jpg", ".jpeg", ".png", ".webp", ".gif"]);
 const execFileAsync = promisify(execFile);
@@ -160,11 +163,23 @@ const run = async (): Promise<void> => {
     await writeTextFile(examViewPath, renderExamPage([]));
   }
 
+  try {
+    logStep(`Reading score JSON from ${scoreJsonPath}`);
+    const scoreContent = await fs.readFile(scoreJsonPath, "utf8");
+    const scores = JSON.parse(scoreContent) as ScoreRecord[];
+    await writeTextFile(scoreViewPath, renderScorePage(scores));
+    logStep("Rendering score frontend.");
+  } catch {
+    logStep(`Score JSON not found, rendering empty score frontend: ${scoreJsonPath}`);
+    await writeTextFile(scoreViewPath, renderScorePage([]));
+  }
+
   logStep("Rendering home frontend.");
   await writeTextFile(homeViewPath, renderHomePage(courses, homeImages));
 
   logStep(`Done. Frontend page saved to ${timetableViewPath}`);
   logStep(`Done. Exam page saved to ${examViewPath}`);
+  logStep(`Done. Score page saved to ${scoreViewPath}`);
   logStep(`Done. Home page saved to ${homeViewPath}`);
   logDivider("END");
 };
