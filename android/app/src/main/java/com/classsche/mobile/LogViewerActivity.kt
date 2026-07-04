@@ -76,12 +76,7 @@ class LogViewerActivity : AppCompatActivity() {
   }
 
   private fun applyToolbarLayout() {
-    val minHeight = TypedValue.applyDimension(
-      TypedValue.COMPLEX_UNIT_DIP,
-      48f + (lastStatusBarInsetTop / resources.displayMetrics.density),
-      resources.displayMetrics
-    ).toInt()
-    binding.toolbar.minimumHeight = minHeight
+    binding.toolbar.minimumHeight = 0
     binding.toolbar.setPadding(
       baseToolbarPaddingLeft,
       baseToolbarPaddingTop + lastStatusBarInsetTop,
@@ -92,19 +87,32 @@ class LogViewerActivity : AppCompatActivity() {
 
   private fun updateToolbarNavigationButtonLayout() {
     binding.toolbar.post {
-      val buttonSize = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 36f, resources.displayMetrics).toInt()
-      val horizontalPadding = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 6f, resources.displayMetrics).toInt()
+      val targetSize = dpToPx(44)
+      val horizontalMargin = dpToPx(8)
       for (index in 0 until binding.toolbar.childCount) {
         val child = binding.toolbar.getChildAt(index)
         if (child is ImageButton) {
-          child.layoutParams = child.layoutParams.apply {
-            width = buttonSize
-            height = buttonSize
+          val params = child.layoutParams
+          params.height = targetSize
+          params.width = targetSize
+          if (params is android.view.ViewGroup.MarginLayoutParams) {
+            params.marginStart = horizontalMargin
+            params.marginEnd = horizontalMargin
           }
-          child.setPadding(horizontalPadding, horizontalPadding, horizontalPadding, horizontalPadding)
-          child.requestLayout()
+          child.layoutParams = params
+          child.minimumHeight = targetSize
+          child.minimumWidth = targetSize
+          child.setPadding(0, 0, 0, 0)
+          child.scaleType = android.widget.ImageView.ScaleType.CENTER
         }
       }
     }
   }
+
+  private fun dpToPx(value: Int): Int =
+    TypedValue.applyDimension(
+      TypedValue.COMPLEX_UNIT_DIP,
+      value.toFloat(),
+      resources.displayMetrics
+    ).toInt()
 }

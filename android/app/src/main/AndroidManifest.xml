@@ -2,6 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
@@ -33,7 +34,15 @@
             android:exported="false" />
 
         <activity
+            android:name=".ScoreSyncSettingsActivity"
+            android:exported="false" />
+
+        <activity
             android:name=".LogViewerActivity"
+            android:exported="false" />
+
+        <activity
+            android:name=".LocalScoreEditorActivity"
             android:exported="false" />
 
         <provider
@@ -62,6 +71,10 @@
 
         <receiver
             android:name=".ExamNotificationReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name=".HeadlessScoreSyncReceiver"
             android:exported="false" />
 
         <receiver

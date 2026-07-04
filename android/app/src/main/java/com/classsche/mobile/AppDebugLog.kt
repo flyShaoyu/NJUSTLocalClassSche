@@ -7,7 +7,7 @@ import java.time.format.DateTimeFormatter
 
 object AppDebugLog {
   private const val LOG_FILE_NAME = "app-debug.log"
-  private const val MAX_LINES = 800
+  private const val MAX_LINES = 500
   private val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS")
 
   @Synchronized

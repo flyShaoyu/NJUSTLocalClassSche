@@ -5,6 +5,10 @@ import android.animation.ObjectAnimator
 import android.animation.ValueAnimator
 import android.annotation.SuppressLint
 import android.Manifest
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.net.Uri
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -17,6 +21,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.provider.Settings
 import android.util.LruCache
 import android.util.TypedValue
@@ -44,9 +49,11 @@ import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
+import android.widget.FrameLayout
 import android.widget.TextView
 import android.widget.Toast
 import com.classsche.mobile.databinding.ActivityMainBinding
+import androidx.core.app.NotificationCompat
 import org.json.JSONArray
 import org.json.JSONObject
 import com.google.mlkit.vision.common.InputImage
@@ -62,7 +69,10 @@ import java.net.URLEncoder
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.temporal.ChronoUnit
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.max
 import kotlin.math.abs
 
@@ -89,13 +99,17 @@ class MainActivity : AppCompatActivity() {
   private var currentAssetExportId: String? = null
   private var renderedHomeSignature: String? = null
   private var loginSessionBootstrapped = false
+  private var headlessLoginInProgress = false
+  private var lastAutoScoreSyncElapsed = 0L
   private var pendingNotificationToggleTarget: NotificationToggleTarget? = null
   private var updateCheckInProgress = false
   private var pendingApkInstallFile: File? = null
   private var updateDownloadDialog: AlertDialog? = null
   private var updateDownloadTitleView: TextView? = null
+  private var updateDownloadNotesView: TextView? = null
   private var updateDownloadProgressBar: ProgressBar? = null
   private var updateDownloadProgressText: TextView? = null
+  private var lastAutoUpdateCheckElapsed = 0L
   private data class HomeImageAsset(
     val caption: String,
     val thumbAssetPath: String,
@@ -197,6 +211,14 @@ class MainActivity : AppCompatActivity() {
     val isAlert: Boolean
   )
 
+  private data class HomeRecentScoreEntry(
+    val displayTag: String,
+    val title: String,
+    val meta: String,
+    val score: String,
+    val isAlert: Boolean
+  )
+
   private data class NormalizedCourse(
     val course: TimetableCourse,
     val startPeriod: Int,
@@ -221,7 +243,8 @@ class MainActivity : AppCompatActivity() {
     val sourceLabel: String,
     val pageUrl: String,
     val versionName: String,
-    val apkUrl: String?
+    val apkUrl: String?,
+    val releaseNotes: String
   )
 
   private enum class WebScreen {
@@ -242,6 +265,8 @@ class MainActivity : AppCompatActivity() {
     private const val CACHE_JSON_FILE = "timetable.json"
     private const val EXAM_JSON_FILE = "exam-list.json"
     private const val SCORE_JSON_FILE = "score-list.json"
+    private const val HEADLESS_SCORE_TEST_FILE = "headless-score-test.json"
+    private const val SCORE_UPDATE_META_FILE = "score-update-meta.json"
     private const val CACHE_RAW_HTML_FILE = "timetable.raw.html"
     private const val EXAM_QUERY_URL = "http://202.119.81.112:9080/njlgdx/xsks/xsksap_query"
     private const val EXAM_LIST_URL = "http://202.119.81.112:9080/njlgdx/xsks/xsksap_list"
@@ -251,10 +276,15 @@ class MainActivity : AppCompatActivity() {
     private const val GITEE_RELEASES_URL = "https://gitee.com/flyshaoyu/njust_localclasssche/releases"
     private const val GITHUB_RELEASES_URL = "https://github.com/flyShaoyu/NJUSTLocalClassSche/releases"
     private const val UPDATE_USER_AGENT = "Mozilla/5.0 ClassScheMobile"
+    private const val SCORE_UPDATE_CHANNEL_ID = "classsche_score_update_v1"
+    private const val SCORE_UPDATE_NOTIFICATION_ID = 3101
     private const val EXAM_DEFAULT_SEMESTER = "2025-2026-2"
     private const val PREF_USERNAME = "username"
     private const val PREF_PASSWORD = "password"
     private const val PREF_ASSET_EXPORT_ID = "asset_export_id"
+    private const val PREF_UPDATE_AVAILABLE_VERSION = "update_available_version"
+    private const val PREF_UPDATE_AVAILABLE_SOURCE = "update_available_source"
+    private const val PREF_UPDATE_PROMPTED_VERSION = "update_prompted_version"
     private const val CACHE_META_ASSET = "cache-meta.json"
     private val HOME_MENU_ITEMS = listOf(
       HomeMenuEntry("exam", "考试安排", R.drawable.ic_home_exam, true),
@@ -354,6 +384,7 @@ class MainActivity : AppCompatActivity() {
     restoreNotificationSettings()
     CourseNotificationScheduler.sync(this)
     ExamOngoingNotificationScheduler.sync(this)
+    HeadlessScoreSyncScheduler.scheduleNext(this)
 
     showHomePage()
     binding.root.post {
@@ -379,7 +410,49 @@ class MainActivity : AppCompatActivity() {
     updateNotificationLeadTimeSummary()
     refreshNotificationInputEnabledState()
     updateAppVersionSummary()
+    refreshUpdateBadge()
     resumePendingApkInstallIfReady()
+    refreshGeneratedCacheAfterStartup()
+    triggerScoreSyncOnAppOpenIfNeeded()
+    triggerAutoUpdateCheckIfNeeded()
+  }
+
+  private fun triggerAutoUpdateCheckIfNeeded() {
+    val now = SystemClock.elapsedRealtime()
+    if (now - lastAutoUpdateCheckElapsed < 15_000L) {
+      return
+    }
+    lastAutoUpdateCheckElapsed = now
+    checkForAppUpdate(silent = true)
+  }
+
+  private fun triggerScoreSyncOnAppOpenIfNeeded() {
+    val now = SystemClock.elapsedRealtime()
+    if (now - lastAutoScoreSyncElapsed < 15_000L) {
+      return
+    }
+    lastAutoScoreSyncElapsed = now
+    val skipReason = ScoreSyncSettings.skipReason(this)
+    HeadlessScoreSyncScheduler.scheduleNext(this)
+    if (skipReason != null) {
+      appendDebugLog("HEADLESS_SCORE_SYNC", "SKIP", "应用打开时跳过自动成绩检查：$skipReason")
+      return
+    }
+    HeadlessScoreSyncManager.runSync(this, reason = "APP_OPEN") { result ->
+      if (result.status != HeadlessScoreSyncManager.Status.SUCCESS) {
+        return@runSync
+      }
+      mainHandler.post {
+        when (currentWebScreen) {
+          WebScreen.HOME -> if (result.updatedCount > 0) {
+            renderedHomeSignature = null
+            presentHomePage()
+          }
+          WebScreen.SCORE -> loadScorePageWithLatestData()
+          else -> Unit
+        }
+      }
+    }
   }
 
   override fun onBackPressed() {
@@ -545,11 +618,23 @@ class MainActivity : AppCompatActivity() {
     binding.profileOpenNotificationRow.setOnClickListener {
       startActivity(Intent(this, NotificationSettingsActivity::class.java))
     }
+    binding.profileScoreSyncSettingsRow.setOnClickListener {
+      startActivity(Intent(this, ScoreSyncSettingsActivity::class.java))
+    }
     binding.profileCheckUpdateRow.setOnClickListener {
       checkForAppUpdate()
     }
     binding.profileOpenLogsRow.setOnClickListener {
       startActivity(Intent(this, LogViewerActivity::class.java))
+    }
+    binding.profilePresetScoreTestRow.setOnClickListener {
+      presetScoreUpdateTestData()
+    }
+    binding.profileHeadlessScoreTestRow.setOnClickListener {
+      runHeadlessScoreTest()
+    }
+    binding.profileScoreEditorRow.setOnClickListener {
+      startActivity(Intent(this, LocalScoreEditorActivity::class.java))
     }
     binding.profileSoftwareGiteeRow.setOnClickListener {
       openUrl(GITEE_HOME_URL)
@@ -706,18 +791,52 @@ class MainActivity : AppCompatActivity() {
     }
   }
 
-  private fun checkForAppUpdate() {
+  private fun refreshUpdateBadge() {
+    val availableVersion = prefs.getString(PREF_UPDATE_AVAILABLE_VERSION, "").orEmpty().trim()
+    val showBadge = availableVersion.isNotBlank() && compareVersionNames(availableVersion, currentAppVersionName()) > 0
+    binding.profileCheckUpdateBadge.visibility = if (showBadge) View.VISIBLE else View.GONE
+  }
+
+  private fun persistAvailableUpdateState(release: AppReleaseInfo?) {
+    if (release == null || compareVersionNames(release.versionName, currentAppVersionName()) <= 0) {
+      prefs.edit()
+        .remove(PREF_UPDATE_AVAILABLE_VERSION)
+        .remove(PREF_UPDATE_AVAILABLE_SOURCE)
+        .apply()
+    } else {
+      prefs.edit()
+        .putString(PREF_UPDATE_AVAILABLE_VERSION, release.versionName)
+        .putString(PREF_UPDATE_AVAILABLE_SOURCE, release.sourceLabel)
+        .apply()
+    }
+    refreshUpdateBadge()
+  }
+
+  private fun shouldAutoPromptUpdate(release: AppReleaseInfo): Boolean {
+    val promptedVersion = prefs.getString(PREF_UPDATE_PROMPTED_VERSION, "").orEmpty().trim()
+    return compareVersionNames(release.versionName, currentAppVersionName()) > 0 && promptedVersion != release.versionName
+  }
+
+  private fun markUpdatePrompted(versionName: String) {
+    prefs.edit().putString(PREF_UPDATE_PROMPTED_VERSION, versionName).apply()
+  }
+
+  private fun checkForAppUpdate(silent: Boolean = false) {
     if (updateCheckInProgress) {
       appendDebugLog("UPDATE", "INFO", "重复触发检查更新，已忽略")
-      Toast.makeText(this, "正在检查更新，请稍候", Toast.LENGTH_SHORT).show()
+      if (!silent) {
+        Toast.makeText(this, "正在检查更新，请稍候", Toast.LENGTH_SHORT).show()
+      }
       return
     }
 
     val currentVersion = currentAppVersionName()
     appendDebugLog("UPDATE", "START", "开始检查更新，当前版本=$currentVersion")
     updateCheckInProgress = true
-    updateAppVersionSummary(getString(R.string.profile_update_checking, currentVersion))
-    updateStatus("正在检查更新…")
+    if (!silent) {
+      updateAppVersionSummary(getString(R.string.profile_update_checking, currentVersion))
+      updateStatus("正在检查更新…")
+    }
 
     ioExecutor.execute {
       var giteeError: Throwable? = null
@@ -731,8 +850,10 @@ class MainActivity : AppCompatActivity() {
         } catch (fallbackError: Throwable) {
           mainHandler.post {
             updateCheckInProgress = false
-            updateAppVersionSummary(getString(R.string.profile_update_failed_format, currentVersion))
-            showUpdateCheckFailedDialog(giteeError, fallbackError)
+            if (!silent) {
+              updateAppVersionSummary(getString(R.string.profile_update_failed_format, currentVersion))
+              showUpdateCheckFailedDialog(giteeError, fallbackError)
+            }
           }
           return@execute
         }
@@ -744,16 +865,28 @@ class MainActivity : AppCompatActivity() {
         val comparison = compareVersionNames(latestVersion, currentVersion)
         if (comparison > 0) {
           appendDebugLog("UPDATE", "SUCCESS", "发现新版本 $latestVersion，来源=${release.sourceLabel}")
+          persistAvailableUpdateState(release)
           updateAppVersionSummary(getString(R.string.profile_update_available_format, currentVersion, latestVersion))
-          showUpdateAvailableDialog(currentVersion, release)
+          if (silent) {
+            if (shouldAutoPromptUpdate(release)) {
+              markUpdatePrompted(release.versionName)
+              showUpdateAvailableDialog(currentVersion, release)
+            }
+          } else {
+            markUpdatePrompted(release.versionName)
+            showUpdateAvailableDialog(currentVersion, release)
+          }
         } else {
           appendDebugLog("UPDATE", "SUCCESS", "当前已是最新版本，远端版本=$latestVersion")
+          persistAvailableUpdateState(null)
           updateAppVersionSummary(getString(R.string.profile_update_latest_format, currentVersion))
-          AlertDialog.Builder(this)
-            .setTitle("已是最新版本")
-            .setMessage("当前版本 $currentVersion 已是最新版本。")
-            .setPositiveButton("知道了", null)
-            .show()
+          if (!silent) {
+            AlertDialog.Builder(this)
+              .setTitle("已是最新版本")
+              .setMessage("当前版本 $currentVersion 已是最新版本。")
+              .setPositiveButton("知道了", null)
+              .show()
+          }
         }
       }
     }
@@ -777,6 +910,10 @@ class MainActivity : AppCompatActivity() {
       append("当前版本：").append(currentVersion).append('\n')
       append("最新版本：").append(release.versionName).append('\n')
       append("来源：").append(release.sourceLabel)
+      val notes = release.releaseNotes.trim()
+      if (notes.isNotBlank()) {
+        append("\n\n更新简介：\n").append(notes)
+      }
       if (release.apkUrl.isNullOrBlank()) {
         append("\n\n未在发布页中找到 APK 下载链接，可打开发布页手动下载安装。")
       }
@@ -808,7 +945,7 @@ class MainActivity : AppCompatActivity() {
     appendDebugLog("UPDATE_DOWNLOAD", "START", "开始下载版本 ${release.versionName}，首选来源=${release.sourceLabel}")
     updateStatus("正在下载 ${release.versionName} 安装包…")
     Toast.makeText(this, "开始下载 ${release.versionName} 安装包", Toast.LENGTH_SHORT).show()
-    showUpdateDownloadDialog(release.versionName)
+    showUpdateDownloadDialog(release)
 
     ioExecutor.execute {
       val targetDir = File(cacheDir, "updates").apply { mkdirs() }
@@ -883,7 +1020,7 @@ class MainActivity : AppCompatActivity() {
     }
   }
 
-  private fun showUpdateDownloadDialog(versionName: String) {
+  private fun showUpdateDownloadDialog(release: AppReleaseInfo) {
     dismissUpdateDownloadDialog()
 
     val container = LinearLayout(this).apply {
@@ -892,10 +1029,23 @@ class MainActivity : AppCompatActivity() {
     }
 
     val titleView = TextView(this).apply {
-      text = "正在准备下载 $versionName"
+      text = "正在准备下载 ${release.versionName}"
       textSize = 16f
       setTextColor(Color.parseColor("#1F2937"))
       includeFontPadding = false
+    }
+
+    val notesView = TextView(this).apply {
+      text = release.releaseNotes.trim().ifBlank { "暂无更新简介" }
+      textSize = 13f
+      setTextColor(Color.parseColor("#6B7380"))
+      includeFontPadding = false
+      layoutParams = LinearLayout.LayoutParams(
+        ViewGroup.LayoutParams.MATCH_PARENT,
+        ViewGroup.LayoutParams.WRAP_CONTENT
+      ).also { params ->
+        params.topMargin = dpToPx(10)
+      }
     }
 
     val progressBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
@@ -924,10 +1074,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     container.addView(titleView)
+    container.addView(notesView)
     container.addView(progressBar)
     container.addView(progressText)
 
     updateDownloadTitleView = titleView
+    updateDownloadNotesView = notesView
     updateDownloadProgressBar = progressBar
     updateDownloadProgressText = progressText
     updateDownloadDialog = AlertDialog.Builder(this)
@@ -966,6 +1118,7 @@ class MainActivity : AppCompatActivity() {
     updateDownloadDialog?.dismiss()
     updateDownloadDialog = null
     updateDownloadTitleView = null
+    updateDownloadNotesView = null
     updateDownloadProgressBar = null
     updateDownloadProgressText = null
   }
@@ -1104,13 +1257,69 @@ class MainActivity : AppCompatActivity() {
 
     val pageUrl = releaseAnchor?.absUrl("href")?.takeIf { it.isNotBlank() } ?: releasesUrl
     val apkUrl = apkAnchor?.absUrl("href")?.takeIf { it.isNotBlank() }
+    val releaseNotes = extractReleaseNotes(document, releaseAnchor, versionName)
 
     return AppReleaseInfo(
       sourceLabel = sourceLabel,
       pageUrl = pageUrl,
       versionName = versionName,
-      apkUrl = apkUrl
+      apkUrl = apkUrl,
+      releaseNotes = releaseNotes
     )
+  }
+
+  private fun extractReleaseNotes(
+    document: org.jsoup.nodes.Document,
+    releaseAnchor: org.jsoup.nodes.Element?,
+    versionName: String
+  ): String {
+    val directCandidates = listOfNotNull(
+      document.selectFirst(".release-body"),
+      document.selectFirst(".markdown-body"),
+      document.selectFirst(".release__description"),
+      document.selectFirst(".release-notes"),
+      document.selectFirst("article .markdown-body"),
+      releaseAnchor?.closest("article")?.selectFirst(".markdown-body"),
+      releaseAnchor?.closest("li")?.selectFirst(".markdown-body")
+    ).map { it.wholeText() }
+
+    val best = buildList {
+      addAll(directCandidates)
+      add(document.select("article").firstOrNull()?.wholeText().orEmpty())
+      add(document.body().wholeText())
+    }.map { candidate ->
+      extractReleaseNotesBlock(candidate, versionName)
+    }.firstOrNull { it.isNotBlank() }.orEmpty()
+
+    if (best.isBlank()) return "暂无更新简介"
+    return best
+      .lineSequence()
+      .map(String::trim)
+      .filter { it.isNotBlank() }
+      .joinToString("\n")
+      .take(1200)
+      .trim()
+      .ifBlank { "暂无更新简介" }
+  }
+
+  private fun extractReleaseNotesBlock(raw: String, versionName: String): String {
+    val normalized = raw
+      .replace("\r\n", "\n")
+      .replace('\r', '\n')
+      .replace(versionName, "")
+    val start = normalized.indexOf("##")
+    if (start < 0) return ""
+    val tail = normalized.substring(start)
+    val endCandidates = listOf(
+      tail.indexOf("\n下载"),
+      tail.indexOf("\nAssets"),
+      tail.indexOf("\nassets"),
+      tail.indexOf("\r下载"),
+      tail.indexOf("\rAssets"),
+      tail.indexOf("\rassets")
+    ).filter { it > 0 }
+    val end = endCandidates.minOrNull() ?: tail.length
+    return tail.substring(0, end).trim()
   }
 
   private fun buildReleaseDownloadCandidates(release: AppReleaseInfo): List<AppReleaseInfo> {
@@ -1199,12 +1408,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     loginSessionBootstrapped = true
-    updateStatus(getString(R.string.status_loading_login))
     if (forceReload) {
-      CookieManager.getInstance().removeSessionCookies(null)
-      CookieManager.getInstance().flush()
+      clearSessionCookies()
     }
-    binding.authWebView.loadUrl(LOGIN_URL)
+    loadLoginPageInWebView()
   }
 
   private fun showLoginPage() {
@@ -1243,6 +1450,130 @@ class MainActivity : AppCompatActivity() {
     binding.toolbar.navigationIcon = null
     applyToolbarLayout()
     updateToolbarNavigationButtonLayout()
+  }
+
+  private fun loadLoginPageInWebView() {
+    updateStatus(getString(R.string.status_loading_login))
+    binding.authWebView.loadUrl(LOGIN_URL)
+  }
+
+  private fun clearSessionCookies() {
+    CookieManager.getInstance().removeSessionCookies(null)
+    CookieManager.getInstance().flush()
+  }
+
+  private fun resolveCurrentCredentials(): Pair<String, String>? {
+    val username = binding.usernameInput.editText?.text?.toString().orEmpty().trim()
+      .ifBlank { prefs.getString(PREF_USERNAME, "").orEmpty().trim() }
+    val password = binding.passwordInput.editText?.text?.toString().orEmpty().trim()
+      .ifBlank { prefs.getString(PREF_PASSWORD, "").orEmpty().trim() }
+    return if (username.isNotBlank() && password.isNotBlank()) {
+      username to password
+    } else {
+      null
+    }
+  }
+
+  private fun recognizeCaptchaTextSync(bitmap: Bitmap): String? {
+    val result = AtomicReference<String?>()
+    val error = AtomicReference<Throwable?>()
+    val latch = CountDownLatch(1)
+    val processedBitmap = preprocessCaptcha(bitmap)
+    val image = InputImage.fromBitmap(processedBitmap, 0)
+    val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+    recognizer.process(image)
+      .addOnSuccessListener { visionText ->
+        result.set(visionText.text.replace(Regex("[^a-zA-Z0-9]"), ""))
+        latch.countDown()
+      }
+      .addOnFailureListener { throwable ->
+        error.set(throwable)
+        latch.countDown()
+      }
+
+    if (!latch.await(12, TimeUnit.SECONDS)) {
+      throw IllegalStateException("验证码识别超时")
+    }
+    error.get()?.let { throw IllegalStateException(it.message ?: "验证码识别失败", it) }
+    return result.get()
+  }
+
+  private fun runHeadlessScoreTest() {
+    val credentials = resolveCurrentCredentials()
+    if (credentials == null) {
+      Toast.makeText(this, "请先在个人中心填写账号密码", Toast.LENGTH_SHORT).show()
+      updateStatus(getString(R.string.status_headless_score_test_missing_credentials))
+      return
+    }
+    if (headlessLoginInProgress) {
+      Toast.makeText(this, "纯 HTTP 测试正在进行中", Toast.LENGTH_SHORT).show()
+      return
+    }
+
+    val (username, password) = credentials
+    headlessLoginInProgress = true
+    persistCredentials(username, password)
+    updateStatus(getString(R.string.status_headless_score_test_start))
+    appendDebugLog("HEADLESS_SCORE_TEST", "START", "开始纯 HTTP 成绩测试，用户=$username")
+
+    ioExecutor.execute {
+      try {
+        val loginResult = HeadlessLoginClient(::appendDebugLog).login(
+          loginUrl = LOGIN_URL,
+          timetableUrl = TIMETABLE_URL,
+          username = username,
+          password = password,
+          recognizeCaptcha = ::recognizeCaptchaTextSync
+        )
+        val scores = fetchScoreRecordsWithCookies(loginResult.cookies)
+        File(filesDir, HEADLESS_SCORE_TEST_FILE).writeText(scores.toString(), Charsets.UTF_8)
+        appendDebugLog(
+          "HEADLESS_SCORE_TEST",
+          "SUCCESS",
+          "纯 HTTP 成绩测试成功，共 ${scores.length()} 条，结果已写入 $HEADLESS_SCORE_TEST_FILE"
+        )
+        mainHandler.post {
+          headlessLoginInProgress = false
+          updateStatus(getString(R.string.status_headless_score_test_success, scores.length()))
+          Toast.makeText(this, "纯 HTTP 成绩测试成功，共 ${scores.length()} 条", Toast.LENGTH_LONG).show()
+        }
+      } catch (error: Exception) {
+        appendDebugLog("HEADLESS_SCORE_TEST", "FAIL", error.message ?: "unknown")
+        mainHandler.post {
+          headlessLoginInProgress = false
+          updateStatus(getString(R.string.status_headless_score_test_failed, error.message ?: "unknown"))
+          Toast.makeText(this, "纯 HTTP 成绩测试失败", Toast.LENGTH_SHORT).show()
+        }
+      }
+    }
+  }
+
+  private fun fetchScoreRecordsWithCookies(cookies: Map<String, String>): JSONArray {
+    appendDebugLog("HEADLESS_SCORE_TEST", "INFO", "开始独立拉取成绩页")
+    val connection = URL(SCORE_LIST_URL).openConnection() as HttpURLConnection
+    try {
+      connection.requestMethod = "GET"
+      connection.useCaches = false
+      connection.instanceFollowRedirects = true
+      connection.connectTimeout = 10000
+      connection.readTimeout = 10000
+      connection.setRequestProperty("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+      connection.setRequestProperty("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.6")
+      connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome Mobile Safari/537.36")
+      connection.setRequestProperty("Referer", TIMETABLE_URL)
+      if (cookies.isNotEmpty()) {
+        connection.setRequestProperty("Cookie", cookies.entries.joinToString("; ") { (name, value) -> "$name=$value" })
+      }
+      val responseCode = connection.responseCode
+      appendDebugLog("HEADLESS_SCORE_TEST", if (responseCode in 200..299) "INFO" else "WARN", "成绩测试响应码=$responseCode")
+      val bytes = (if (responseCode in 200..299) connection.inputStream else connection.errorStream ?: connection.inputStream)
+        .use { it.readBytes() }
+      val document = org.jsoup.Jsoup.parse(java.io.ByteArrayInputStream(bytes), null, SCORE_LIST_URL)
+      appendDebugLog("HEADLESS_SCORE_TEST", "INFO", "成绩测试页面标题=${document.title().ifBlank { "-" }}")
+      return parseScoreDocument(document)
+    } finally {
+      connection.disconnect()
+    }
   }
 
   private fun applyWebScreen(screen: WebScreen) {
@@ -1438,6 +1769,7 @@ class MainActivity : AppCompatActivity() {
     }
     binding.homeOpenTimetableButton.setOnClickListener { showCachedTimetable() }
     binding.homeOpenExamButton.setOnClickListener { showCachedExamSchedule() }
+    binding.homeOpenScoreButton.setOnClickListener { showCachedScorePage() }
     renderHomeMenu()
   }
 
@@ -1842,7 +2174,16 @@ class MainActivity : AppCompatActivity() {
     val html = if (latestJson.isNullOrBlank()) {
       templateHtml
     } else {
-      injectScoreJsonIntoTemplate(templateHtml, latestJson)
+      val pendingUpdates = readScoreUpdateItems()
+      val pendingFingerprints = pendingUpdates.map { it.optString("fingerprint") }.filter { it.isNotBlank() }.toSet()
+      val preparedScores = markPendingScoreUpdatesInJson(latestJson, pendingFingerprints)
+      val pendingUiIds = extractPendingScoreUiIds(preparedScores)
+      injectScoreJsonIntoTemplate(templateHtml, preparedScores, pendingUiIds)
+    }
+
+    if (hasPendingScoreUpdates()) {
+      appendDebugLog("SCORE_UPDATE", "INFO", "进入成绩页，准备清除主页提示")
+      consumePendingScoreUpdates()
     }
 
     binding.contentWebView.stopLoading()
@@ -1877,13 +2218,18 @@ class MainActivity : AppCompatActivity() {
     }
   }
 
-  private fun injectScoreJsonIntoTemplate(templateHtml: String, scoresJson: String): String {
+  private fun injectScoreJsonIntoTemplate(
+    templateHtml: String,
+    scoresJson: String,
+    pendingUiIds: List<String> = emptyList()
+  ): String {
     val pattern = Regex("""const rawScores = .*?;""", setOf(RegexOption.DOT_MATCHES_ALL))
-    return if (pattern.containsMatchIn(templateHtml)) {
+    val html = if (pattern.containsMatchIn(templateHtml)) {
       templateHtml.replace(pattern, "const rawScores = ${serializeForScript(scoresJson)};")
     } else {
       templateHtml
     }
+    return injectScoreRowFlashHelper(html, pendingUiIds)
   }
 
   private fun loadGeneratedPage(
@@ -1957,17 +2303,30 @@ class MainActivity : AppCompatActivity() {
     val cacheJsonFile = File(filesDir, CACHE_JSON_FILE)
     val examJsonFile = File(filesDir, EXAM_JSON_FILE)
     val scoreJsonFile = File(filesDir, SCORE_JSON_FILE)
+    val scoreUpdateMetaFile = File(filesDir, SCORE_UPDATE_META_FILE)
     val homePart = if (homeCacheFile.exists()) "${homeCacheFile.length()}:${homeCacheFile.lastModified()}" else "missing"
     val jsonPart = if (cacheJsonFile.exists()) "${cacheJsonFile.length()}:${cacheJsonFile.lastModified()}" else "missing"
     val examPart = if (examJsonFile.exists()) "${examJsonFile.length()}:${examJsonFile.lastModified()}" else "missing"
     val scorePart = if (scoreJsonFile.exists()) "${scoreJsonFile.length()}:${scoreJsonFile.lastModified()}" else "missing"
-    return listOf(currentAssetExportId ?: "no-export", homePart, jsonPart, examPart, scorePart).joinToString("|")
+    val scoreUpdatePart = if (scoreUpdateMetaFile.exists()) "${scoreUpdateMetaFile.length()}:${scoreUpdateMetaFile.lastModified()}" else "missing"
+    return listOf(currentAssetExportId ?: "no-export", homePart, jsonPart, examPart, scorePart, scoreUpdatePart).joinToString("|")
   }
 
   private fun renderNativeHome() {
     currentHomeImages = loadHomeImages()
     currentHomeImageIndex = currentHomeImageIndex.coerceIn(0, max(0, currentHomeImages.lastIndex))
     setHomeImageIndex(currentHomeImageIndex)
+    renderHomeMenu()
+
+    val scoreUpdates = loadPendingScoreUpdates()
+    binding.homeRecentScoreCard.visibility = if (scoreUpdates.isEmpty()) View.GONE else View.VISIBLE
+    if (scoreUpdates.isNotEmpty()) {
+      binding.homeRecentScoreHint.text = getString(R.string.home_recent_score_updated)
+      renderRecentScoreUpdates(scoreUpdates)
+    } else {
+      binding.homeRecentScoreHint.text = getString(R.string.home_recent_score_empty)
+      binding.homeRecentScoreList.removeAllViews()
+    }
 
     val exams = loadExamsFromCacheJson()
     val recentExams = buildRecentExams(exams)
@@ -2534,6 +2893,7 @@ class MainActivity : AppCompatActivity() {
 
   private fun renderHomeMenu() {
     binding.homeMenuGrid.removeAllViews()
+    val hasScoreUpdateDot = hasPendingScoreUpdates()
     HOME_MENU_ITEMS.forEach { item ->
       val itemView = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
@@ -2546,13 +2906,34 @@ class MainActivity : AppCompatActivity() {
         }
       }
 
-      val icon = ImageView(this).apply {
+      val iconContainer = FrameLayout(this).apply {
         layoutParams = LinearLayout.LayoutParams(dpToPx(48), dpToPx(48))
+      }
+
+      val icon = ImageView(this).apply {
+        layoutParams = FrameLayout.LayoutParams(
+          ViewGroup.LayoutParams.MATCH_PARENT,
+          ViewGroup.LayoutParams.MATCH_PARENT
+        )
         setImageResource(item.iconRes)
         background = null
         alpha = 1f
         scaleType = ImageView.ScaleType.FIT_CENTER
         adjustViewBounds = true
+      }
+      iconContainer.addView(icon)
+
+      if (item.key == "score" && hasScoreUpdateDot) {
+        iconContainer.addView(View(this).apply {
+          layoutParams = FrameLayout.LayoutParams(dpToPx(10), dpToPx(10), android.view.Gravity.END or android.view.Gravity.TOP).also {
+            it.topMargin = dpToPx(2)
+            it.marginEnd = dpToPx(2)
+          }
+          background = android.graphics.drawable.GradientDrawable().apply {
+            shape = android.graphics.drawable.GradientDrawable.OVAL
+            setColor(Color.parseColor("#EA5B5B"))
+          }
+        })
       }
 
       val label = TextView(this).apply {
@@ -2564,7 +2945,7 @@ class MainActivity : AppCompatActivity() {
         includeFontPadding = false
       }
 
-      itemView.addView(icon)
+      itemView.addView(iconContainer)
       itemView.addView(label)
       itemView.setOnClickListener {
         if (item.key == "schedule") {
@@ -2664,6 +3045,92 @@ class MainActivity : AppCompatActivity() {
           isAlert = daysUntil <= 1
         )
       }
+  }
+
+  private fun loadPendingScoreUpdates(): List<HomeRecentScoreEntry> {
+    if (!hasPendingScoreUpdates()) return emptyList()
+    return readScoreUpdateItems()
+      .take(3)
+      .map { item ->
+        val semester = item.optString("semester").ifBlank { "成绩更新" }
+        val score = item.optString("score").ifBlank { "--" }
+        val flag = listOf(item.optString("courseNature"), item.optString("courseAttribute"))
+          .firstOrNull { it.isNotBlank() }
+          .orEmpty()
+        HomeRecentScoreEntry(
+          displayTag = "新",
+          title = item.optString("courseName").ifBlank { "未命名课程" },
+          meta = listOf(semester, flag).filter { it.isNotBlank() }.joinToString(" · "),
+          score = score,
+          isAlert = true
+        )
+      }
+  }
+
+  private fun renderRecentScoreUpdates(items: List<HomeRecentScoreEntry>) {
+    binding.homeRecentScoreList.removeAllViews()
+    items.forEachIndexed { index, item ->
+      val row = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = android.view.Gravity.CENTER_VERTICAL
+        setPadding(0, dpToPx(12), 0, dpToPx(12))
+      }
+
+      val badge = TextView(this).apply {
+        text = item.displayTag
+        gravity = android.view.Gravity.CENTER
+        textSize = 15f
+        layoutParams = LinearLayout.LayoutParams(dpToPx(52), dpToPx(52))
+        setTextColor(Color.parseColor("#7D8798"))
+        background = android.graphics.drawable.GradientDrawable().apply {
+          shape = android.graphics.drawable.GradientDrawable.OVAL
+          setColor(Color.parseColor("#E4ECFB"))
+        }
+      }
+
+      val middle = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).also {
+          it.marginStart = dpToPx(10)
+          it.marginEnd = dpToPx(10)
+        }
+      }
+
+      val title = TextView(this).apply {
+        text = item.title
+        textSize = 16f
+        setTextColor(Color.parseColor("#59626F"))
+        maxLines = 1
+        ellipsize = android.text.TextUtils.TruncateAt.END
+      }
+      val meta = TextView(this).apply {
+        text = item.meta
+        textSize = 11f
+        setTextColor(Color.parseColor("#B6BCC5"))
+      }
+      middle.addView(title)
+      middle.addView(meta)
+
+      val score = TextView(this).apply {
+        text = item.score
+        textSize = 16f
+        setTextColor(Color.parseColor("#8F959C"))
+      }
+
+      row.addView(badge)
+      row.addView(middle)
+      row.addView(score)
+      binding.homeRecentScoreList.addView(row)
+      if (index < items.lastIndex) {
+        binding.homeRecentScoreList.addView(View(this).apply {
+          layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            dpToPx(1)
+          )
+          setBackgroundColor(Color.parseColor("#33B0BCCB"))
+        })
+      }
+    }
   }
 
   private fun buildRecentCourses(courses: List<TimetableCourse>): List<HomeRecentEntry> {
@@ -3051,51 +3518,61 @@ class MainActivity : AppCompatActivity() {
       }
 
       ioExecutor.execute {
-        try {
-          val courses = TimetableParser.parse(html)
-          val renderedHomeHtml = TimetableRenderer.toHomeHtml(this@MainActivity, courses)
-          val renderedHtml = TimetableRenderer.toHtml(this@MainActivity, courses)
-          val json = TimetableRenderer.toJson(courses)
+        handleCapturedTimetableHtml(html)
+      }
+    }
+  }
 
-          File(filesDir, GENERATED_HOME_HTML_FILE).writeText(renderedHomeHtml, Charsets.UTF_8)
-          File(filesDir, GENERATED_CACHE_HTML_FILE).writeText(renderedHtml, Charsets.UTF_8)
-          File(filesDir, CACHE_JSON_FILE).writeText(json, Charsets.UTF_8)
-          File(filesDir, CACHE_RAW_HTML_FILE).writeText(html, Charsets.UTF_8)
-          val examSyncResult = runCatching { syncExamCacheFromSession(courses) }
-            .onFailure { appendDebugLog("EXAM", "FAIL", it.message ?: "unknown") }
-          val scoreSyncResult = runCatching { syncScoreCacheFromSession() }
-            .onFailure { appendDebugLog("SCORE", "FAIL", it.message ?: "unknown") }
+  private fun handleCapturedTimetableHtml(
+    html: String,
+    successStatus: String? = null
+  ) {
+    try {
+      val courses = TimetableParser.parse(html)
+      val renderedHomeHtml = TimetableRenderer.toHomeHtml(this@MainActivity, courses)
+      val renderedHtml = TimetableRenderer.toHtml(this@MainActivity, courses)
+      val json = TimetableRenderer.toJson(courses)
 
-          mainHandler.post {
-            cacheCaptureInProgress = false
-            val examCount = examSyncResult.getOrNull()
-            val scoreCount = scoreSyncResult.getOrNull()
-            if (examCount != null && scoreCount != null) {
-              updateStatus("本地缓存已更新，共解析 ${courses.size} 条课程，${examCount} 场考试，${scoreCount} 条成绩。")
-            } else if (examCount != null) {
-              updateStatus("课表缓存已更新，共解析 ${courses.size} 条课程，${examCount} 场考试；成绩同步失败。")
-            } else if (scoreCount != null) {
-              updateStatus("课表缓存已更新，共解析 ${courses.size} 条课程，${scoreCount} 条成绩；考试安排同步失败。")
-            } else {
-              updateStatus("课表缓存已更新，共解析 ${courses.size} 条课程；考试安排和成绩同步失败。")
-            }
-            CourseNotificationScheduler.sync(this@MainActivity)
-            ExamOngoingNotificationScheduler.sync(this@MainActivity)
-            if (isAutoUpdating) {
-              val msg = if (autoUpdateFailedAttempts == 0) "更新成功 (1次通过)" else "更新成功 (失败 ${autoUpdateFailedAttempts} 次后)"
-              Toast.makeText(this@MainActivity, msg, Toast.LENGTH_LONG).show()
-              isAutoUpdating = false
-            }
-            showCachedTimetable()
-          }
-        } catch (error: Exception) {
-          mainHandler.post {
-            cacheCaptureInProgress = false
-            updateStatus("缓存同步失败：${error.message ?: "unknown"}")
-            if (isAutoUpdating) {
-              isAutoUpdating = false
-            }
-          }
+      File(filesDir, GENERATED_HOME_HTML_FILE).writeText(renderedHomeHtml, Charsets.UTF_8)
+      File(filesDir, GENERATED_CACHE_HTML_FILE).writeText(renderedHtml, Charsets.UTF_8)
+      File(filesDir, CACHE_JSON_FILE).writeText(json, Charsets.UTF_8)
+      File(filesDir, CACHE_RAW_HTML_FILE).writeText(html, Charsets.UTF_8)
+      val examSyncResult = runCatching { syncExamCacheFromSession(courses) }
+        .onFailure { appendDebugLog("EXAM", "FAIL", it.message ?: "unknown") }
+      val scoreSyncResult = runCatching { syncScoreCacheFromSession() }
+        .onFailure { appendDebugLog("SCORE", "FAIL", it.message ?: "unknown") }
+
+      mainHandler.post {
+        cacheCaptureInProgress = false
+        renderedHomeSignature = null
+        val examCount = examSyncResult.getOrNull()
+        val scoreCount = scoreSyncResult.getOrNull()
+        when {
+          successStatus != null -> updateStatus(successStatus)
+          examCount != null && scoreCount != null ->
+            updateStatus("本地缓存已更新，共解析 ${courses.size} 条课程，${examCount} 场考试，${scoreCount} 条成绩。")
+          examCount != null ->
+            updateStatus("课表缓存已更新，共解析 ${courses.size} 条课程，${examCount} 场考试；成绩同步失败。")
+          scoreCount != null ->
+            updateStatus("课表缓存已更新，共解析 ${courses.size} 条课程，${scoreCount} 条成绩；考试安排同步失败。")
+          else ->
+            updateStatus("课表缓存已更新，共解析 ${courses.size} 条课程；考试安排和成绩同步失败。")
+        }
+        CourseNotificationScheduler.sync(this@MainActivity)
+        ExamOngoingNotificationScheduler.sync(this@MainActivity)
+        if (isAutoUpdating) {
+          val msg = if (autoUpdateFailedAttempts == 0) "更新成功 (1次通过)" else "更新成功 (失败 ${autoUpdateFailedAttempts} 次后)"
+          Toast.makeText(this@MainActivity, msg, Toast.LENGTH_LONG).show()
+          isAutoUpdating = false
+        }
+        showCachedTimetable()
+      }
+    } catch (error: Exception) {
+      mainHandler.post {
+        cacheCaptureInProgress = false
+        updateStatus("缓存同步失败：${error.message ?: "unknown"}")
+        if (isAutoUpdating) {
+          isAutoUpdating = false
         }
       }
     }
@@ -3193,10 +3670,395 @@ class MainActivity : AppCompatActivity() {
 
   private fun syncScoreCacheFromSession(): Int {
     appendDebugLog("SCORE", "START", "开始同步成绩缓存")
+    val previousScores = readScoreArrayFromFile(File(filesDir, SCORE_JSON_FILE))
     val scores = fetchScoreRecords()
     File(filesDir, SCORE_JSON_FILE).writeText(scores.toString(), Charsets.UTF_8)
+    val updatedItems = detectUpdatedScoreItems(previousScores, scores)
+    val hasNewUpdates = previousScores.length() > 0 && updatedItems.isNotEmpty()
+    val pendingItems = persistScoreUpdateMeta(hasNewUpdates, updatedItems)
+    if (hasNewUpdates) {
+      appendDebugLog("SCORE_UPDATE", "SUCCESS", "检测到 ${updatedItems.size} 条成绩更新")
+      showScoreUpdateNotification(updatedItems)
+    } else if (pendingItems.isNotEmpty()) {
+      appendDebugLog("SCORE_UPDATE", "INFO", "本次没有新增成绩变动，保留 ${pendingItems.size} 条未读更新")
+    } else {
+      appendDebugLog("SCORE_UPDATE", "INFO", "本次未检测到新的成绩变动")
+    }
     appendDebugLog("SCORE", "SUCCESS", "成绩缓存写入完成，共 ${scores.length()} 条")
     return scores.length()
+  }
+
+  private fun readScoreArrayFromFile(file: File): JSONArray {
+    if (!file.exists() || file.length() <= 0L) return JSONArray()
+    return runCatching { JSONArray(file.readText(Charsets.UTF_8)) }.getOrElse { JSONArray() }
+  }
+
+  private fun detectUpdatedScoreItems(previousScores: JSONArray, latestScores: JSONArray): List<JSONObject> {
+    if (previousScores.length() <= 0 || latestScores.length() <= 0) return emptyList()
+    val previousFingerprints = buildSet {
+      for (index in 0 until previousScores.length()) {
+        val item = previousScores.optJSONObject(index) ?: continue
+        add(scoreFingerprint(item))
+      }
+    }
+    val updates = mutableListOf<JSONObject>()
+    val seen = mutableSetOf<String>()
+    for (index in 0 until latestScores.length()) {
+      val item = latestScores.optJSONObject(index) ?: continue
+      val fingerprint = scoreFingerprint(item)
+      if (fingerprint in previousFingerprints || !seen.add(fingerprint)) {
+        continue
+      }
+      updates += buildScoreUpdateItem(item)
+    }
+    return updates
+  }
+
+  private fun scoreFingerprint(item: JSONObject): String {
+    return listOf(
+      item.optString("semester"),
+      item.optString("courseCode"),
+      item.optString("courseName"),
+      item.optString("score"),
+      item.optString("scoreIdentifier"),
+      item.optString("credits"),
+      item.optString("courseAttribute"),
+      item.optString("courseNature")
+    ).joinToString("|") { normalizeScoreMetaText(it) }
+  }
+
+  private fun normalizeScoreMetaText(value: String?): String =
+    value.orEmpty().replace(Regex("""\s+"""), "").trim()
+
+  private fun persistScoreUpdateMeta(pending: Boolean, updatedItems: List<JSONObject>): List<JSONObject> {
+    val file = File(filesDir, SCORE_UPDATE_META_FILE)
+    val currentMeta = readScoreUpdateMeta()
+    val existingPendingItems = if (currentMeta.optBoolean("pending")) {
+      readScoreUpdateItems(currentMeta)
+    } else {
+      emptyList()
+    }
+    val nextPendingItems = when {
+      pending && updatedItems.isNotEmpty() -> mergePendingScoreUpdateItems(existingPendingItems, updatedItems)
+      existingPendingItems.isNotEmpty() -> existingPendingItems
+      pending -> updatedItems
+      else -> emptyList()
+    }
+    val payload = JSONObject().apply {
+      put("pending", nextPendingItems.isNotEmpty())
+      put(
+        "updatedAt",
+        when {
+          nextPendingItems.isEmpty() -> System.currentTimeMillis()
+          pending && updatedItems.isNotEmpty() -> System.currentTimeMillis()
+          currentMeta.optLong("updatedAt") > 0L -> currentMeta.optLong("updatedAt")
+          else -> System.currentTimeMillis()
+        }
+      )
+      put("items", JSONArray().apply { nextPendingItems.forEach(::put) })
+    }
+    file.writeText(payload.toString(), Charsets.UTF_8)
+    return nextPendingItems
+  }
+
+  private fun readScoreUpdateMeta(): JSONObject {
+    val file = File(filesDir, SCORE_UPDATE_META_FILE)
+    if (!file.exists() || file.length() <= 0L) {
+      return JSONObject().apply {
+        put("pending", false)
+        put("items", JSONArray())
+      }
+    }
+    return runCatching { JSONObject(file.readText(Charsets.UTF_8)) }.getOrElse {
+      JSONObject().apply {
+        put("pending", false)
+        put("items", JSONArray())
+      }
+    }
+  }
+
+  private fun hasPendingScoreUpdates(): Boolean {
+    val meta = readScoreUpdateMeta()
+    return meta.optBoolean("pending") && meta.optJSONArray("items")?.length()?.let { it > 0 } == true
+  }
+
+  private fun readScoreUpdateItems(): List<JSONObject> {
+    return readScoreUpdateItems(readScoreUpdateMeta())
+  }
+
+  private fun readScoreUpdateItems(meta: JSONObject): List<JSONObject> {
+    val array = meta.optJSONArray("items") ?: return emptyList()
+    return buildList {
+      for (index in 0 until array.length()) {
+        val item = array.optJSONObject(index) ?: continue
+        add(item)
+      }
+    }
+  }
+
+  private fun mergePendingScoreUpdateItems(
+    existingItems: List<JSONObject>,
+    newItems: List<JSONObject>
+  ): List<JSONObject> {
+    val merged = LinkedHashMap<String, JSONObject>()
+    existingItems.forEach { item ->
+      val fingerprint = item.optString("fingerprint").ifBlank { scoreFingerprint(item) }
+      if (fingerprint.isNotBlank()) {
+        merged[fingerprint] = item
+      }
+    }
+    newItems.forEach { item ->
+      val fingerprint = item.optString("fingerprint").ifBlank { scoreFingerprint(item) }
+      if (fingerprint.isNotBlank()) {
+        merged[fingerprint] = item
+      }
+    }
+    return merged.values.toList()
+  }
+
+  private fun markPendingScoreUpdatesInJson(scoresJson: String, pendingFingerprints: Set<String>): String {
+    if (pendingFingerprints.isEmpty()) return scoresJson
+    val array = runCatching { JSONArray(scoresJson) }.getOrNull() ?: return scoresJson
+    for (index in 0 until array.length()) {
+      val item = array.optJSONObject(index) ?: continue
+      item.put("isNew", scoreFingerprint(item) in pendingFingerprints)
+    }
+    return array.toString()
+  }
+
+  private fun extractPendingScoreUiIds(scoresJson: String): List<String> {
+    val array = runCatching { JSONArray(scoresJson) }.getOrNull() ?: return emptyList()
+    return buildList {
+      for (index in 0 until array.length()) {
+        val item = array.optJSONObject(index) ?: continue
+        if (item.optBoolean("isNew")) {
+          add("score-$index")
+        }
+      }
+    }
+  }
+
+  private fun injectScoreRowFlashHelper(templateHtml: String, pendingUiIds: List<String>): String {
+    if (pendingUiIds.isEmpty()) return templateHtml
+    val helper = """
+      <style>
+        @keyframes classscheScoreFlash {
+          0%, 100% { box-shadow: inset 0 0 0 0 rgba(255, 211, 105, 0); }
+          30% { box-shadow: inset 0 0 0 999px rgba(255, 230, 160, 0.72); }
+          60% { box-shadow: inset 0 0 0 999px rgba(255, 242, 201, 0.22); }
+        }
+        .score-row.fresh-highlight {
+          animation: classscheScoreFlash 540ms ease-in-out 2;
+        }
+      </style>
+      <script>
+        (function() {
+          const pendingIds = ${serializeForScript(JSONArray(pendingUiIds).toString())};
+          const applyHighlight = function() {
+            pendingIds.forEach(function(id) {
+              const row = document.querySelector('[data-score-id="' + id + '"]');
+              if (row instanceof HTMLElement) {
+                row.classList.add('fresh-highlight');
+              }
+            });
+          };
+          const run = function() { window.setTimeout(applyHighlight, 80); };
+          if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', run, { once: true });
+          } else {
+            run();
+          }
+        })();
+      </script>
+    """.trimIndent()
+    return if (templateHtml.contains("</body>", ignoreCase = true)) {
+      templateHtml.replace("</body>", "$helper\n</body>")
+    } else {
+      templateHtml + helper
+    }
+  }
+
+  private fun consumePendingScoreUpdates() {
+    val meta = readScoreUpdateMeta()
+    if (!meta.optBoolean("pending")) return
+    meta.put("pending", false)
+    meta.put("items", JSONArray())
+    File(filesDir, SCORE_UPDATE_META_FILE).writeText(meta.toString(), Charsets.UTF_8)
+    cancelScoreUpdateNotification()
+    renderedHomeSignature = null
+  }
+
+  private fun presetScoreUpdateTestData() {
+    val existingScores = loadLatestScoreArray()
+    val sourceScores = if (existingScores.length() > 0) {
+      existingScores
+    } else {
+      buildSampleScoreArray().also {
+        File(filesDir, SCORE_JSON_FILE).writeText(it.toString(), Charsets.UTF_8)
+        appendDebugLog("SCORE_TEST", "INFO", "本地无成绩缓存，已写入通用示例成绩数据")
+      }
+    }
+    val pendingItems = buildPendingScoreUpdateItemsFromArray(sourceScores, limit = 2)
+    if (pendingItems.isEmpty()) {
+      Toast.makeText(this, "没有可用于预置的成绩数据", Toast.LENGTH_SHORT).show()
+      appendDebugLog("SCORE_TEST", "WARN", "预置成绩测试数据失败：没有可用成绩项")
+      return
+    }
+    persistScoreUpdateMeta(true, pendingItems)
+    renderedHomeSignature = null
+    appendDebugLog("SCORE_TEST", "SUCCESS", "已预置 ${pendingItems.size} 条成绩测试更新")
+    showScoreUpdateNotification(pendingItems)
+    if (currentWebScreen == WebScreen.HOME) {
+      presentHomePage()
+    }
+    Toast.makeText(this, "已预置成绩测试数据，可去首页查看红点和更新卡片", Toast.LENGTH_LONG).show()
+  }
+
+  private fun loadLatestScoreArray(): JSONArray {
+    val latestJson = readLatestScoreJson()?.trim().orEmpty()
+    if (latestJson.isBlank()) return JSONArray()
+    return runCatching { JSONArray(latestJson) }.getOrElse { JSONArray() }
+  }
+
+  private fun buildPendingScoreUpdateItemsFromArray(array: JSONArray, limit: Int): List<JSONObject> {
+    val result = mutableListOf<JSONObject>()
+    for (index in 0 until array.length()) {
+      if (result.size >= limit) break
+      val item = array.optJSONObject(index) ?: continue
+      val courseName = item.optString("courseName")
+      val score = item.optString("score")
+      if (courseName.isBlank() && score.isBlank()) continue
+      result += buildScoreUpdateItem(item)
+    }
+    return result
+  }
+
+  private fun buildScoreUpdateItem(item: JSONObject): JSONObject {
+    return JSONObject().apply {
+      put("fingerprint", scoreFingerprint(item))
+      put("semester", item.optString("semester"))
+      put("courseCode", item.optString("courseCode"))
+      put("courseName", item.optString("courseName"))
+      put("score", item.optString("score"))
+      put("scoreIdentifier", item.optString("scoreIdentifier"))
+      put("courseAttribute", item.optString("courseAttribute"))
+      put("courseNature", item.optString("courseNature"))
+    }
+  }
+
+  private fun buildSampleScoreArray(): JSONArray {
+    return JSONArray().apply {
+      put(JSONObject().apply {
+        put("index", 1)
+        put("semester", "2025-2026-2")
+        put("courseCode", "TEST1001")
+        put("courseName", "测试高等数学")
+        put("score", "91")
+        put("scoreIdentifier", "")
+        put("credits", "4")
+        put("totalHours", "64")
+        put("assessmentMethod", "考试")
+        put("courseAttribute", "必修")
+        put("courseNature", "必修")
+        put("isHighlighted", false)
+        put("rawText", "测试高等数学 91")
+      })
+      put(JSONObject().apply {
+        put("index", 2)
+        put("semester", "2025-2026-2")
+        put("courseCode", "TEST1002")
+        put("courseName", "测试大学物理")
+        put("score", "86")
+        put("scoreIdentifier", "")
+        put("credits", "3.5")
+        put("totalHours", "56")
+        put("assessmentMethod", "考试")
+        put("courseAttribute", "必修")
+        put("courseNature", "必修")
+        put("isHighlighted", false)
+        put("rawText", "测试大学物理 86")
+      })
+      put(JSONObject().apply {
+        put("index", 3)
+        put("semester", "2024-2025-2")
+        put("courseCode", "TEST2001")
+        put("courseName", "测试程序设计")
+        put("score", "优")
+        put("scoreIdentifier", "")
+        put("credits", "2")
+        put("totalHours", "32")
+        put("assessmentMethod", "考查")
+        put("courseAttribute", "任选")
+        put("courseNature", "选修")
+        put("isHighlighted", false)
+        put("rawText", "测试程序设计 优")
+      })
+    }
+  }
+
+  private fun showScoreUpdateNotification(updatedItems: List<JSONObject>) {
+    if (!hasPostNotificationPermission()) {
+      appendDebugLog("SCORE_UPDATE", "WARN", "系统未授予通知权限，跳过成绩更新通知")
+      return
+    }
+    ensureScoreUpdateNotificationChannel()
+    val launchIntent = Intent(this, MainActivity::class.java)
+    val pendingIntent = PendingIntent.getActivity(
+      this,
+      0,
+      launchIntent,
+      PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+    )
+    val title = if (updatedItems.size == 1) {
+      "成绩有更新"
+    } else {
+      "成绩有 ${updatedItems.size} 项更新"
+    }
+    val preview = updatedItems.take(3).joinToString("；") { item ->
+      "${item.optString("courseName").ifBlank { "未命名课程" }} ${item.optString("score").ifBlank { "--" }}"
+    }
+    val bigText = buildString {
+      append("检测到新的成绩变动。")
+      if (preview.isNotBlank()) {
+        append("\n").append(preview)
+      }
+      append("\n点开成绩查询后会高亮本次更新项。")
+    }
+    getSystemService(NotificationManager::class.java).notify(
+      SCORE_UPDATE_NOTIFICATION_ID,
+      NotificationCompat.Builder(this, SCORE_UPDATE_CHANNEL_ID)
+        .setSmallIcon(android.R.drawable.ic_popup_reminder)
+        .setContentTitle(title)
+        .setContentText(preview.ifBlank { "点击查看详情" })
+        .setStyle(NotificationCompat.BigTextStyle().bigText(bigText))
+        .setContentIntent(pendingIntent)
+        .setAutoCancel(true)
+        .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+        .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+        .build()
+    )
+  }
+
+  private fun ensureScoreUpdateNotificationChannel() {
+    val channel = NotificationChannel(
+      SCORE_UPDATE_CHANNEL_ID,
+      "成绩更新",
+      NotificationManager.IMPORTANCE_DEFAULT
+    ).apply {
+      description = "用于提示成绩查询中出现新的成绩变动"
+      lockscreenVisibility = Notification.VISIBILITY_PRIVATE
+      setShowBadge(true)
+    }
+    getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+  }
+
+  private fun cancelScoreUpdateNotification() {
+    getSystemService(NotificationManager::class.java).cancel(SCORE_UPDATE_NOTIFICATION_ID)
+  }
+
+  private fun hasPostNotificationPermission(): Boolean {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return true
+    return ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
   }
 
   private fun fetchExamArrangements(courses: List<TimetableCourse>): List<ExamArrangement> {
@@ -3489,7 +4351,10 @@ class MainActivity : AppCompatActivity() {
     val username = binding.usernameInput.editText?.text?.toString().orEmpty().trim()
     val password = binding.passwordInput.editText?.text?.toString().orEmpty().trim()
     if (username.isBlank() || password.isBlank()) return
+    persistCredentials(username, password)
+  }
 
+  private fun persistCredentials(username: String, password: String) {
     prefs.edit()
       .putString(PREF_USERNAME, username)
       .putString(PREF_PASSWORD, password)

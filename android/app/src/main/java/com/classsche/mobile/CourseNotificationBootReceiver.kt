@@ -8,5 +8,6 @@ class CourseNotificationBootReceiver : BroadcastReceiver() {
   override fun onReceive(context: Context, intent: Intent?) {
     CourseNotificationScheduler.sync(context)
     ExamOngoingNotificationScheduler.sync(context)
+    HeadlessScoreSyncScheduler.onSystemEvent(context, intent?.action)
   }
 }
