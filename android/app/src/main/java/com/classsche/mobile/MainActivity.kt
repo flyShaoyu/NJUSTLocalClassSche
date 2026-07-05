@@ -275,7 +275,7 @@ class MainActivity : AppCompatActivity() {
   }
 
   companion object {
-    private const val LOGIN_URL = "http://202.119.81.113:8080"
+    private const val LOGIN_URL = "http://202.119.81.112:8080"
     private const val TIMETABLE_URL = "http://202.119.81.112:9080/njlgdx/xskb/xskb_list.do"
     private const val HOME_ASSET_BASE_URL = "file:///android_asset/"
     private const val GENERATED_HOME_HTML_FILE = "home-view-generated.html"
