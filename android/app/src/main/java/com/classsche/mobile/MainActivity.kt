@@ -23,6 +23,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.provider.Settings
+import android.util.Log
 import android.util.LruCache
 import android.util.TypedValue
 import android.view.View
@@ -103,6 +104,7 @@ class MainActivity : AppCompatActivity() {
   private var lastAutoScoreSyncElapsed = 0L
   private var pendingNotificationToggleTarget: NotificationToggleTarget? = null
   private var updateCheckInProgress = false
+  private var pendingManualUpdateResult = false
   private var pendingApkInstallFile: File? = null
   private var updateDownloadDialog: AlertDialog? = null
   private var updateDownloadTitleView: TextView? = null
@@ -110,6 +112,7 @@ class MainActivity : AppCompatActivity() {
   private var updateDownloadProgressBar: ProgressBar? = null
   private var updateDownloadProgressText: TextView? = null
   private var lastAutoUpdateCheckElapsed = 0L
+  private var authTimetableCaptureShouldShowCache = true
   private data class HomeImageAsset(
     val caption: String,
     val thumbAssetPath: String,
@@ -121,6 +124,13 @@ class MainActivity : AppCompatActivity() {
     val panX: Float,
     val panY: Float,
     val useFullResolution: Boolean
+  )
+  private data class TimetableSemesterSnapshot(
+    val availableSemesters: List<String>,
+    val currentSemester: String,
+    val desiredSemester: String,
+    val switched: Boolean,
+    val weekFilter: String
   )
   private var currentHomeImages: List<HomeImageAsset> = emptyList()
   private var currentHomeImageIndex = 0
@@ -247,6 +257,14 @@ class MainActivity : AppCompatActivity() {
     val releaseNotes: String
   )
 
+  private data class ParsedReleaseEntry(
+    val sourceLabel: String,
+    val versionName: String,
+    val pageUrl: String,
+    val apkUrl: String?,
+    val releaseNotes: String
+  )
+
   private enum class WebScreen {
     HOME,
     PROFILE,
@@ -275,7 +293,12 @@ class MainActivity : AppCompatActivity() {
     private const val GITHUB_HOME_URL = "https://github.com/flyShaoyu/NJUSTLocalClassSche"
     private const val GITEE_RELEASES_URL = "https://gitee.com/flyshaoyu/njust_localclasssche/releases"
     private const val GITHUB_RELEASES_URL = "https://github.com/flyShaoyu/NJUSTLocalClassSche/releases"
+    private const val GITHUB_RELEASES_API_URL = "https://api.github.com/repos/flyShaoyu/NJUSTLocalClassSche/releases?per_page=20"
     private const val UPDATE_USER_AGENT = "Mozilla/5.0 ClassScheMobile"
+    private const val UPDATE_FETCH_CONNECT_TIMEOUT_MS = 10000
+    private const val UPDATE_FETCH_READ_TIMEOUT_MS = 15000
+    private const val UPDATE_NOTES_CONNECT_TIMEOUT_MS = 3000
+    private const val UPDATE_NOTES_READ_TIMEOUT_MS = 5000
     private const val SCORE_UPDATE_CHANNEL_ID = "classsche_score_update_v1"
     private const val SCORE_UPDATE_NOTIFICATION_ID = 3101
     private const val EXAM_DEFAULT_SEMESTER = "2025-2026-2"
@@ -300,8 +323,6 @@ class MainActivity : AppCompatActivity() {
     )
     private val HOME_WEEKDAYS = listOf("星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日")
     private val HOME_WEEK_TITLES = listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
-    private val HOME_ANCHOR_WEEK = 6
-    private val HOME_ANCHOR_MONDAY: LocalDate = LocalDate.of(2026, 4, 6)
     private val EXAM_TIME_REGEX = Regex("""^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})~(\d{2}:\d{2})""")
     private val PERIOD_SLOTS = mapOf(
       1 to ("08:00" to "08:45"),
@@ -382,6 +403,7 @@ class MainActivity : AppCompatActivity() {
     restoreSavedCredentials()
     setupNotificationSettings()
     restoreNotificationSettings()
+    TimetableSemesterStore.refreshCatalogFromRawHtmlIfNeeded(this)
     CourseNotificationScheduler.sync(this)
     ExamOngoingNotificationScheduler.sync(this)
     HeadlessScoreSyncScheduler.scheduleNext(this)
@@ -413,6 +435,7 @@ class MainActivity : AppCompatActivity() {
     refreshUpdateBadge()
     resumePendingApkInstallIfReady()
     refreshGeneratedCacheAfterStartup()
+    triggerPendingTimetableSemesterRefreshIfNeeded()
     triggerScoreSyncOnAppOpenIfNeeded()
     triggerAutoUpdateCheckIfNeeded()
   }
@@ -424,6 +447,16 @@ class MainActivity : AppCompatActivity() {
     }
     lastAutoUpdateCheckElapsed = now
     checkForAppUpdate(silent = true)
+  }
+
+  private fun triggerPendingTimetableSemesterRefreshIfNeeded() {
+    if (!TimetableSemesterStore.consumeRefreshRequest(this)) {
+      return
+    }
+    authTimetableCaptureShouldShowCache = false
+    appendDebugLog("TIMETABLE_SEMESTER", "START", "检测到课表学期变更，开始静默刷新课表缓存")
+    updateStatus("课表学期已变更，正在刷新课表缓存…")
+    binding.authWebView.loadUrl(TIMETABLE_URL)
   }
 
   private fun triggerScoreSyncOnAppOpenIfNeeded() {
@@ -523,13 +556,19 @@ class MainActivity : AppCompatActivity() {
         updateStatus(getString(R.string.status_page_loaded, url))
 
         if (looksLikeTimetableUrl(url)) {
-          showingLiveTimetable = true
-          applyWebScreen(WebScreen.TIMETABLE)
-          captureTimetablePage()
+          if (authTimetableCaptureShouldShowCache) {
+            showingLiveTimetable = true
+            applyWebScreen(WebScreen.TIMETABLE)
+          }
+          prepareTimetablePage(view, showCachedAfterSuccess = authTimetableCaptureShouldShowCache)
           return
         }
 
         if (looksLikeLoginUrl(url)) {
+          if (!authTimetableCaptureShouldShowCache) {
+            authTimetableCaptureShouldShowCache = true
+            appendDebugLog("TIMETABLE_SEMESTER", "WARN", "静默刷新课表时跳回登录页，本次自动刷新已取消")
+          }
           if (!loginSubmitted) {
             fetchCaptchaFromWebView()
           }
@@ -602,6 +641,10 @@ class MainActivity : AppCompatActivity() {
           url.contains("score-view", ignoreCase = true) -> {
             applyWebScreen(WebScreen.SCORE)
           }
+          looksLikeTimetableUrl(url) && showingLiveTimetable -> {
+            applyWebScreen(WebScreen.TIMETABLE)
+            prepareTimetablePage(view, showCachedAfterSuccess = false)
+          }
           url.contains("timetable-view", ignoreCase = true) || looksLikeTimetableUrl(url) -> {
             applyWebScreen(WebScreen.TIMETABLE)
           }
@@ -617,6 +660,9 @@ class MainActivity : AppCompatActivity() {
     binding.profileAccountCard.setOnClickListener { showLoginPage() }
     binding.profileOpenNotificationRow.setOnClickListener {
       startActivity(Intent(this, NotificationSettingsActivity::class.java))
+    }
+    binding.profileTimetableSemesterRow.setOnClickListener {
+      startActivity(Intent(this, TimetableSemesterSettingsActivity::class.java))
     }
     binding.profileScoreSyncSettingsRow.setOnClickListener {
       startActivity(Intent(this, ScoreSyncSettingsActivity::class.java))
@@ -825,7 +871,9 @@ class MainActivity : AppCompatActivity() {
     if (updateCheckInProgress) {
       appendDebugLog("UPDATE", "INFO", "重复触发检查更新，已忽略")
       if (!silent) {
-        Toast.makeText(this, "正在检查更新，请稍候", Toast.LENGTH_SHORT).show()
+        pendingManualUpdateResult = true
+        appendDebugLog("UPDATE", "INFO", "当前正在静默检查更新，完成后将展示本次手动检查结果")
+        Toast.makeText(this, "正在检查更新，完成后会自动显示结果", Toast.LENGTH_SHORT).show()
       }
       return
     }
@@ -841,12 +889,18 @@ class MainActivity : AppCompatActivity() {
     ioExecutor.execute {
       var giteeError: Throwable? = null
       val release = try {
-        fetchLatestReleaseInfo("Gitee", GITEE_RELEASES_URL)
+        enrichReleaseInfo(
+          fetchLatestReleaseInfo("Gitee", GITEE_RELEASES_URL, currentVersion),
+          currentVersion
+        )
       } catch (error: Throwable) {
         giteeError = error
         appendDebugLog("UPDATE", "WARN", "Gitee 检查失败，准备切换 GitHub：${error.message ?: "unknown"}")
         try {
-          fetchLatestReleaseInfo("GitHub", GITHUB_RELEASES_URL)
+          enrichReleaseInfo(
+            fetchLatestReleaseInfo("GitHub", GITHUB_RELEASES_URL, currentVersion),
+            currentVersion
+          )
         } catch (fallbackError: Throwable) {
           mainHandler.post {
             updateCheckInProgress = false
@@ -861,26 +915,28 @@ class MainActivity : AppCompatActivity() {
 
       mainHandler.post {
         updateCheckInProgress = false
+        val shouldReportResult = !silent || pendingManualUpdateResult
+        pendingManualUpdateResult = false
         val latestVersion = release.versionName
         val comparison = compareVersionNames(latestVersion, currentVersion)
         if (comparison > 0) {
           appendDebugLog("UPDATE", "SUCCESS", "发现新版本 $latestVersion，来源=${release.sourceLabel}")
           persistAvailableUpdateState(release)
           updateAppVersionSummary(getString(R.string.profile_update_available_format, currentVersion, latestVersion))
-          if (silent) {
+          if (shouldReportResult) {
+            markUpdatePrompted(release.versionName)
+            showUpdateAvailableDialog(currentVersion, release)
+          } else if (silent) {
             if (shouldAutoPromptUpdate(release)) {
               markUpdatePrompted(release.versionName)
               showUpdateAvailableDialog(currentVersion, release)
             }
-          } else {
-            markUpdatePrompted(release.versionName)
-            showUpdateAvailableDialog(currentVersion, release)
           }
         } else {
           appendDebugLog("UPDATE", "SUCCESS", "当前已是最新版本，远端版本=$latestVersion")
           persistAvailableUpdateState(null)
           updateAppVersionSummary(getString(R.string.profile_update_latest_format, currentVersion))
-          if (!silent) {
+          if (shouldReportResult) {
             AlertDialog.Builder(this)
               .setTitle("已是最新版本")
               .setMessage("当前版本 $currentVersion 已是最新版本。")
@@ -909,7 +965,6 @@ class MainActivity : AppCompatActivity() {
     val message = buildString {
       append("当前版本：").append(currentVersion).append('\n')
       append("最新版本：").append(release.versionName).append('\n')
-      append("来源：").append(release.sourceLabel)
       val notes = release.releaseNotes.trim()
       if (notes.isNotBlank()) {
         append("\n\n更新简介：\n").append(notes)
@@ -1226,38 +1281,53 @@ class MainActivity : AppCompatActivity() {
   }
 
   @Throws(IOException::class)
-  private fun fetchLatestReleaseInfo(sourceLabel: String, releasesUrl: String): AppReleaseInfo {
+  private fun fetchLatestReleaseInfo(
+    sourceLabel: String,
+    releasesUrl: String,
+    currentVersion: String,
+    connectTimeoutMs: Int = UPDATE_FETCH_CONNECT_TIMEOUT_MS,
+    readTimeoutMs: Int = UPDATE_FETCH_READ_TIMEOUT_MS
+  ): AppReleaseInfo {
     val document = org.jsoup.Jsoup.connect(releasesUrl)
       .userAgent(UPDATE_USER_AGENT)
-      .timeout(15000)
+      .timeout(max(connectTimeoutMs, readTimeoutMs))
       .followRedirects(true)
       .get()
 
     val anchors = document.select("a[href]")
-    val apkAnchor = anchors.firstOrNull { anchor ->
+    val fallbackReleaseAnchor = anchors.firstOrNull { anchor ->
       val href = anchor.absUrl("href").ifBlank { anchor.attr("href") }
-      href.contains(".apk", ignoreCase = true)
+      href.contains("/releases/tag/", ignoreCase = true) ||
+        href.contains("/tag/v", ignoreCase = true) ||
+        extractVersionName(anchor.text()) != null
     }
-    val releaseAnchor = anchors.firstOrNull { anchor ->
-      val href = anchor.absUrl("href").ifBlank { anchor.attr("href") }
-      href.contains("/releases/tag/", ignoreCase = true) || extractVersionName(anchor.text()) != null
-    }
+    val fallbackApkUrl = anchors
+      .firstOrNull { anchor ->
+        val href = anchor.absUrl("href").ifBlank { anchor.attr("href") }
+        href.contains(".apk", ignoreCase = true)
+      }
+      ?.absUrl("href")
+      ?.takeIf { it.isNotBlank() }
 
-    val versionName = listOf(
-      apkAnchor?.text(),
-      apkAnchor?.attr("title"),
-      apkAnchor?.absUrl("href"),
-      releaseAnchor?.text(),
-      releaseAnchor?.attr("title"),
-      releaseAnchor?.absUrl("href"),
-      document.title()
-    ).mapNotNull(::extractVersionName)
-      .firstOrNull()
+    val releaseEntries = extractReleaseEntries(document, releasesUrl)
+    val latestEntry = releaseEntries.maxWithOrNull { left, right ->
+      compareVersionNames(left.versionName, right.versionName)
+    }
+    val versionName = latestEntry?.versionName
+      ?: listOf(document.title()).mapNotNull(::extractVersionName).firstOrNull()
       ?: throw IOException("未能从 $sourceLabel 发布页中解析版本号")
 
-    val pageUrl = releaseAnchor?.absUrl("href")?.takeIf { it.isNotBlank() } ?: releasesUrl
-    val apkUrl = apkAnchor?.absUrl("href")?.takeIf { it.isNotBlank() }
-    val releaseNotes = extractReleaseNotes(document, releaseAnchor, versionName)
+    val pageUrl = latestEntry?.pageUrl?.takeIf { it.isNotBlank() }
+      ?: fallbackReleaseAnchor?.absUrl("href")?.takeIf { it.isNotBlank() }
+      ?: releasesUrl
+    val apkUrl = latestEntry?.apkUrl ?: fallbackApkUrl
+    val releaseNotes = buildAggregatedReleaseNotes(
+      sourceLabel = sourceLabel,
+      releaseEntries = releaseEntries,
+      currentVersion = currentVersion,
+      latestVersion = versionName,
+      fallback = extractReleaseNotes(document, null, versionName)
+    )
 
     return AppReleaseInfo(
       sourceLabel = sourceLabel,
@@ -1266,6 +1336,312 @@ class MainActivity : AppCompatActivity() {
       apkUrl = apkUrl,
       releaseNotes = releaseNotes
     )
+  }
+
+  private fun extractReleaseEntries(
+    document: org.jsoup.nodes.Document,
+    releasesUrl: String
+  ): List<ParsedReleaseEntry> {
+    val anchors = document.select("a[href]")
+    val result = mutableListOf<ParsedReleaseEntry>()
+    val seenVersions = linkedSetOf<String>()
+
+    anchors.forEach { anchor ->
+      val href = anchor.absUrl("href").ifBlank { anchor.attr("href") }
+      val versionName = listOf(
+        anchor.text(),
+        anchor.attr("title"),
+        href
+      ).mapNotNull(::extractVersionName).firstOrNull() ?: return@forEach
+
+      if (!seenVersions.add(versionName)) return@forEach
+
+      val container = sequenceOf(
+        anchor.closest("article"),
+        anchor.closest("li"),
+        anchor.closest("section")
+      ).filterNotNull().firstOrNull()
+
+      val pageUrl = href.takeIf { it.isNotBlank() } ?: releasesUrl
+      val apkUrl = container
+        ?.select("a[href]")
+        ?.firstOrNull { item ->
+          val itemHref = item.absUrl("href").ifBlank { item.attr("href") }
+          itemHref.contains(".apk", ignoreCase = true)
+        }
+        ?.absUrl("href")
+        ?.takeIf { it.isNotBlank() }
+
+      val notesCandidates = buildList {
+        if (container != null) {
+          addAll(
+            listOfNotNull(
+              container.selectFirst(".release-body")?.wholeText(),
+              container.selectFirst(".markdown-body")?.wholeText(),
+              container.selectFirst(".release__description")?.wholeText(),
+              container.selectFirst(".release-notes")?.wholeText(),
+              container.wholeText()
+            )
+          )
+        }
+      }
+
+      val releaseNotes = notesCandidates
+        .map { extractReleaseNotesBlock(it, versionName) }
+        .firstOrNull { it.isNotBlank() }
+        .orEmpty()
+
+      result += ParsedReleaseEntry(
+        sourceLabel = sourceLabelForReleaseUrl(releasesUrl),
+        versionName = versionName,
+        pageUrl = pageUrl,
+        apkUrl = apkUrl,
+        releaseNotes = releaseNotes
+      )
+    }
+
+    return result
+  }
+
+  private fun buildAggregatedReleaseNotes(
+    sourceLabel: String,
+    releaseEntries: List<ParsedReleaseEntry>,
+    currentVersion: String,
+    latestVersion: String,
+    fallback: String
+  ): String {
+    val matchingEntries = releaseEntries
+      .filter { compareVersionNames(it.versionName, currentVersion) > 0 }
+      .sortedWith { left, right -> compareVersionNames(right.versionName, left.versionName) }
+
+    val combined = matchingEntries
+      .mapNotNull { entry ->
+        formatReleaseNotesEntry(entry)
+          .takeIf { it.isNotBlank() }
+      }
+      .joinToString("\n\n")
+      .trim()
+
+    if (combined.isNotBlank()) {
+      return combined.take(3000)
+    }
+
+    return formatReleaseNotesEntry(
+      ParsedReleaseEntry(
+        sourceLabel = sourceLabel,
+        versionName = latestVersion,
+        pageUrl = "",
+        apkUrl = null,
+        releaseNotes = fallback
+      )
+    )
+      .trim()
+      .ifBlank {
+        if (compareVersionNames(latestVersion, currentVersion) > 0) "暂无更新简介" else ""
+      }
+      .ifBlank { "暂无更新简介" }
+  }
+
+  private fun enrichReleaseInfo(primary: AppReleaseInfo, currentVersion: String): AppReleaseInfo {
+    val fallbackSource = if (primary.sourceLabel.equals("Gitee", ignoreCase = true)) {
+      "GitHub"
+    } else {
+      "Gitee"
+    }
+    val fallbackUrl = if (fallbackSource == "Gitee") GITEE_RELEASES_URL else GITHUB_RELEASES_URL
+    val alternate = runCatching {
+      fetchLatestReleaseInfo(
+        fallbackSource,
+        fallbackUrl,
+        currentVersion,
+        connectTimeoutMs = UPDATE_NOTES_CONNECT_TIMEOUT_MS,
+        readTimeoutMs = UPDATE_NOTES_READ_TIMEOUT_MS
+      )
+    }.onFailure { error ->
+      appendDebugLog("UPDATE", "WARN", "补充拉取 $fallbackSource 简介失败：${error.message ?: "unknown"}")
+    }.getOrNull()
+      ?.takeIf { compareVersionNames(it.versionName, primary.versionName) == 0 }
+    val githubApiNotes = if (primary.sourceLabel.equals("GitHub", ignoreCase = true)) {
+      runCatching {
+        fetchGitHubApiReleaseInfo(
+          currentVersion,
+          connectTimeoutMs = UPDATE_NOTES_CONNECT_TIMEOUT_MS,
+          readTimeoutMs = UPDATE_NOTES_READ_TIMEOUT_MS
+        )
+      }.onFailure { error ->
+        appendDebugLog("UPDATE", "WARN", "拉取 GitHub 多版本简介失败，回退到 GitHub 发布页简介：${error.message ?: "unknown"}")
+      }.getOrNull()
+        ?.takeIf { compareVersionNames(it.versionName, primary.versionName) == 0 }
+        ?.releaseNotes
+    } else {
+      null
+    }
+    val resolvedNotes = normalizeReleaseNotes(githubApiNotes ?: primary.releaseNotes)
+      .ifBlank { normalizeReleaseNotes(primary.releaseNotes) }
+      .ifBlank { "暂无更新简介" }
+
+    return primary.copy(
+      pageUrl = primary.pageUrl
+        .ifBlank { alternate?.pageUrl.orEmpty() }
+        .ifBlank { GITHUB_RELEASES_URL.takeIf { primary.sourceLabel.equals("GitHub", ignoreCase = true) }.orEmpty() },
+      apkUrl = primary.apkUrl ?: alternate?.apkUrl,
+      releaseNotes = resolvedNotes
+    )
+  }
+
+  @Throws(IOException::class)
+  private fun fetchGitHubApiReleaseInfo(
+    currentVersion: String,
+    connectTimeoutMs: Int = UPDATE_FETCH_CONNECT_TIMEOUT_MS,
+    readTimeoutMs: Int = UPDATE_FETCH_READ_TIMEOUT_MS
+  ): AppReleaseInfo {
+    val releaseEntries = fetchGitHubApiReleaseEntries(connectTimeoutMs, readTimeoutMs)
+    val latestEntry = releaseEntries.maxWithOrNull { left, right ->
+      compareVersionNames(left.versionName, right.versionName)
+    } ?: throw IOException("GitHub API 未返回可用版本")
+
+    return AppReleaseInfo(
+      sourceLabel = "GitHub",
+      pageUrl = latestEntry.pageUrl.ifBlank { GITHUB_RELEASES_URL },
+      versionName = latestEntry.versionName,
+      apkUrl = latestEntry.apkUrl,
+      releaseNotes = buildAggregatedReleaseNotes(
+        sourceLabel = "GitHub",
+        releaseEntries = releaseEntries,
+        currentVersion = currentVersion,
+        latestVersion = latestEntry.versionName,
+        fallback = latestEntry.releaseNotes
+      )
+    )
+  }
+
+  @Throws(IOException::class)
+  private fun fetchGitHubApiReleaseEntries(
+    connectTimeoutMs: Int,
+    readTimeoutMs: Int
+  ): List<ParsedReleaseEntry> {
+    val payload = fetchTextFromUrl(
+      url = GITHUB_RELEASES_API_URL,
+      accept = "application/vnd.github+json",
+      connectTimeoutMs = connectTimeoutMs,
+      readTimeoutMs = readTimeoutMs
+    )
+    val array = JSONArray(payload)
+    val result = mutableListOf<ParsedReleaseEntry>()
+
+    for (index in 0 until array.length()) {
+      val item = array.optJSONObject(index) ?: continue
+      if (item.optBoolean("draft")) continue
+
+      val versionName = listOf(
+        item.optString("tag_name"),
+        item.optString("name"),
+        item.optString("html_url")
+      ).mapNotNull(::extractVersionName).firstOrNull() ?: continue
+
+      val pageUrl = item.optString("html_url").ifBlank { GITHUB_RELEASES_URL }
+      val body = item.optString("body")
+      val assets = item.optJSONArray("assets")
+      val apkUrl = findApkUrlInReleaseAssets(assets)
+      val releaseNotes = extractReleaseNotesBlock(body, versionName)
+        .ifBlank { normalizeReleaseNotes(body) }
+
+      result += ParsedReleaseEntry(
+        sourceLabel = "GitHub",
+        versionName = versionName,
+        pageUrl = pageUrl,
+        apkUrl = apkUrl,
+        releaseNotes = releaseNotes
+      )
+    }
+
+    return result
+  }
+
+  private fun findApkUrlInReleaseAssets(assets: JSONArray?): String? {
+    if (assets == null) return null
+    for (index in 0 until assets.length()) {
+      val asset = assets.optJSONObject(index) ?: continue
+      val url = asset.optString("browser_download_url")
+        .ifBlank { asset.optString("url") }
+        .takeIf { it.isNotBlank() }
+      if (url != null && url.contains(".apk", ignoreCase = true)) {
+        return url
+      }
+    }
+    return null
+  }
+
+  @Throws(IOException::class)
+  private fun fetchTextFromUrl(
+    url: String,
+    accept: String = "*/*",
+    connectTimeoutMs: Int = UPDATE_FETCH_CONNECT_TIMEOUT_MS,
+    readTimeoutMs: Int = UPDATE_FETCH_READ_TIMEOUT_MS
+  ): String {
+    val connection = (URL(url).openConnection() as HttpURLConnection).apply {
+      requestMethod = "GET"
+      instanceFollowRedirects = true
+      connectTimeout = connectTimeoutMs
+      readTimeout = readTimeoutMs
+      setRequestProperty("User-Agent", UPDATE_USER_AGENT)
+      setRequestProperty("Accept", accept)
+    }
+
+    try {
+      connection.connect()
+      if (connection.responseCode !in 200..299) {
+        throw IOException("HTTP ${connection.responseCode}")
+      }
+      return connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+    } finally {
+      connection.disconnect()
+    }
+  }
+
+  private fun selectBestReleaseNotes(vararg candidates: String): String {
+    val normalizedCandidates = candidates
+      .map(::normalizeReleaseNotes)
+      .filter { it.isNotBlank() && it != "暂无更新简介" }
+    if (normalizedCandidates.isEmpty()) {
+      return "暂无更新简介"
+    }
+    return normalizedCandidates.maxByOrNull(::releaseNotesScore) ?: "暂无更新简介"
+  }
+
+  private fun formatReleaseNotesEntry(entry: ParsedReleaseEntry): String {
+    val notes = normalizeReleaseNotes(entry.releaseNotes)
+    if (notes.isBlank() || notes == "暂无更新简介") {
+      return ""
+    }
+    return buildString {
+      append("v")
+      append(entry.versionName)
+      append(" · ")
+      append(entry.sourceLabel)
+      append('\n')
+      append(notes)
+    }.trim()
+  }
+
+  private fun normalizeReleaseNotes(notes: String): String {
+    return notes
+      .replace("\r\n", "\n")
+      .replace('\r', '\n')
+      .trim()
+  }
+
+  private fun sourceLabelForReleaseUrl(releasesUrl: String): String {
+    return if (releasesUrl.contains("gitee.com", ignoreCase = true)) "Gitee" else "GitHub"
+  }
+
+  private fun releaseNotesScore(notes: String): Int {
+    val normalized = normalizeReleaseNotes(notes)
+    if (normalized.isBlank() || normalized == "暂无更新简介") {
+      return 0
+    }
+    val headingCount = Regex("""(?m)^##""").findAll(normalized).count()
+    return headingCount * 1000 + normalized.length
   }
 
   private fun extractReleaseNotes(
@@ -1335,7 +1711,7 @@ class MainActivity : AppCompatActivity() {
     val fallbackSource = if (release.sourceLabel.equals("Gitee", ignoreCase = true)) "GitHub" else "Gitee"
     val fallbackUrl = if (fallbackSource == "Gitee") GITEE_RELEASES_URL else GITHUB_RELEASES_URL
     return try {
-      fetchLatestReleaseInfo(fallbackSource, fallbackUrl)
+      fetchLatestReleaseInfo(fallbackSource, fallbackUrl, currentAppVersionName())
         .takeIf { compareVersionNames(it.versionName, release.versionName) == 0 }
     } catch (_: Throwable) {
       null
@@ -2037,7 +2413,129 @@ class MainActivity : AppCompatActivity() {
     )
   }
 
+  private fun prepareTimetablePage(
+    webView: WebView,
+    showCachedAfterSuccess: Boolean
+  ) {
+    maybeSwitchTimetableSemesterOnWebView(webView) {
+      captureTimetablePage(webView, showCachedAfterSuccess = showCachedAfterSuccess)
+    }
+  }
+
+  private fun maybeSwitchTimetableSemesterOnWebView(
+    webView: WebView,
+    onReady: () -> Unit
+  ) {
+    val desiredSemester = TimetableSemesterStore.resolveDesiredSemester(this)
+    val script = """
+      (function() {
+        const desired = ${JSONObject.quote(desiredSemester)};
+        const select = document.querySelector("select[name='xnxq01id']") || document.getElementById("xnxq01id");
+        const weekSelect = document.querySelector("select[name='zc']") || document.getElementById("zc");
+        if (!select) {
+          return JSON.stringify({ availableSemesters: [], currentSemester: "", desiredSemester: desired, switched: false, weekFilter: "" });
+        }
+        const availableSemesters = Array.from(select.options || [])
+          .map((option) => String(option.value || option.textContent || "").trim())
+          .filter((value) => value.length > 0);
+        const currentSemester = String(
+          select.value ||
+          (select.selectedOptions && select.selectedOptions[0] ? select.selectedOptions[0].value : "") ||
+          availableSemesters[0] ||
+          ""
+        ).trim();
+        const weekFilter = String(
+          weekSelect ? (weekSelect.value || "") : ""
+        ).trim();
+        if (desired && availableSemesters.includes(desired) && currentSemester !== desired) {
+          Array.from(select.options || []).forEach((option) => {
+            option.selected = String(option.value || option.textContent || "").trim() === desired;
+          });
+          select.value = desired;
+          if (weekSelect) {
+            weekSelect.value = "";
+          }
+          const form = select.form || document.forms.Form1 || document.forms[0];
+          if (typeof select.onchange === "function") {
+            window.setTimeout(() => select.onchange(), 0);
+            return JSON.stringify({
+              availableSemesters,
+              currentSemester,
+              desiredSemester: desired,
+              switched: true,
+              weekFilter
+            });
+          }
+          if (form && typeof form.submit === "function") {
+            window.setTimeout(() => form.submit(), 0);
+            return JSON.stringify({
+              availableSemesters,
+              currentSemester,
+              desiredSemester: desired,
+              switched: true,
+              weekFilter
+            });
+          }
+        }
+        return JSON.stringify({
+          availableSemesters,
+          currentSemester,
+          desiredSemester: desired,
+          switched: false,
+          weekFilter
+        });
+      })();
+    """.trimIndent()
+
+    webView.evaluateJavascript(script) { rawValue ->
+      val snapshot = parseTimetableSemesterSnapshot(decodeJsValue(rawValue))
+      if (snapshot != null && snapshot.availableSemesters.isNotEmpty()) {
+        TimetableSemesterStore.updateCatalog(
+          this,
+          snapshot.availableSemesters,
+          snapshot.currentSemester
+        )
+        appendDebugLog(
+          "TIMETABLE",
+          "INFO",
+          "网页课表学期：current=${snapshot.currentSemester.ifBlank { "-" }}, desired=${snapshot.desiredSemester.ifBlank { "-" }}, week=${snapshot.weekFilter.ifBlank { "(全部)" }}, options=${snapshot.availableSemesters.size}"
+        )
+      }
+      if (snapshot?.switched == true) {
+        appendDebugLog(
+          "TIMETABLE",
+          "INFO",
+          "课表网页已从 ${snapshot.currentSemester} 切换到 ${snapshot.desiredSemester}，并清空周次筛选"
+        )
+        updateStatus("已切换到学期 ${snapshot.desiredSemester}，正在重新加载课表…")
+        return@evaluateJavascript
+      }
+      onReady()
+    }
+  }
+
+  private fun parseTimetableSemesterSnapshot(rawValue: String): TimetableSemesterSnapshot? {
+    if (rawValue.isBlank()) return null
+    return runCatching {
+      val payload = JSONObject(rawValue)
+      TimetableSemesterSnapshot(
+        availableSemesters = buildList {
+          val array = payload.optJSONArray("availableSemesters") ?: JSONArray()
+          for (index in 0 until array.length()) {
+            val value = array.optString(index).trim()
+            if (value.isNotBlank()) add(value)
+          }
+        },
+        currentSemester = payload.optString("currentSemester").trim(),
+        desiredSemester = payload.optString("desiredSemester").trim(),
+        switched = payload.optBoolean("switched"),
+        weekFilter = payload.optString("weekFilter").trim()
+      )
+    }.getOrNull()
+  }
+
   private fun refreshGeneratedCacheAfterStartup() {
+    TimetableSemesterStore.refreshCatalogFromRawHtmlIfNeeded(this)
     syncAssetExportId()
     CourseNotificationScheduler.sync(this)
     ExamOngoingNotificationScheduler.sync(this)
@@ -3135,6 +3633,8 @@ class MainActivity : AppCompatActivity() {
 
   private fun buildRecentCourses(courses: List<TimetableCourse>): List<HomeRecentEntry> {
     if (courses.isEmpty()) return emptyList()
+    val renderedSemester = TimetableSemesterStore.resolveRenderedSemester(this)
+    val anchorMonday = TimetableSemesterStore.resolveCalendar(renderedSemester).week1Monday ?: return emptyList()
     val normalized = courses.map { course ->
       val match = Regex("""(\d+)(?:-(\d+))?""").find(course.periods)
       NormalizedCourse(
@@ -3144,6 +3644,10 @@ class MainActivity : AppCompatActivity() {
         weeks = parseWeeks(course.weeks)
       )
     }
+    val allWeeks = normalized.flatMap { it.weeks }.distinct().sorted()
+    if (TimetableSemesterStore.shouldPreferFullTimetable(renderedSemester, allWeeks)) {
+      return emptyList()
+    }
     val today = LocalDate.now()
     val now = LocalTime.now()
     val result = mutableListOf<HomeRecentEntry>()
@@ -3151,7 +3655,7 @@ class MainActivity : AppCompatActivity() {
     for (offset in 0..1) {
       val date = today.plusDays(offset.toLong())
       val weekday = HOME_WEEKDAYS[(date.dayOfWeek.value - 1) % HOME_WEEKDAYS.size]
-      val week = HOME_ANCHOR_WEEK + (ChronoUnit.DAYS.between(HOME_ANCHOR_MONDAY, date) / 7).toInt()
+      val week = 1 + (ChronoUnit.DAYS.between(anchorMonday, date) / 7).toInt()
 
       normalized
         .filter { it.course.weekday == weekday && (it.weeks.isEmpty() || it.weeks.contains(week)) }
@@ -3495,7 +3999,10 @@ class MainActivity : AppCompatActivity() {
     }
   }
 
-  private fun captureTimetablePage() {
+  private fun captureTimetablePage(
+    webView: WebView,
+    showCachedAfterSuccess: Boolean
+  ) {
     if (cacheCaptureInProgress) {
       return
     }
@@ -3503,7 +4010,7 @@ class MainActivity : AppCompatActivity() {
     cacheCaptureInProgress = true
     updateStatus("已进入课表页，正在抓取并更新本地缓存…")
 
-    binding.authWebView.evaluateJavascript(
+    webView.evaluateJavascript(
       """
       (function() {
         return document.documentElement ? document.documentElement.outerHTML : "";
@@ -3518,25 +4025,38 @@ class MainActivity : AppCompatActivity() {
       }
 
       ioExecutor.execute {
-        handleCapturedTimetableHtml(html)
+        handleCapturedTimetableHtml(html, showCachedAfterSuccess = showCachedAfterSuccess)
       }
     }
   }
 
   private fun handleCapturedTimetableHtml(
     html: String,
-    successStatus: String? = null
+    successStatus: String? = null,
+    showCachedAfterSuccess: Boolean = true
   ) {
     try {
+      appendDebugLog(
+        "TIMETABLE_CAPTURE",
+        "START",
+        "开始处理课表 HTML，length=${html.length}，showCachedAfterSuccess=$showCachedAfterSuccess"
+      )
+      TimetableSemesterStore.updateFromTimetableHtml(this@MainActivity, html)
+      appendDebugLog("TIMETABLE_CAPTURE", "INFO", "课表学期目录已从 HTML 刷新")
       val courses = TimetableParser.parse(html)
+      appendDebugLog("TIMETABLE_CAPTURE", "INFO", "课表解析完成，courses=${courses.size}")
       val renderedHomeHtml = TimetableRenderer.toHomeHtml(this@MainActivity, courses)
+      appendDebugLog("TIMETABLE_CAPTURE", "INFO", "首页课表 HTML 已生成，length=${renderedHomeHtml.length}")
       val renderedHtml = TimetableRenderer.toHtml(this@MainActivity, courses)
+      appendDebugLog("TIMETABLE_CAPTURE", "INFO", "完整课表 HTML 已生成，length=${renderedHtml.length}")
       val json = TimetableRenderer.toJson(courses)
+      appendDebugLog("TIMETABLE_CAPTURE", "INFO", "课表 JSON 已生成，length=${json.length}")
 
       File(filesDir, GENERATED_HOME_HTML_FILE).writeText(renderedHomeHtml, Charsets.UTF_8)
       File(filesDir, GENERATED_CACHE_HTML_FILE).writeText(renderedHtml, Charsets.UTF_8)
       File(filesDir, CACHE_JSON_FILE).writeText(json, Charsets.UTF_8)
       File(filesDir, CACHE_RAW_HTML_FILE).writeText(html, Charsets.UTF_8)
+      appendDebugLog("TIMETABLE_CAPTURE", "INFO", "课表缓存文件写入完成")
       val examSyncResult = runCatching { syncExamCacheFromSession(courses) }
         .onFailure { appendDebugLog("EXAM", "FAIL", it.message ?: "unknown") }
       val scoreSyncResult = runCatching { syncScoreCacheFromSession() }
@@ -3565,11 +4085,23 @@ class MainActivity : AppCompatActivity() {
           Toast.makeText(this@MainActivity, msg, Toast.LENGTH_LONG).show()
           isAutoUpdating = false
         }
-        showCachedTimetable()
+        if (showCachedAfterSuccess) {
+          showCachedTimetable()
+        } else {
+          authTimetableCaptureShouldShowCache = true
+          refreshGeneratedCacheAfterStartup()
+        }
       }
-    } catch (error: Exception) {
+    } catch (error: Throwable) {
+      Log.e("ClassSche", "Failed to handle captured timetable html", error)
+      appendDebugLog(
+        "TIMETABLE_CAPTURE",
+        "FAIL",
+        throwableSummary(error)
+      )
       mainHandler.post {
         cacheCaptureInProgress = false
+        authTimetableCaptureShouldShowCache = true
         updateStatus("缓存同步失败：${error.message ?: "unknown"}")
         if (isAutoUpdating) {
           isAutoUpdating = false
@@ -4317,6 +4849,33 @@ class MainActivity : AppCompatActivity() {
 
   private fun appendDebugLog(scope: String, status: String, message: String) {
     AppDebugLog.append(this, scope, status, message)
+  }
+
+  private fun throwableSummary(error: Throwable): String {
+    val frames = error.stackTrace
+      .take(6)
+      .joinToString(" | ") { frame ->
+        "${frame.className}.${frame.methodName}:${frame.lineNumber}"
+      }
+    return buildString {
+      append(error::class.java.name)
+      error.message?.takeIf { it.isNotBlank() }?.let {
+        append(": ")
+        append(it)
+      }
+      if (frames.isNotBlank()) {
+        append(" @ ")
+        append(frames)
+      }
+      error.cause?.let { cause ->
+        append(" | cause=")
+        append(cause::class.java.name)
+        cause.message?.takeIf { it.isNotBlank() }?.let { causeMessage ->
+          append(": ")
+          append(causeMessage)
+        }
+      }
+    }
   }
 
   private fun restoreSavedCredentials() {

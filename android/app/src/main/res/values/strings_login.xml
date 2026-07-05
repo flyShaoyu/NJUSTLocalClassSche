@@ -91,6 +91,7 @@
     <string name="profile_welcome_hint">账号信息会保存在本地，用来快速进入教务登录和课表提醒设置。</string>
     <string name="profile_open_login">进入教务登录</string>
     <string name="profile_open_notifications">通知设置</string>
+    <string name="profile_open_timetable_semester_settings">课表学期</string>
     <string name="profile_open_score_sync_settings">后台成绩设置</string>
     <string name="profile_score_sync_mode">后台成绩拉取</string>
     <string name="profile_score_sync_interval">后台拉取频率</string>
@@ -103,6 +104,7 @@
     <string name="profile_tools_section">提醒与后台保活</string>
     <string name="profile_login_hint">管理教务账号、验证码和课表缓存更新。</string>
     <string name="profile_notification_hint">调整上课与考试提醒时间，并检查后台启动、电池优化等系统设置。</string>
+    <string name="profile_timetable_semester_settings_hint">切换本地课表使用的学期；可选项来自最近一次打开的教务课表页。</string>
     <string name="profile_score_sync_settings_hint">单独设置后台成绩拉取的开关、Wi-Fi 限制和定时频率。</string>
     <string name="profile_score_sync_mode_hint">控制后台定时拉取和应用打开时的自动成绩检查。</string>
     <string name="profile_score_sync_interval_hint">可选 1h、2h、5h、12h、24h，后台闹钟会按这里的频率重新安排。</string>
@@ -124,9 +126,11 @@
     <string name="profile_release_github_hint">点击后在浏览器打开 GitHub 仓库主页。</string>
     <string name="log_viewer_title">运行日志</string>
     <string name="log_viewer_hint">这里会保存最近的抓取、解析、更新与错误日志，内容按时间倒序追加。</string>
+    <string name="log_filter_hint">输入关键字筛选日志，如 TIMETABLE、SCORE、FAIL</string>
     <string name="log_copy_button">复制</string>
     <string name="log_clear_button">清空</string>
     <string name="log_empty_hint">暂无日志</string>
+    <string name="log_filter_empty_hint">没有匹配当前筛选条件的日志</string>
     <string name="log_copy_done">日志已复制</string>
     <string name="log_clear_done">日志已清空</string>
     <string name="score_editor_title">成绩编辑</string>
@@ -141,4 +145,22 @@
     <string name="score_sync_settings_title">后台成绩设置</string>
     <string name="score_sync_settings_section">后台成绩拉取</string>
     <string name="score_sync_settings_hint">这里控制纯 HTTP 成绩后台链路，不会改动主登录流程。</string>
+    <string name="timetable_semester_settings_title">课表学期</string>
+    <string name="timetable_semester_settings_section">课表学期切换</string>
+    <string name="timetable_semester_settings_hint">可选学期来自最近一次打开的教务课表页；保存后，下次进入网页课表会自动切换并刷新本地缓存。</string>
+    <string name="timetable_semester_selected_label">当前选择</string>
+    <string name="timetable_semester_current_label">最近网页学期</string>
+    <string name="timetable_semester_selected_hint">如果当前日期不在这个学期内，课表页会优先默认显示全课表。</string>
+    <string name="timetable_semester_current_hint">用于显示最近一次从教务网页下拉框拿到的当前学期和可选学期数量。</string>
+    <string name="timetable_semester_follow_current">跟随网页当前学期</string>
+    <string name="timetable_semester_follow_summary">当前：跟随网页当前学期</string>
+    <string name="timetable_semester_follow_summary_with_value">当前：跟随网页当前学期（最近为 %1$s）</string>
+    <string name="timetable_semester_selected_summary">当前：%1$s</string>
+    <string name="timetable_semester_current_summary">当前网页学期：%1$s\n可选学期数：%2$d</string>
+    <string name="timetable_semester_unknown_current">还没有最近一次网页学期记录</string>
+    <string name="timetable_semester_catalog_ready">已获取 %1$d 个可选学期，可以点击下方进行切换。</string>
+    <string name="timetable_semester_no_options">还没有可选学期，请先打开一次教务课表页。</string>
+    <string name="timetable_semester_option_dialog_title">选择课表学期</string>
+    <string name="timetable_semester_saved">课表学期设置已保存</string>
+    <string name="timetable_semester_saved_and_refreshing">课表学期已保存，正在刷新课表</string>
 </resources>

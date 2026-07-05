@@ -10,6 +10,7 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.core.widget.doAfterTextChanged
 import com.classsche.mobile.databinding.ActivityLogViewerBinding
 
 class LogViewerActivity : AppCompatActivity() {
@@ -19,6 +20,7 @@ class LogViewerActivity : AppCompatActivity() {
   private var baseToolbarPaddingRight = 0
   private var baseToolbarPaddingBottom = 0
   private var lastStatusBarInsetTop = 0
+  private var allLogs = ""
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
@@ -53,8 +55,11 @@ class LogViewerActivity : AppCompatActivity() {
   }
 
   private fun setupActions() {
+    binding.logFilterInput.doAfterTextChanged {
+      renderLogs()
+    }
     binding.copyLogsButton.setOnClickListener {
-      val logs = AppDebugLog.read(this)
+      val logs = filteredLogs()
       val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
       clipboard.setPrimaryClip(ClipData.newPlainText("classsche-logs", logs))
       Toast.makeText(this, getString(R.string.log_copy_done), Toast.LENGTH_SHORT).show()
@@ -67,12 +72,23 @@ class LogViewerActivity : AppCompatActivity() {
   }
 
   private fun renderLogs() {
-    val logs = AppDebugLog.read(this).trim()
+    allLogs = AppDebugLog.read(this).trim()
+    val logs = filteredLogs()
     binding.logContentText.text = if (logs.isBlank()) {
-      getString(R.string.log_empty_hint)
+      if (allLogs.isBlank()) getString(R.string.log_empty_hint) else getString(R.string.log_filter_empty_hint)
     } else {
       logs
     }
+  }
+
+  private fun filteredLogs(): String {
+    val keyword = binding.logFilterInput.text?.toString().orEmpty().trim()
+    if (keyword.isBlank()) return allLogs
+    return allLogs
+      .lineSequence()
+      .filter { it.contains(keyword, ignoreCase = true) }
+      .joinToString("\n")
+      .trim()
   }
 
   private fun applyToolbarLayout() {

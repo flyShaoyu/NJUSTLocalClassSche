@@ -24,8 +24,7 @@ data class CourseOccurrence(
 object TimetableScheduleHelper {
   private const val CACHE_JSON_FILE = "timetable.json"
   private val weekDays = listOf("星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日")
-  private const val anchorWeek = 6
-  private val anchorMonday: LocalDate = LocalDate.of(2026, 4, 6)
+  private const val anchorWeek = 1
 
   val periodSlots = mapOf(
     1 to ("08:00" to "08:45"),
@@ -105,8 +104,16 @@ object TimetableScheduleHelper {
     return "第${majorIndex}大节"
   }
 
-  fun findNextCourse(courses: List<TimetableCourse>, now: LocalDateTime = LocalDateTime.now(), daysAhead: Int = 14): CourseOccurrence? {
+  fun findNextCourse(
+    context: Context,
+    courses: List<TimetableCourse>,
+    now: LocalDateTime = LocalDateTime.now(),
+    daysAhead: Int = 14
+  ): CourseOccurrence? {
     if (courses.isEmpty()) return null
+    val anchorMonday = TimetableSemesterStore.resolveCalendar(
+      TimetableSemesterStore.resolveRenderedSemester(context)
+    ).week1Monday ?: return null
     val normalized = normalizeCourses(courses)
     for (offset in 0..daysAhead) {
       val date = now.toLocalDate().plusDays(offset.toLong())
@@ -136,12 +143,16 @@ object TimetableScheduleHelper {
   }
 
   fun findNotificationWindowCourse(
+    context: Context,
     courses: List<TimetableCourse>,
     leadMinutes: Int,
     now: LocalDateTime = LocalDateTime.now(),
     daysAhead: Int = 14
   ): CourseOccurrence? {
     if (courses.isEmpty()) return null
+    val anchorMonday = TimetableSemesterStore.resolveCalendar(
+      TimetableSemesterStore.resolveRenderedSemester(context)
+    ).week1Monday ?: return null
     val normalized = normalizeCourses(courses)
     for (offset in 0..daysAhead) {
       val date = now.toLocalDate().plusDays(offset.toLong())

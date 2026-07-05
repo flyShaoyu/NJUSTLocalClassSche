@@ -32,14 +32,14 @@ object CourseNotificationScheduler {
 
     val leadMinutes = CourseNotificationService.getLeadMinutes(context)
     val now = java.time.LocalDateTime.now()
-    val activeCourse = TimetableScheduleHelper.findNotificationWindowCourse(courses, leadMinutes, now)
+    val activeCourse = TimetableScheduleHelper.findNotificationWindowCourse(context, courses, leadMinutes, now)
     if (activeCourse != null) {
       scheduleEnd(context, activeCourse)
       ContextCompat.startForegroundService(context, Intent(context, CourseNotificationService::class.java))
       return
     }
 
-    val nextCourse = TimetableScheduleHelper.findNextCourse(courses, now)
+    val nextCourse = TimetableScheduleHelper.findNextCourse(context, courses, now)
     if (nextCourse == null) {
       context.stopService(Intent(context, CourseNotificationService::class.java))
       return

@@ -7,6 +7,19 @@ import java.time.LocalDateTime
 
 object TimetableRenderer {
   private val coursesPattern = Regex("""const courses = \[.*?];""", setOf(RegexOption.DOT_MATCHES_ALL))
+  private val timetableConfigPattern = Regex("""\Qconst timetableConfig = {\E[\s\S]*?\Q};\E""")
+  private val formatDateLabelPattern = Regex("""\Qconst formatDateLabel = (date) => \E[\s\S]*?\Q;\E""")
+  private val getWeekDatesPattern = Regex("""\Qconst getWeekDates = (week) => {\E[\s\S]*?\n    \Q};\E""")
+  private val getCurrentWeekByAnchorPattern = Regex("""\Qconst getCurrentWeekByAnchor = () => {\E[\s\S]*?\n    \Q};\E""")
+  private val getCurrentDayIndexPattern = Regex("""\Qconst getCurrentDayIndex = () => {\E[\s\S]*?\n    \Q};\E""")
+  private val getInitialStateWeekPattern = Regex("""\Qconst getInitialStateWeek = () => {\E[\s\S]*?\n    \Q};\E""")
+  private val renderHeaderPattern = Regex("""\Qconst renderHeader = () => {\E[\s\S]*?\n    \Q};\E""")
+  private const val stateLiteral = """const state = {
+      week: getInitialStateWeek(),
+      viewMode: 'week',
+      activeGroupId: null,
+      activeCourseIndex: 0
+    };"""
 
   fun emptyHomeHtml(context: Context): String {
     return renderAsset(context, "home-view.html", emptyList())
@@ -23,7 +36,7 @@ object TimetableRenderer {
   }
 
   fun toHtml(context: Context, courses: List<TimetableCourse>): String {
-    return renderAsset(context, "timetable-view.html", courses)
+    return renderAsset(context, "timetable-view.html", courses, applyTimetableCalendar = true)
       ?: fallbackHtml("本地课表已更新，共解析 ${courses.size} 条课程。")
   }
 
@@ -53,10 +66,150 @@ object TimetableRenderer {
     return toHomeHtml(context, courses)
   }
 
-  private fun renderAsset(context: Context, fileName: String, courses: List<TimetableCourse>): String? {
+  private fun renderAsset(
+    context: Context,
+    fileName: String,
+    courses: List<TimetableCourse>,
+    applyTimetableCalendar: Boolean = false
+  ): String? {
     val template = readAssetText(context, fileName) ?: return null
-    return coursesPattern.replace(template, "const courses = ${toJson(courses)};")
+    val renderedCourses = coursesPattern.replace(template, "const courses = ${toJson(courses)};")
+    return if (applyTimetableCalendar) {
+      applyTimetableCalendarConfig(context, renderedCourses)
+    } else {
+      renderedCourses
+    }
   }
+
+  private fun applyTimetableCalendarConfig(
+    context: Context,
+    html: String
+  ): String {
+    val semester = TimetableSemesterStore.resolveRenderedSemester(context)
+    val calendar = TimetableSemesterStore.resolveCalendar(semester)
+    val configLiteral = """
+      const timetableConfig = {
+        semester: ${quoteForScript(semester)},
+        anchorMonday: ${calendar.week1Monday?.toString()?.let(::quoteForScript) ?: "null"},
+        usesRealDates: ${if (calendar.usesRealDates) "true" else "false"}
+      };
+    """.trimIndent()
+    val initialViewModeLiteral = """
+      const initialViewMode = (() => {
+        const currentWeek = getCurrentWeekByAnchor();
+        if (!hasKnownCalendar || !allWeeks.length) return 'full';
+        const minWeek = Math.min(...allWeeks);
+        const maxWeek = Math.max(...allWeeks);
+        return currentWeek >= minWeek && currentWeek <= maxWeek ? 'week' : 'full';
+      })();
+    """.trimIndent()
+
+    return html
+      .let { timetableConfigPattern.replace(it, configLiteral) }
+      .let {
+        formatDateLabelPattern.replace(
+          it,
+          """
+          const formatDateLabel = (date) => {
+            if (date && typeof date === 'object' && date.ordinal !== undefined) return String(date.ordinal);
+            if (!date || typeof date.getMonth !== 'function') return '';
+            return (date.getMonth() + 1) + '.' + date.getDate();
+          };
+          """.trimIndent()
+        )
+      }
+      .let {
+        getWeekDatesPattern.replace(
+          it,
+          """
+          const getWeekDates = (week) => {
+            if (!hasKnownCalendar || !anchorMonday) {
+              return weekdays.map((_, index) => ({ ordinal: ((week - 1) * 7) + index + 1 }));
+            }
+            const weekOffset = (week - anchorWeek) * 7;
+            const monday = new Date(anchorMonday);
+            monday.setDate(anchorMonday.getDate() + weekOffset);
+            return weekdays.map((_, index) => {
+              const date = new Date(monday);
+              date.setDate(monday.getDate() + index);
+              return date;
+            });
+          };
+          """.trimIndent()
+        )
+      }
+      .let {
+        getCurrentWeekByAnchorPattern.replace(
+          it,
+          """
+          const getCurrentWeekByAnchor = () => {
+            if (!hasKnownCalendar || !anchorMonday) return -1;
+            const now = new Date();
+            const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            const diffDays = Math.floor((dayStart - anchorMonday) / (1000 * 60 * 60 * 24));
+            return anchorWeek + Math.floor(diffDays / 7);
+          };
+          """.trimIndent()
+        )
+      }
+      .let {
+        getInitialStateWeekPattern.replace(
+          it,
+          """
+          const getInitialStateWeek = () => {
+            if (!allWeeks.length) return 1;
+            const currentWeek = getCurrentWeekByAnchor();
+            if (!hasKnownCalendar || currentWeek < 1) {
+              return allWeeks[0];
+            }
+            if (allWeeks.includes(currentWeek)) {
+              return currentWeek;
+            }
+            const futureWeek = allWeeks.find((week) => week >= currentWeek);
+            if (futureWeek !== undefined) {
+              return futureWeek;
+            }
+            return allWeeks[allWeeks.length - 1] || 1;
+          };
+          """.trimIndent()
+        )
+      }
+      .let {
+        getCurrentDayIndexPattern.replace(
+          it,
+          """
+          const getCurrentDayIndex = () => {
+            if (!hasKnownCalendar) return -1;
+            if (state.viewMode === 'full') return -1;
+            if (state.week !== getCurrentWeekByAnchor()) return -1;
+            const now = new Date();
+            const labels = getWeekDates(state.week).map(formatDateLabel);
+            return labels.indexOf(formatDateLabel(now));
+          };
+          """.trimIndent()
+        )
+      }
+      .let {
+        renderHeaderPattern.replace(
+          it,
+          """
+          const renderHeader = () => {
+            const weekDates = getWeekDates(state.week);
+            const currentDayIndex = getCurrentDayIndex();
+            headerRow.innerHTML = '<div class="header-cell"></div>' + weekdays.map((weekday, index) => {
+              const isToday = index === currentDayIndex;
+              const dateLabel = state.viewMode === 'full' ? '' : formatDateLabel(weekDates[index]);
+              return '<div class="header-cell' + (isToday ? ' today' : '') + '"><span class="header-date">' + dateLabel + '</span><span class="header-weekday">' + weekday.replace('星期', '周') + '</span></div>';
+            }).join('');
+          };
+          """.trimIndent()
+        )
+      }
+      .replace(stateLiteral, "$initialViewModeLiteral\n\n    const state = {\n      week: getInitialStateWeek(),\n      viewMode: initialViewMode,\n      activeGroupId: null,\n      activeCourseIndex: 0\n    };")
+  }
+
+  private fun quoteForScript(value: String): String =
+    JSONObject.quote(value)
 
   private fun coursesFromJson(rawJson: String): List<TimetableCourse>? {
     return try {

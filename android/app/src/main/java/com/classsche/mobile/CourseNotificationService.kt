@@ -63,7 +63,7 @@ class CourseNotificationService : Service() {
   private fun refreshNotificationState() {
     val courses = TimetableScheduleHelper.loadCoursesFromCacheJson(this)
     val leadMinutes = getLeadMinutes(this)
-    val activeCourse = TimetableScheduleHelper.findNotificationWindowCourse(courses, leadMinutes)
+    val activeCourse = TimetableScheduleHelper.findNotificationWindowCourse(this, courses, leadMinutes)
     if (activeCourse == null) {
       stopForegroundService()
       CourseNotificationScheduler.sync(this)
@@ -145,7 +145,7 @@ class CourseNotificationService : Service() {
     if (stopRequestedByApp || !isEnabled(this)) return
     val courses = TimetableScheduleHelper.loadCoursesFromCacheJson(this)
     val leadMinutes = getLeadMinutes(this)
-    val activeCourse = TimetableScheduleHelper.findNotificationWindowCourse(courses, leadMinutes)
+    val activeCourse = TimetableScheduleHelper.findNotificationWindowCourse(this, courses, leadMinutes)
     if (activeCourse != null) {
       CourseNotificationScheduler.scheduleRecovery(this)
     }

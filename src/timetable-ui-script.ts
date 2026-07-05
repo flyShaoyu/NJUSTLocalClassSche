@@ -3,7 +3,7 @@ interface TimetableScriptParams {
   weekdaysJson: string;
   periodSlotsJson: string;
   paletteJson: string;
-  anchorWeek: number;
+  semesterJson: string;
   anchorMondayJson: string;
   initialWeek: number;
 }
@@ -11,11 +11,17 @@ interface TimetableScriptParams {
 export const buildTimetablePageScript = (params: TimetableScriptParams): string => `
   <script>
     const courses = ${params.coursesJson};
+    const timetableConfig = {
+      semester: ${params.semesterJson},
+      anchorMonday: ${params.anchorMondayJson}
+    };
     const weekdays = ${params.weekdaysJson};
     const periodSlots = ${params.periodSlotsJson};
     const palette = ${params.paletteJson};
-    const anchorWeek = ${params.anchorWeek};
-    const anchorMonday = new Date(${params.anchorMondayJson} + 'T00:00:00');
+    const semesterCode = String(timetableConfig.semester || '');
+    const hasKnownCalendar = Boolean(timetableConfig.anchorMonday);
+    const anchorWeek = 1;
+    const anchorMonday = hasKnownCalendar ? new Date(timetableConfig.anchorMonday + 'T00:00:00') : null;
 
     const normalizeCourses = courses.map((course, index) => {
       const periodMatch = course.periods.match(/(\\d+)-(\\d+)/);
@@ -415,6 +421,57 @@ export const buildTimetablePageScript = (params: TimetableScriptParams): string 
       return left.uid.localeCompare(right.uid);
     };
 
+    const joinDistinctTexts = (values) => [...new Set(
+      values
+        .map((value) => String(value || '').trim())
+        .filter((value) => value.length > 0)
+    )].join('、');
+
+    const mergeCoursesForFullView = (visibleCourses) => {
+      if (state.viewMode !== 'full') return visibleCourses;
+
+      const buckets = new Map();
+      visibleCourses.forEach((course) => {
+        const key = [
+          course.weekday,
+          course.startPeriod,
+          course.endPeriod,
+          course.courseName,
+          String(course.courseSequence || ''),
+          String(course.courseCode || '')
+        ].join('||');
+        if (!buckets.has(key)) {
+          buckets.set(key, []);
+        }
+        buckets.get(key).push(course);
+      });
+
+      return [...buckets.values()].map((bucket, index) => {
+        if (bucket.length <= 1) {
+          return bucket[0];
+        }
+
+        const base = bucket[0];
+        const mergedWeeks = [...new Set(bucket.flatMap((course) => course.weeks || []))].sort((a, b) => a - b);
+        const mergedTeachers = joinDistinctTexts(bucket.map((course) => course.teacher));
+        const mergedWeeksText = joinDistinctTexts(bucket.map((course) => course.weeksText));
+        const mergedRooms = joinDistinctTexts(bucket.map((course) => course.classroom));
+        const mergedKinds = joinDistinctTexts(bucket.map((course) => course.courseKind));
+
+        return {
+          ...base,
+          uid: 'merged-full-' + index + '-' + base.uid,
+          weeks: mergedWeeks,
+          weeksText: mergedWeeksText || base.weeksText,
+          teacher: mergedTeachers || base.teacher,
+          classroom: mergedRooms || base.classroom,
+          courseKind: mergedKinds || base.courseKind,
+          rawText: bucket.map((course) => course.rawText).filter((value) => String(value || '').trim().length > 0).join('；'),
+          mergeMembers: bucket
+        };
+      }).sort(compareVisibleOrder);
+    };
+
     const buildConflictState = (visibleCourses) => {
       const sortedCourses = [...visibleCourses].sort(compareVisibleOrder);
       const groupsById = new Map();
@@ -695,7 +752,8 @@ export const buildTimetablePageScript = (params: TimetableScriptParams): string 
     };
 
     const renderCards = (visibleCourses) => {
-      const { sortedCourses, groupsById, courseMetaByUid } = buildConflictState(visibleCourses);
+      const mergedCourses = mergeCoursesForFullView(visibleCourses);
+      const { sortedCourses, groupsById, courseMetaByUid } = buildConflictState(mergedCourses);
       currentCardsByUid = new Map();
       currentGroupsById = groupsById;
       currentGroupLayouts = new Map();
