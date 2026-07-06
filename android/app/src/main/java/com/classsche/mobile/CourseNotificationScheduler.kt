@@ -44,7 +44,7 @@ object CourseNotificationScheduler {
       context.stopService(Intent(context, CourseNotificationService::class.java))
       return
     }
-    val startAt = nextCourse.startAt.minusMinutes(leadMinutes.toLong())
+    val startAt = TimetableScheduleHelper.notificationStartAt(nextCourse, leadMinutes)
     if (startAt.isAfter(now)) {
       context.stopService(Intent(context, CourseNotificationService::class.java))
       scheduleReminderStart(context, startAt)

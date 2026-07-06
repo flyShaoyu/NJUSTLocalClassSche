@@ -111,17 +111,18 @@ object TimetableScheduleHelper {
     daysAhead: Int = 14
   ): CourseOccurrence? {
     if (courses.isEmpty()) return null
+    val normalized = normalizeCourses(courses)
     val anchorMonday = TimetableSemesterStore.resolveCalendar(
       TimetableSemesterStore.resolveRenderedSemester(context)
     ).week1Monday ?: return null
-    val normalized = normalizeCourses(courses)
+    val validWeekRange = resolveCourseWeekRange(normalized)
     for (offset in 0..daysAhead) {
       val date = now.toLocalDate().plusDays(offset.toLong())
       val weekday = weekDays[(date.dayOfWeek.value - 1) % weekDays.size]
       val week = anchorWeek + (ChronoUnit.DAYS.between(anchorMonday, date) / 7).toInt()
       val candidate = normalized
         .asSequence()
-        .filter { it.course.weekday == weekday && (it.weeks.isEmpty() || it.weeks.contains(week)) }
+        .filter { it.course.weekday == weekday && matchesCourseWeek(it, week, validWeekRange) }
         .sortedWith(compareBy<NormalizedCourse> { it.startPeriod }.thenBy { it.endPeriod })
         .mapNotNull { normalizedCourse ->
           val start = parseTime(periodSlots[normalizedCourse.startPeriod]?.first ?: return@mapNotNull null)
@@ -150,17 +151,18 @@ object TimetableScheduleHelper {
     daysAhead: Int = 14
   ): CourseOccurrence? {
     if (courses.isEmpty()) return null
+    val normalized = normalizeCourses(courses)
     val anchorMonday = TimetableSemesterStore.resolveCalendar(
       TimetableSemesterStore.resolveRenderedSemester(context)
     ).week1Monday ?: return null
-    val normalized = normalizeCourses(courses)
+    val validWeekRange = resolveCourseWeekRange(normalized)
     for (offset in 0..daysAhead) {
       val date = now.toLocalDate().plusDays(offset.toLong())
       val weekday = weekDays[(date.dayOfWeek.value - 1) % weekDays.size]
       val week = anchorWeek + (ChronoUnit.DAYS.between(anchorMonday, date) / 7).toInt()
       val candidate = normalized
         .asSequence()
-        .filter { it.course.weekday == weekday && (it.weeks.isEmpty() || it.weeks.contains(week)) }
+        .filter { it.course.weekday == weekday && matchesCourseWeek(it, week, validWeekRange) }
         .sortedWith(compareBy<NormalizedCourse> { it.startPeriod }.thenBy { it.endPeriod })
         .mapNotNull { normalizedCourse ->
           val start = parseTime(periodSlots[normalizedCourse.startPeriod]?.first ?: return@mapNotNull null)
@@ -176,12 +178,16 @@ object TimetableScheduleHelper {
           )
         }
         .firstOrNull { occurrence ->
-          val reminderAt = occurrence.startAt.minusMinutes(leadMinutes.toLong())
+          val reminderAt = notificationStartAt(occurrence, leadMinutes)
           !now.isBefore(reminderAt) && !now.isAfter(occurrence.endAt)
         }
       if (candidate != null) return candidate
     }
     return null
+  }
+
+  fun notificationStartAt(occurrence: CourseOccurrence, leadMinutes: Int): LocalDateTime {
+    return occurrence.startAt.minusMinutes(leadMinutes.toLong())
   }
 
   fun formatCourseTimeRange(occurrence: CourseOccurrence): String =
@@ -201,6 +207,25 @@ object TimetableScheduleHelper {
           ?: 1,
         weeks = parseWeeks(course.weeks)
       )
+    }
+  }
+
+  private fun resolveCourseWeekRange(courses: List<NormalizedCourse>): IntRange? {
+    val allWeeks = courses.flatMap { it.weeks }.distinct().sorted()
+    val minWeek = allWeeks.firstOrNull() ?: return null
+    val maxWeek = allWeeks.lastOrNull() ?: return null
+    return minWeek..maxWeek
+  }
+
+  private fun matchesCourseWeek(
+    course: NormalizedCourse,
+    week: Int,
+    validWeekRange: IntRange?
+  ): Boolean {
+    return when {
+      course.weeks.isNotEmpty() -> course.weeks.contains(week)
+      validWeekRange != null -> week in validWeekRange
+      else -> true
     }
   }
 
