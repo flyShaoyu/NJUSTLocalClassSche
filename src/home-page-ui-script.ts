@@ -93,7 +93,7 @@ export const buildHomePageScript = (params: HomeScriptParams): string => `
 
     const allScheduledCourses = (courseList) =>
       courseList
-        .flatMap((course) => (course.weeks.length > 0 ? course.weeks : [anchorWeek]).map((week) => ({ ...course, week })))
+        .flatMap((course) => course.weeks.map((week) => ({ ...course, week })))
         .sort((left, right) => {
           const weekDiff = left.week - right.week;
           if (weekDiff !== 0) return weekDiff;
@@ -103,7 +103,7 @@ export const buildHomePageScript = (params: HomeScriptParams): string => `
 
     const visibleCourses = (courseList, week) =>
       courseList
-        .filter((course) => course.weeks.length === 0 || course.weeks.includes(week))
+        .filter((course) => course.weeks.includes(week))
         .sort((left, right) => {
           const dayDiff = weekdays.indexOf(left.weekday) - weekdays.indexOf(right.weekday);
           return dayDiff !== 0 ? dayDiff : left.startPeriod - right.startPeriod;

@@ -8,6 +8,7 @@ import java.time.LocalDateTime
 object TimetableRenderer {
   private val coursesPattern = Regex("""const courses = \[.*?];""", setOf(RegexOption.DOT_MATCHES_ALL))
   private val timetableConfigPattern = Regex("""\Qconst timetableConfig = {\E[\s\S]*?\Q};\E""")
+  private val anchorWeekPattern = Regex("""const anchorWeek = \d+;""")
   private val formatDateLabelPattern = Regex("""\Qconst formatDateLabel = (date) => \E[\s\S]*?\Q;\E""")
   private val getWeekDatesPattern = Regex("""\Qconst getWeekDates = (week) => {\E[\s\S]*?\n    \Q};\E""")
   private val getCurrentWeekByAnchorPattern = Regex("""\Qconst getCurrentWeekByAnchor = () => {\E[\s\S]*?\n    \Q};\E""")
@@ -106,6 +107,7 @@ object TimetableRenderer {
 
     return html
       .let { timetableConfigPattern.replace(it, configLiteral) }
+      .let { anchorWeekPattern.replace(it, "const anchorWeek = 1;") }
       .let {
         formatDateLabelPattern.replace(
           it,

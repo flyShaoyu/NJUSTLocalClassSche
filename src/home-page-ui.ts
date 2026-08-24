@@ -9,8 +9,8 @@ interface HomeImageAsset {
 }
 
 const WEEKDAYS = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"];
-const ANCHOR_WEEK = 6;
-const ANCHOR_MONDAY = "2026-04-06";
+const ANCHOR_WEEK = 1;
+const ANCHOR_MONDAY = "2026-08-24";
 
 const PERIOD_SLOTS: Record<number, { start: string; end: string }> = {
   1: { start: "08:00", end: "08:45" },

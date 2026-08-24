@@ -69,6 +69,9 @@ object TimetableParser {
   private fun fallbackKey(courseName: String, teacher: String, weekday: String): String =
     listOf(courseName, teacher, weekday).joinToString("||") { cleanInlineText(it) }
 
+  private fun looksLikeWeekLine(value: String): Boolean =
+    value.contains(Regex("\\d")) && value.contains("周")
+
   private fun parseGridMeetings(document: Document): List<GridMeeting> {
     val table = document.selectFirst("#kbtable") ?: return emptyList()
     val rows = table.select("tr")
@@ -107,7 +110,7 @@ object TimetableParser {
     if (segment.isEmpty()) return null
 
     val courseName = segment.firstOrNull().orEmpty()
-    val weekIndex = segment.indexOfFirst { it.contains("周") }
+    val weekIndex = segment.indexOfFirst(::looksLikeWeekLine)
     val weeks = if (weekIndex >= 0) segment.getOrNull(weekIndex).orEmpty() else ""
     val classroom = if (weekIndex >= 0 && weekIndex < segment.lastIndex) segment.lastOrNull().orEmpty() else ""
 

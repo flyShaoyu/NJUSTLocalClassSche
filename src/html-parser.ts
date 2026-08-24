@@ -70,13 +70,15 @@ const fallbackKey = (courseName: string, teacher: string, weekday: string): stri
 
 const parseWeekdayHeader = (value: string): string => cleanInlineText(value);
 
+const looksLikeWeekLine = (value: string): boolean => /\d/.test(value) && /周/.test(value);
+
 const parseGridMeetingSegment = (segment: string[], weekday: string, rowLabel: string): GridMeeting | null => {
   if (segment.length === 0) {
     return null;
   }
 
   const courseName = segment[0] ?? "";
-  const weekIndex = segment.findIndex((line) => /周/.test(line));
+  const weekIndex = segment.findIndex(looksLikeWeekLine);
   const weeks = weekIndex >= 0 ? (segment[weekIndex] ?? "") : "";
   const classroom =
     weekIndex >= 0 && weekIndex < segment.length - 1 ? (segment[segment.length - 1] ?? "") : "";

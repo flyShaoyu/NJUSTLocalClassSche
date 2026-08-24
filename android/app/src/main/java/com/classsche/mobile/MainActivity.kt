@@ -305,6 +305,8 @@ class MainActivity : AppCompatActivity() {
     private const val PREF_USERNAME = "username"
     private const val PREF_PASSWORD = "password"
     private const val PREF_ASSET_EXPORT_ID = "asset_export_id"
+    private const val PREF_TIMETABLE_CACHE_PARSER_VERSION = "timetable_cache_parser_version"
+    private const val CURRENT_TIMETABLE_CACHE_PARSER_VERSION = 2
     private const val PREF_UPDATE_AVAILABLE_VERSION = "update_available_version"
     private const val PREF_UPDATE_AVAILABLE_SOURCE = "update_available_source"
     private const val PREF_UPDATE_PROMPTED_VERSION = "update_prompted_version"
@@ -2536,6 +2538,7 @@ class MainActivity : AppCompatActivity() {
 
   private fun refreshGeneratedCacheAfterStartup() {
     TimetableSemesterStore.refreshCatalogFromRawHtmlIfNeeded(this)
+    migrateTimetableCacheParserIfNeeded()
     syncAssetExportId()
     CourseNotificationScheduler.sync(this)
     ExamOngoingNotificationScheduler.sync(this)
@@ -3634,7 +3637,8 @@ class MainActivity : AppCompatActivity() {
   private fun buildRecentCourses(courses: List<TimetableCourse>): List<HomeRecentEntry> {
     if (courses.isEmpty()) return emptyList()
     val renderedSemester = TimetableSemesterStore.resolveRenderedSemester(this)
-    val anchorMonday = TimetableSemesterStore.resolveCalendar(renderedSemester).week1Monday ?: return emptyList()
+    val calendar = TimetableSemesterStore.resolveCalendar(renderedSemester)
+    if (calendar.week1Monday == null) return emptyList()
     val normalized = courses.map { course ->
       val match = Regex("""(\d+)(?:-(\d+))?""").find(course.periods)
       NormalizedCourse(
@@ -3655,10 +3659,10 @@ class MainActivity : AppCompatActivity() {
     for (offset in 0..1) {
       val date = today.plusDays(offset.toLong())
       val weekday = HOME_WEEKDAYS[(date.dayOfWeek.value - 1) % HOME_WEEKDAYS.size]
-      val week = 1 + (ChronoUnit.DAYS.between(anchorMonday, date) / 7).toInt()
+      val week = TimetableSemesterStore.weekForDate(calendar, date) ?: continue
 
       normalized
-        .filter { it.course.weekday == weekday && (it.weeks.isEmpty() || it.weeks.contains(week)) }
+        .filter { it.course.weekday == weekday && it.weeks.contains(week) }
         .sortedWith(compareBy<NormalizedCourse> { it.startPeriod }.thenBy { it.endPeriod })
         .filter { course ->
           if (offset != 0) return@filter true
@@ -4056,6 +4060,9 @@ class MainActivity : AppCompatActivity() {
       File(filesDir, GENERATED_CACHE_HTML_FILE).writeText(renderedHtml, Charsets.UTF_8)
       File(filesDir, CACHE_JSON_FILE).writeText(json, Charsets.UTF_8)
       File(filesDir, CACHE_RAW_HTML_FILE).writeText(html, Charsets.UTF_8)
+      prefs.edit()
+        .putInt(PREF_TIMETABLE_CACHE_PARSER_VERSION, CURRENT_TIMETABLE_CACHE_PARSER_VERSION)
+        .apply()
       appendDebugLog("TIMETABLE_CAPTURE", "INFO", "课表缓存文件写入完成")
       val examSyncResult = runCatching { syncExamCacheFromSession(courses) }
         .onFailure { appendDebugLog("EXAM", "FAIL", it.message ?: "unknown") }
@@ -4944,6 +4951,43 @@ class MainActivity : AppCompatActivity() {
     prefs.edit()
       .putString(PREF_ASSET_EXPORT_ID, currentExportId)
       .apply()
+  }
+
+  private fun migrateTimetableCacheParserIfNeeded() {
+    val storedVersion = prefs.getInt(PREF_TIMETABLE_CACHE_PARSER_VERSION, 0)
+    if (storedVersion >= CURRENT_TIMETABLE_CACHE_PARSER_VERSION) {
+      return
+    }
+
+    val rawFile = File(filesDir, CACHE_RAW_HTML_FILE)
+    if (!rawFile.exists() || rawFile.length() <= 0L) {
+      return
+    }
+
+    runCatching {
+      val html = rawFile.readText(Charsets.UTF_8)
+      TimetableSemesterStore.updateFromTimetableHtml(this, html)
+      val courses = TimetableParser.parse(html)
+      if (courses.isEmpty()) {
+        throw IllegalStateException("原始课表 HTML 重解析结果为空")
+      }
+
+      File(filesDir, CACHE_JSON_FILE).writeText(TimetableRenderer.toJson(courses), Charsets.UTF_8)
+      File(filesDir, GENERATED_HOME_HTML_FILE).writeText(
+        TimetableRenderer.toHomeHtml(this, courses),
+        Charsets.UTF_8
+      )
+      File(filesDir, GENERATED_CACHE_HTML_FILE).writeText(
+        TimetableRenderer.toHtml(this, courses),
+        Charsets.UTF_8
+      )
+      prefs.edit()
+        .putInt(PREF_TIMETABLE_CACHE_PARSER_VERSION, CURRENT_TIMETABLE_CACHE_PARSER_VERSION)
+        .apply()
+      appendDebugLog("TIMETABLE_CACHE", "SUCCESS", "已使用新版解析器重建本地课表缓存，courses=${courses.size}")
+    }.onFailure { error ->
+      appendDebugLog("TIMETABLE_CACHE", "WARN", "新版解析器重建本地课表缓存失败：${error.message ?: "unknown"}")
+    }
   }
 
   private fun readAssetExportId(): String? {

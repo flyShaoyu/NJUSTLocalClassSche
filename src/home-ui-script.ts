@@ -56,7 +56,7 @@ const courses = ${params.coursesJson};
 
     const visibleCourses = (week) =>
       normalizeCourses
-        .filter((course) => course.weeks.length === 0 || course.weeks.includes(week))
+        .filter((course) => course.weeks.includes(week))
         .sort((left, right) => {
           const dayDiff = weekdays.indexOf(left.weekday) - weekdays.indexOf(right.weekday);
           return dayDiff !== 0 ? dayDiff : left.startPeriod - right.startPeriod;

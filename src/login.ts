@@ -31,6 +31,20 @@ const buildSelectorList = (
   fallbackSelectors: string[]
 ): string[] => (preferred ? [preferred, ...fallbackSelectors] : fallbackSelectors);
 
+const redactUrlForLog = (value: string): string => {
+  try {
+    const url = new URL(value);
+    for (const key of [...url.searchParams.keys()]) {
+      if (/user|name|xh|account|password|pwd/i.test(key)) {
+        url.searchParams.set(key, "[redacted]");
+      }
+    }
+    return url.toString();
+  } catch {
+    return value.replace(/([?&](?:USERNAME|PASSWORD|username|password|pwd|xh)=)[^&]*/gi, "$1[redacted]");
+  }
+};
+
 const firstVisibleSelector = async (
   page: Page,
   selectors: string[]
@@ -106,16 +120,17 @@ export const waitForManualLogin = async (page: Page, config: AppConfig): Promise
     iteration++;
     await page.waitForLoadState("domcontentloaded").catch(() => undefined);
     const currentUrl = page.url();
+    const safeCurrentUrl = redactUrlForLog(currentUrl);
 
     const successSelector = await hasSuccessIndicator(page, successSelectors);
     if (successSelector) {
-      logStep(`Manual login success indicator matched: ${successSelector}. URL: ${currentUrl}`);
+      logStep(`Manual login success indicator matched: ${successSelector}. URL: ${safeCurrentUrl}`);
       return;
     }
 
     const isLoginPage = await looksLikeLoginPage(page);
     logStep(
-      `Login check #${iteration}: URL=${currentUrl}, success_found=${Boolean(
+      `Login check #${iteration}: URL=${safeCurrentUrl}, success_found=${Boolean(
         successSelector
       )}, is_login_page=${isLoginPage}`
     );

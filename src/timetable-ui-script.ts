@@ -3,7 +3,8 @@ interface TimetableScriptParams {
   weekdaysJson: string;
   periodSlotsJson: string;
   paletteJson: string;
-  semesterJson: string;
+  semesterJson?: string;
+  anchorWeek: number;
   anchorMondayJson: string;
   initialWeek: number;
 }
@@ -12,7 +13,7 @@ export const buildTimetablePageScript = (params: TimetableScriptParams): string 
   <script>
     const courses = ${params.coursesJson};
     const timetableConfig = {
-      semester: ${params.semesterJson},
+      semester: ${params.semesterJson ?? "null"},
       anchorMonday: ${params.anchorMondayJson}
     };
     const weekdays = ${params.weekdaysJson};
@@ -20,7 +21,7 @@ export const buildTimetablePageScript = (params: TimetableScriptParams): string 
     const palette = ${params.paletteJson};
     const semesterCode = String(timetableConfig.semester || '');
     const hasKnownCalendar = Boolean(timetableConfig.anchorMonday);
-    const anchorWeek = 1;
+    const anchorWeek = ${params.anchorWeek};
     const anchorMonday = hasKnownCalendar ? new Date(timetableConfig.anchorMonday + 'T00:00:00') : null;
 
     const normalizeCourses = courses.map((course, index) => {
@@ -656,7 +657,7 @@ export const buildTimetablePageScript = (params: TimetableScriptParams): string 
       sheetTitle.textContent = course.courseName;
       sheetTeacher.textContent = course.teacher || '未标注教师';
       sheetRoom.textContent = course.classroom || '待定地点';
-      sheetWeeks.textContent = course.weeksText || '全学期';
+      sheetWeeks.textContent = course.weeksText || '周次未识别';
       sheetCode.textContent = course.courseCode || '-';
       sheetWatermark.textContent = String(course.startPeriod) + String(course.endPeriod);
       sheetTag.textContent = course.courseKind;
@@ -796,7 +797,7 @@ export const buildTimetablePageScript = (params: TimetableScriptParams): string 
 
     const render = () => {
       const visibleCourses = normalizeCourses.filter((course) =>
-        state.viewMode === 'full' || course.weeks.length === 0 || course.weeks.includes(state.week)
+        state.viewMode === 'full' || course.weeks.includes(state.week)
       );
 
       closeSheet();
