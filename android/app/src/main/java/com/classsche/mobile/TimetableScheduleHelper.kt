@@ -68,6 +68,7 @@ object TimetableScheduleHelper {
               courseCode = item.optString("courseCode"),
               courseSequence = item.optString("courseSequence"),
               courseType = item.optString("courseType"),
+              credits = item.optString("credits"),
               rawText = item.optString("rawText")
             )
           )

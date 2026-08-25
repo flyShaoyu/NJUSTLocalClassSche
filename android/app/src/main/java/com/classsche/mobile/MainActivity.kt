@@ -306,7 +306,7 @@ class MainActivity : AppCompatActivity() {
     private const val PREF_PASSWORD = "password"
     private const val PREF_ASSET_EXPORT_ID = "asset_export_id"
     private const val PREF_TIMETABLE_CACHE_PARSER_VERSION = "timetable_cache_parser_version"
-    private const val CURRENT_TIMETABLE_CACHE_PARSER_VERSION = 2
+    private const val CURRENT_TIMETABLE_CACHE_PARSER_VERSION = 3
     private const val PREF_UPDATE_AVAILABLE_VERSION = "update_available_version"
     private const val PREF_UPDATE_AVAILABLE_SOURCE = "update_available_source"
     private const val PREF_UPDATE_PROMPTED_VERSION = "update_prompted_version"

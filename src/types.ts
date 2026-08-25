@@ -23,6 +23,7 @@ export interface TimetableCourse {
   courseCode?: string;
   courseSequence?: string;
   courseType?: string;
+  credits?: string;
   rawText: string;
 }
 

@@ -55,6 +55,7 @@ object TimetableRenderer {
           put("courseCode", course.courseCode)
           put("courseSequence", course.courseSequence)
           put("courseType", course.courseType)
+          put("credits", course.credits)
           put("rawText", course.rawText)
         }
       )
@@ -230,6 +231,7 @@ object TimetableRenderer {
               courseCode = item.optString("courseCode"),
               courseSequence = item.optString("courseSequence"),
               courseType = item.optString("courseType"),
+              credits = item.optString("credits"),
               rawText = item.optString("rawText")
             )
           )

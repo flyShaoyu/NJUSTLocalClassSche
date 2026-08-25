@@ -24,14 +24,9 @@ export const buildTimetablePageScript = (params: TimetableScriptParams): string 
     const anchorWeek = ${params.anchorWeek};
     const anchorMonday = hasKnownCalendar ? new Date(timetableConfig.anchorMonday + 'T00:00:00') : null;
 
-    const normalizeCourses = courses.map((course, index) => {
-      const periodMatch = course.periods.match(/(\\d+)-(\\d+)/);
-      const startPeriod = periodMatch ? Number(periodMatch[1]) : 1;
-      const endPeriod = periodMatch ? Number(periodMatch[2]) : startPeriod;
+    const parseCourseWeeks = (weeksText) => {
       const weeks = [];
-      const sequenceNumber = Number(course.courseSequence);
-
-      for (const token of course.weeks.match(/\\d+(?:-\\d+)?/g) || []) {
+      for (const token of String(weeksText || '').match(/\\d+(?:-\\d+)?/g) || []) {
         if (token.includes('-')) {
           const [startText, endText] = token.split('-');
           const start = Number(startText);
@@ -41,6 +36,21 @@ export const buildTimetablePageScript = (params: TimetableScriptParams): string 
           weeks.push(Number(token));
         }
       }
+      return [...new Set(weeks.filter((week) => Number.isFinite(week)))].sort((a, b) => a - b);
+    };
+
+    const parsedWeeksByCourse = courses.map((course) => parseCourseWeeks(course.weeks));
+    const knownWeeks = [...new Set(parsedWeeksByCourse.flat())].sort((a, b) => a - b);
+    const fallbackLastWeek = knownWeeks[knownWeeks.length - 1] || 20;
+    const fallbackAllWeeks = Array.from({ length: fallbackLastWeek }, (_, index) => index + 1);
+
+    const normalizeCourses = courses.map((course, index) => {
+      const periodMatch = course.periods.match(/(\\d+)-(\\d+)/);
+      const startPeriod = periodMatch ? Number(periodMatch[1]) : 1;
+      const endPeriod = periodMatch ? Number(periodMatch[2]) : startPeriod;
+      const parsedWeeks = parsedWeeksByCourse[index] || [];
+      const weeks = parsedWeeks.length > 0 ? parsedWeeks : fallbackAllWeeks;
+      const sequenceNumber = Number(course.courseSequence);
 
       return {
         ...course,
@@ -50,6 +60,7 @@ export const buildTimetablePageScript = (params: TimetableScriptParams): string 
         duration: endPeriod - startPeriod + 1,
         weeks,
         weeksText: course.weeks,
+        credits: course.credits || '',
         paletteKey: course.courseName,
         courseKind: course.courseType || '未分类',
         sequenceNumber: Number.isFinite(sequenceNumber) ? sequenceNumber : Number.MAX_SAFE_INTEGER,
@@ -651,6 +662,13 @@ export const buildTimetablePageScript = (params: TimetableScriptParams): string 
       });
     };
 
+    const formatCourseCredits = (value) => {
+      const normalized = String(value || '').trim();
+      if (!normalized) return '-';
+      const numeric = Number(normalized);
+      return Number.isFinite(numeric) ? numeric.toFixed(1) : normalized;
+    };
+
     const updateSheetContent = (course, group) => {
       sheetWeekDay.textContent = state.week + '周' + course.weekday.replace('星期', '周');
       sheetPeriodLine.textContent = course.periods.replace('小节', '节 ') + getCourseTimeRange(course);
@@ -659,7 +677,7 @@ export const buildTimetablePageScript = (params: TimetableScriptParams): string 
       sheetRoom.textContent = course.classroom || '待定地点';
       sheetWeeks.textContent = course.weeksText || '周次未识别';
       sheetCode.textContent = course.courseCode || '-';
-      sheetWatermark.textContent = String(course.startPeriod) + String(course.endPeriod);
+      sheetWatermark.textContent = formatCourseCredits(course.credits);
       sheetTag.textContent = course.courseKind;
       updateSheetDots(group);
     };

@@ -62,11 +62,20 @@ const splitSegments = (lines: string[]): string[][] => {
   return segments;
 };
 
+const normalizeTeacherKey = (value: string): string => {
+  const teachers = cleanInlineText(value)
+    .split(/\s*[,，、;；]\s*/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  return teachers.length > 1 ? teachers.sort().join(",") : cleanInlineText(value);
+};
+
 const buildKey = (courseName: string, teacher: string, classroom: string, weekday: string): string =>
-  [courseName, teacher, classroom, weekday].map((part) => cleanInlineText(part)).join("||");
+  [cleanInlineText(courseName), normalizeTeacherKey(teacher), cleanInlineText(classroom), cleanInlineText(weekday)].join("||");
 
 const fallbackKey = (courseName: string, teacher: string, weekday: string): string =>
-  [courseName, teacher, weekday].map((part) => cleanInlineText(part)).join("||");
+  [cleanInlineText(courseName), normalizeTeacherKey(teacher), cleanInlineText(weekday)].join("||");
 
 const parseWeekdayHeader = (value: string): string => cleanInlineText(value);
 
@@ -260,6 +269,7 @@ const parseDataListMeetings = ($: cheerio.CheerioAPI, gridMeetings: GridMeeting[
       const courseName = cleanInlineText($(cells[3]).text());
       const teacher = cleanInlineText($(cells[4]).text());
       const timeEntries = splitTimeEntries($(cells[5]).html() ?? "");
+      const credits = cleanInlineText($(cells[6]).text());
       const classrooms = splitClassrooms($(cells[7]).text(), timeEntries.length);
       const courseType = cleanInlineText($(cells[8]).text());
 
@@ -285,6 +295,7 @@ const parseDataListMeetings = ($: cheerio.CheerioAPI, gridMeetings: GridMeeting[
           courseCode,
           courseSequence,
           courseType,
+          credits,
           rawText: matched.rawText || `${courseName}\n${teacher}\n${entry.weekday}(${entry.periods})\n${classroom}`,
           matchKey: buildKey(courseName, teacher, classroom, entry.weekday)
         });

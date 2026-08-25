@@ -10,5 +10,6 @@ data class TimetableCourse(
   val courseCode: String = "",
   val courseSequence: String = "",
   val courseType: String = "",
+  val credits: String = "",
   val rawText: String = ""
 )

@@ -63,11 +63,19 @@ object TimetableParser {
     return segments
   }
 
+  private fun normalizeTeacherKey(value: String): String {
+    val teachers = cleanInlineText(value)
+      .split(Regex("\\s*[,，、;；]\\s*"))
+      .map { it.trim() }
+      .filter { it.isNotBlank() }
+    return if (teachers.size > 1) teachers.sorted().joinToString(",") else cleanInlineText(value)
+  }
+
   private fun buildKey(courseName: String, teacher: String, classroom: String, weekday: String): String =
-    listOf(courseName, teacher, classroom, weekday).joinToString("||") { cleanInlineText(it) }
+    listOf(cleanInlineText(courseName), normalizeTeacherKey(teacher), cleanInlineText(classroom), cleanInlineText(weekday)).joinToString("||")
 
   private fun fallbackKey(courseName: String, teacher: String, weekday: String): String =
-    listOf(courseName, teacher, weekday).joinToString("||") { cleanInlineText(it) }
+    listOf(cleanInlineText(courseName), normalizeTeacherKey(teacher), cleanInlineText(weekday)).joinToString("||")
 
   private fun looksLikeWeekLine(value: String): Boolean =
     value.contains(Regex("\\d")) && value.contains("周")
@@ -219,6 +227,7 @@ object TimetableParser {
       val courseName = cleanInlineText(cells[3].text())
       val teacher = cleanInlineText(cells[4].text())
       val timeEntries = splitTimeEntries(cells[5].html())
+      val credits = cleanInlineText(cells[6].text())
       val classrooms = splitClassrooms(cells[7].text(), timeEntries.size)
       val courseType = cleanInlineText(cells[8].text())
 
@@ -244,6 +253,7 @@ object TimetableParser {
           courseCode = courseCode,
           courseSequence = courseSequence,
           courseType = courseType,
+          credits = credits,
           rawText = matched?.rawText ?: listOf(courseName, teacher, "${entry.first}(${entry.second})", classroom)
             .filter { it.isNotBlank() }
             .joinToString("\n")
