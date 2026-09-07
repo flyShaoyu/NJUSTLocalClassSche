@@ -332,7 +332,7 @@ const buildScorePageScript = (scoresJson: string): string => `
 
           return (
             '<button type="button" class="' + classes + '" data-score-id="' + escapeHtml(record.uiId) + '">' +
-              '<span class="check ' + (selected ? "on" : "off") + '">' + (selected ? "✓" : "") + "</span>" +
+              '<span class="check ' + (selected ? "on" : "off") + '"></span>' +
               '<span class="course">' +
                 '<strong>' + escapeHtml(record.courseName) + "</strong>" +
               "</span>" +
@@ -358,7 +358,7 @@ const buildScorePageScript = (scoresJson: string): string => `
             '<div class="score-table">' +
               '<div class="table-head">' +
                 '<button type="button" class="semester-check ' + (allSelected ? "on" : "off") + '" data-semester-code="' + escapeHtml(semester) + '" aria-label="全选或全不选当前学期">' +
-                  '<span>' + (allSelected ? "√" : "") + '</span>' +
+                  '<span></span>' +
                 '</button>' +
                 '<span>课程</span><span>成绩</span><span>学分</span><span>类型</span><span>绩点</span>' +
               "</div>" +
@@ -582,14 +582,6 @@ export const renderScorePage = (scores: ScoreRecord[]): string => `<!DOCTYPE htm
       box-shadow: 0 2px 5px rgba(130, 136, 149, 0.08);
     }
 
-    .semester-check span {
-      font-family: sans-serif;
-      font-size: 12px;
-      font-weight: 400;
-      line-height: 1;
-      transform: translateY(-0.5px);
-    }
-
     .semester-check.on {
       background: linear-gradient(180deg, #7eb9f2, #5e9de5);
       color: #fff;
@@ -736,9 +728,6 @@ export const renderScorePage = (scores: ScoreRecord[]): string => `<!DOCTYPE htm
       height: 15px;
       display: grid;
       place-items: center;
-      font-size: 12px;
-      font-family: sans-serif;
-      font-weight: 400;
       justify-self: start;
       margin-left: 6px;
       border: 1px solid rgba(124, 132, 146, 0.18);
@@ -754,6 +743,39 @@ export const renderScorePage = (scores: ScoreRecord[]): string => `<!DOCTYPE htm
       background: linear-gradient(180deg, #7eb9f2, #5e9de5);
       color: #fff;
       border-color: rgba(87, 145, 220, 0.2);
+    }
+
+    .check,
+    .semester-check span {
+      position: relative;
+    }
+
+    .semester-check span {
+      width: 15px;
+      height: 15px;
+      display: grid;
+      place-items: center;
+    }
+
+    .check.on::before,
+    .semester-check.on span::before {
+      content: "";
+      position: absolute;
+      background: currentColor;
+      clip-path: polygon(39% 100%, 5% 51%, 20% 34%, 40% 64%, 82% 1%, 100% 12%);
+      transform: translateY(-1px);
+    }
+
+    .check.on::before {
+      width: 10px;
+      height: 8px;
+      transform: translateY(0);
+    }
+
+    .semester-check.on span::before {
+      width: 12px;
+      height: 10px;
+      transform: translateY(0);
     }
 
     .course {
@@ -878,4 +900,3 @@ export const renderScorePage = (scores: ScoreRecord[]): string => `<!DOCTYPE htm
   ${buildScorePageScript(serializeForScript(scores))}
 </body>
 </html>`;
-

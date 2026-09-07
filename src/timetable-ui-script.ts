@@ -282,7 +282,7 @@ export const buildTimetablePageScript = (params: TimetableScriptParams): string 
       const left = targetRect ? (targetRect.left - scheduleRect.left) : 0;
       const width = targetRect ? targetRect.width : 0;
       line.style.left = left + 'px';
-      line.style.width = Math.max(0, width) + 'px';
+      line.style.width = Math.max(0, width + 4) + 'px';
       line.style.top = top + 'px';
       line.innerHTML = '<span class="now-dot"></span>';
       schedule.appendChild(line);

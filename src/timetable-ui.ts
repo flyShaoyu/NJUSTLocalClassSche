@@ -413,7 +413,7 @@ export const renderTimetablePage = (courses: TimetableCourse[]): string => {
 
     .now-line {
       position: absolute;
-      z-index: 6;
+      z-index: 500;
       height: 0;
       border-top: 3px solid #9fd3ff;
       box-shadow: 0 0 0 1px rgba(255,255,255,0.75), 0 0 16px rgba(122, 186, 255, 0.42);
@@ -423,7 +423,7 @@ export const renderTimetablePage = (courses: TimetableCourse[]): string => {
 
     .now-dot {
       position: absolute;
-      top: -5px;
+      top: -6px;
       left: -5px;
       width: 10px;
       height: 10px;
