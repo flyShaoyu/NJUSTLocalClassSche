@@ -271,7 +271,8 @@ class MainActivity : AppCompatActivity() {
     LOGIN,
     TIMETABLE,
     EXAM,
-    SCORE
+    SCORE,
+    LEVEL_EXAM
   }
 
   companion object {
@@ -283,12 +284,14 @@ class MainActivity : AppCompatActivity() {
     private const val CACHE_JSON_FILE = "timetable.json"
     private const val EXAM_JSON_FILE = "exam-list.json"
     private const val SCORE_JSON_FILE = "score-list.json"
+    private const val LEVEL_EXAM_JSON_FILE = "level-exam-list.json"
     private const val HEADLESS_SCORE_TEST_FILE = "headless-score-test.json"
     private const val SCORE_UPDATE_META_FILE = "score-update-meta.json"
     private const val CACHE_RAW_HTML_FILE = "timetable.raw.html"
     private const val EXAM_QUERY_URL = "http://202.119.81.112:9080/njlgdx/xsks/xsksap_query"
     private const val EXAM_LIST_URL = "http://202.119.81.112:9080/njlgdx/xsks/xsksap_list"
     private const val SCORE_LIST_URL = "http://202.119.81.112:9080/njlgdx/kscj/cjcx_list"
+    private const val LEVEL_EXAM_LIST_URL = "http://202.119.81.112:9080/njlgdx/kscj/djkscj_list"
     private const val GITEE_HOME_URL = "https://gitee.com/flyshaoyu/njust_localclasssche"
     private const val GITHUB_HOME_URL = "https://github.com/flyShaoyu/NJUSTLocalClassSche"
     private const val GITEE_RELEASES_URL = "https://gitee.com/flyshaoyu/njust_localclasssche/releases"
@@ -314,7 +317,7 @@ class MainActivity : AppCompatActivity() {
     private val HOME_MENU_ITEMS = listOf(
       HomeMenuEntry("exam", "考试安排", R.drawable.ic_home_exam, true),
       HomeMenuEntry("score", "成绩查询", R.drawable.ic_home_score, true),
-      HomeMenuEntry("level", "等级考试", R.drawable.ic_home_level, false),
+      HomeMenuEntry("level", "等级考试", R.drawable.ic_home_level, true),
       HomeMenuEntry("add", "添加课表", R.drawable.ic_home_add, false),
       HomeMenuEntry("schedule", "课表查询", R.drawable.ic_home_schedule, true),
       HomeMenuEntry("room", "空闲教室", R.drawable.ic_home_room, false),
@@ -484,6 +487,7 @@ class MainActivity : AppCompatActivity() {
             presentHomePage()
           }
           WebScreen.SCORE -> loadScorePageWithLatestData()
+          WebScreen.LEVEL_EXAM -> loadLevelExamPageWithLatestData()
           else -> Unit
         }
       }
@@ -523,7 +527,7 @@ class MainActivity : AppCompatActivity() {
     binding.toolbar.navigationIcon = null
     binding.toolbar.setNavigationOnClickListener {
       when (currentWebScreen) {
-        WebScreen.TIMETABLE, WebScreen.EXAM, WebScreen.SCORE -> showHomePage()
+        WebScreen.TIMETABLE, WebScreen.EXAM, WebScreen.SCORE, WebScreen.LEVEL_EXAM -> showHomePage()
         WebScreen.LOGIN -> showProfilePage()
         else -> Unit
       }
@@ -642,6 +646,9 @@ class MainActivity : AppCompatActivity() {
           }
           url.contains("score-view", ignoreCase = true) -> {
             applyWebScreen(WebScreen.SCORE)
+          }
+          url.contains("level-exam-view", ignoreCase = true) -> {
+            applyWebScreen(WebScreen.LEVEL_EXAM)
           }
           looksLikeTimetableUrl(url) && showingLiveTimetable -> {
             applyWebScreen(WebScreen.TIMETABLE)
@@ -2004,9 +2011,16 @@ class MainActivity : AppCompatActivity() {
         binding.homeWebView.visibility = View.GONE
         binding.timetablePage.visibility = View.VISIBLE
       }
+      WebScreen.LEVEL_EXAM -> {
+        binding.loginPage.visibility = View.GONE
+        binding.profilePage.visibility = View.GONE
+        binding.homePage.visibility = View.GONE
+        binding.homeWebView.visibility = View.GONE
+        binding.timetablePage.visibility = View.VISIBLE
+      }
     }
 
-    val hideBottomNav = screen == WebScreen.TIMETABLE || screen == WebScreen.EXAM || screen == WebScreen.SCORE || screen == WebScreen.LOGIN
+    val hideBottomNav = screen == WebScreen.TIMETABLE || screen == WebScreen.EXAM || screen == WebScreen.SCORE || screen == WebScreen.LEVEL_EXAM || screen == WebScreen.LOGIN
     binding.bottomNavGroup.visibility = if (hideBottomNav || homeViewerVisible) View.GONE else View.VISIBLE
     if (screen == WebScreen.HOME) {
       updateBottomNavSelection(binding.navHomeButton.id)
@@ -2020,8 +2034,9 @@ class MainActivity : AppCompatActivity() {
       WebScreen.TIMETABLE -> getString(R.string.toolbar_title_timetable)
       WebScreen.EXAM -> getString(R.string.toolbar_title_exam)
       WebScreen.SCORE -> "成绩查询"
+      WebScreen.LEVEL_EXAM -> "等级考试"
     }
-    binding.toolbar.navigationIcon = if (screen == WebScreen.TIMETABLE || screen == WebScreen.EXAM || screen == WebScreen.SCORE || screen == WebScreen.LOGIN) {
+    binding.toolbar.navigationIcon = if (screen == WebScreen.TIMETABLE || screen == WebScreen.EXAM || screen == WebScreen.SCORE || screen == WebScreen.LEVEL_EXAM || screen == WebScreen.LOGIN) {
       ContextCompat.getDrawable(this, androidx.appcompat.R.drawable.abc_ic_ab_back_material)?.mutate()?.apply {
         setTint(Color.WHITE)
       }
@@ -2386,6 +2401,12 @@ class MainActivity : AppCompatActivity() {
     loadScorePageWithLatestData()
   }
 
+  private fun showCachedLevelExamPage() {
+    showingLiveTimetable = false
+    applyWebScreen(WebScreen.LEVEL_EXAM)
+    loadLevelExamPageWithLatestData()
+  }
+
   private fun presentHomePage() {
     val targetSignature = currentHomeSignature()
     if (homePageLoaded && renderedHomeSignature == targetSignature) {
@@ -2561,6 +2582,11 @@ class MainActivity : AppCompatActivity() {
 
     if (currentWebScreen == WebScreen.SCORE) {
       showCachedScorePage()
+      return
+    }
+
+    if (currentWebScreen == WebScreen.LEVEL_EXAM) {
+      showCachedLevelExamPage()
     }
   }
 
@@ -2661,7 +2687,9 @@ class MainActivity : AppCompatActivity() {
   private fun loadScorePageWithLatestData() {
     val templateHtml = runCatching {
       assets.open("score-view.html").bufferedReader(Charsets.UTF_8).use { it.readText() }
-    }.getOrNull()
+    }.getOrNull()?.let {
+      injectLevelExamJsonIntoTemplate(it, readLatestLevelExamJson() ?: "[]")
+    }
 
     if (templateHtml.isNullOrBlank()) {
       binding.contentWebView.stopLoading()
@@ -2710,10 +2738,62 @@ class MainActivity : AppCompatActivity() {
     }.getOrNull()
   }
 
+  private fun loadLevelExamPageWithLatestData() {
+    val templateHtml = runCatching {
+      assets.open("level-exam-view.html").bufferedReader(Charsets.UTF_8).use { it.readText() }
+    }.getOrNull()
+
+    if (templateHtml.isNullOrBlank()) {
+      binding.contentWebView.stopLoading()
+      binding.contentWebView.clearHistory()
+      binding.contentWebView.clearCache(true)
+      binding.contentWebView.loadUrl("${HOME_ASSET_BASE_URL}level-exam-view.html?v=${System.currentTimeMillis()}")
+      return
+    }
+
+    val latestJson = readLatestLevelExamJson()
+    val html = if (latestJson.isNullOrBlank()) {
+      templateHtml
+    } else {
+      injectLevelExamJsonIntoTemplate(templateHtml, latestJson)
+    }
+
+    binding.contentWebView.stopLoading()
+    binding.contentWebView.clearHistory()
+    binding.contentWebView.clearCache(true)
+    binding.contentWebView.loadDataWithBaseURL(
+      HOME_ASSET_BASE_URL,
+      html,
+      "text/html",
+      "utf-8",
+      null
+    )
+  }
+
+  private fun readLatestLevelExamJson(): String? {
+    val runtimeFile = File(filesDir, LEVEL_EXAM_JSON_FILE)
+    if (hasUsableScoreCache(runtimeFile)) {
+      return runtimeFile.readText(Charsets.UTF_8)
+    }
+
+    return runCatching {
+      assets.open(LEVEL_EXAM_JSON_FILE).bufferedReader(Charsets.UTF_8).use { it.readText() }
+    }.getOrNull()
+  }
+
   private fun injectExamJsonIntoTemplate(templateHtml: String, examsJson: String): String {
     val pattern = Regex("""const exams = .*?;""", setOf(RegexOption.DOT_MATCHES_ALL))
     return if (pattern.containsMatchIn(templateHtml)) {
       templateHtml.replace(pattern, "const exams = ${serializeForScript(examsJson)};")
+    } else {
+      templateHtml
+    }
+  }
+
+  private fun injectLevelExamJsonIntoTemplate(templateHtml: String, levelExamsJson: String): String {
+    val pattern = Regex("""const levelExams = .*?;""", setOf(RegexOption.DOT_MATCHES_ALL))
+    return if (pattern.containsMatchIn(templateHtml)) {
+      templateHtml.replace(pattern, "const levelExams = ${serializeForScript(levelExamsJson)};")
     } else {
       templateHtml
     }
@@ -2771,6 +2851,10 @@ class MainActivity : AppCompatActivity() {
         showCachedScorePage()
         true
       }
+      url.contains("level-exam-view", ignoreCase = true) -> {
+        showCachedLevelExamPage()
+        true
+      }
       url.contains("home-view", ignoreCase = true) -> {
         showHomePage()
         true
@@ -2804,13 +2888,15 @@ class MainActivity : AppCompatActivity() {
     val cacheJsonFile = File(filesDir, CACHE_JSON_FILE)
     val examJsonFile = File(filesDir, EXAM_JSON_FILE)
     val scoreJsonFile = File(filesDir, SCORE_JSON_FILE)
+    val levelExamJsonFile = File(filesDir, LEVEL_EXAM_JSON_FILE)
     val scoreUpdateMetaFile = File(filesDir, SCORE_UPDATE_META_FILE)
     val homePart = if (homeCacheFile.exists()) "${homeCacheFile.length()}:${homeCacheFile.lastModified()}" else "missing"
     val jsonPart = if (cacheJsonFile.exists()) "${cacheJsonFile.length()}:${cacheJsonFile.lastModified()}" else "missing"
     val examPart = if (examJsonFile.exists()) "${examJsonFile.length()}:${examJsonFile.lastModified()}" else "missing"
     val scorePart = if (scoreJsonFile.exists()) "${scoreJsonFile.length()}:${scoreJsonFile.lastModified()}" else "missing"
+    val levelExamPart = if (levelExamJsonFile.exists()) "${levelExamJsonFile.length()}:${levelExamJsonFile.lastModified()}" else "missing"
     val scoreUpdatePart = if (scoreUpdateMetaFile.exists()) "${scoreUpdateMetaFile.length()}:${scoreUpdateMetaFile.lastModified()}" else "missing"
-    return listOf(currentAssetExportId ?: "no-export", homePart, jsonPart, examPart, scorePart, scoreUpdatePart).joinToString("|")
+    return listOf(currentAssetExportId ?: "no-export", homePart, jsonPart, examPart, scorePart, levelExamPart, scoreUpdatePart).joinToString("|")
   }
 
   private fun renderNativeHome() {
@@ -3455,6 +3541,8 @@ class MainActivity : AppCompatActivity() {
           showCachedExamSchedule()
         } else if (item.key == "score") {
           showCachedScorePage()
+        } else if (item.key == "level") {
+          showCachedLevelExamPage()
         } else if (item.key == "refresh") {
           val user = prefs.getString(PREF_USERNAME, "")
           val pwd = prefs.getString(PREF_PASSWORD, "")
@@ -4068,22 +4156,29 @@ class MainActivity : AppCompatActivity() {
         .onFailure { appendDebugLog("EXAM", "FAIL", it.message ?: "unknown") }
       val scoreSyncResult = runCatching { syncScoreCacheFromSession() }
         .onFailure { appendDebugLog("SCORE", "FAIL", it.message ?: "unknown") }
+      val levelExamSyncResult = runCatching { syncLevelExamCacheFromSession() }
+        .onFailure { appendDebugLog("LEVEL_EXAM", "FAIL", it.message ?: "unknown") }
 
       mainHandler.post {
         cacheCaptureInProgress = false
         renderedHomeSignature = null
         val examCount = examSyncResult.getOrNull()
         val scoreCount = scoreSyncResult.getOrNull()
+        val levelExamCount = levelExamSyncResult.getOrNull()
         when {
           successStatus != null -> updateStatus(successStatus)
+          examCount != null && scoreCount != null && levelExamCount != null ->
+            updateStatus("本地缓存已更新，共解析 ${courses.size} 条课程，${examCount} 场考试，${scoreCount} 条成绩，${levelExamCount} 条等级考试。")
           examCount != null && scoreCount != null ->
-            updateStatus("本地缓存已更新，共解析 ${courses.size} 条课程，${examCount} 场考试，${scoreCount} 条成绩。")
+            updateStatus("本地缓存已更新，共解析 ${courses.size} 条课程，${examCount} 场考试，${scoreCount} 条成绩；等级考试同步失败。")
           examCount != null ->
-            updateStatus("课表缓存已更新，共解析 ${courses.size} 条课程，${examCount} 场考试；成绩同步失败。")
+            updateStatus("课表缓存已更新，共解析 ${courses.size} 条课程，${examCount} 场考试；成绩和等级考试同步失败。")
           scoreCount != null ->
-            updateStatus("课表缓存已更新，共解析 ${courses.size} 条课程，${scoreCount} 条成绩；考试安排同步失败。")
+            updateStatus("课表缓存已更新，共解析 ${courses.size} 条课程，${scoreCount} 条成绩；考试安排和等级考试同步失败。")
+          levelExamCount != null ->
+            updateStatus("课表缓存已更新，共解析 ${courses.size} 条课程，${levelExamCount} 条等级考试；考试安排和成绩同步失败。")
           else ->
-            updateStatus("课表缓存已更新，共解析 ${courses.size} 条课程；考试安排和成绩同步失败。")
+            updateStatus("课表缓存已更新，共解析 ${courses.size} 条课程；考试安排、成绩和等级考试同步失败。")
         }
         CourseNotificationScheduler.sync(this@MainActivity)
         ExamOngoingNotificationScheduler.sync(this@MainActivity)
@@ -4225,6 +4320,14 @@ class MainActivity : AppCompatActivity() {
     }
     appendDebugLog("SCORE", "SUCCESS", "成绩缓存写入完成，共 ${scores.length()} 条")
     return scores.length()
+  }
+
+  private fun syncLevelExamCacheFromSession(): Int {
+    appendDebugLog("LEVEL_EXAM", "START", "开始同步等级考试缓存")
+    val records = fetchLevelExamRecords()
+    File(filesDir, LEVEL_EXAM_JSON_FILE).writeText(records.toString(), Charsets.UTF_8)
+    appendDebugLog("LEVEL_EXAM", "SUCCESS", "等级考试缓存写入完成，共 ${records.length()} 条")
+    return records.length()
   }
 
   private fun readScoreArrayFromFile(file: File): JSONArray {
@@ -4687,6 +4790,83 @@ class MainActivity : AppCompatActivity() {
     }
 
     appendDebugLog("SCORE_PARSE", "SUCCESS", "成绩解析完成，共 ${result.length()} 条")
+    return result
+  }
+
+  private fun fetchLevelExamRecords(): JSONArray {
+    appendDebugLog("LEVEL_EXAM_FETCH", "START", "开始请求等级考试页")
+    val bytes = withSessionConnection(LEVEL_EXAM_LIST_URL, method = "GET", referer = TIMETABLE_URL) { connection ->
+      val responseCode = connection.responseCode
+      appendDebugLog(
+        "LEVEL_EXAM_FETCH",
+        if (responseCode in 200..299) "INFO" else "WARN",
+        "响应码=$responseCode contentType=${connection.contentType ?: "-"}"
+      )
+      val input = if (responseCode in 200..299) {
+        connection.inputStream
+      } else {
+        connection.errorStream ?: connection.inputStream
+      }
+      input.use { it.readBytes() }
+    }
+    appendDebugLog("LEVEL_EXAM_FETCH", "INFO", "等级考试页响应体大小=${bytes.size} bytes")
+    val document = org.jsoup.Jsoup.parse(java.io.ByteArrayInputStream(bytes), null, LEVEL_EXAM_LIST_URL)
+    appendDebugLog("LEVEL_EXAM_FETCH", "INFO", "等级考试页标题=${document.title().ifBlank { "-" }}")
+    return parseLevelExamDocument(document)
+  }
+
+  private fun parseLevelExamDocument(document: org.jsoup.nodes.Document): JSONArray {
+    val rows = document.select("#dataList tr")
+    if (rows.isEmpty()) {
+      val title = document.title()
+      appendDebugLog("LEVEL_EXAM_PARSE", "FAIL", "未找到等级考试表格，页面标题=${title.ifBlank { "-" }}")
+      if (title.contains("登录") || title.contains("login", ignoreCase = true)) {
+        throw IllegalStateException("未获取到等级考试列表，会话可能已过期。当前页面: $title")
+      }
+      throw IllegalStateException("未在等级考试页面中找到 #dataList 表格。当前页面: $title")
+    }
+    appendDebugLog("LEVEL_EXAM_PARSE", "INFO", "检测到等级考试表格行数=${rows.size}")
+    val result = JSONArray()
+
+    rows.forEach { row ->
+      val cells = row.select("> td")
+      if (cells.size < 9) {
+        return@forEach
+      }
+
+      val item = JSONObject().apply {
+        put("index", cleanInlineText(cells.getOrNull(0)?.text().orEmpty()).toIntOrNull() ?: (result.length() + 1))
+        put("examName", cleanInlineText(cells.getOrNull(1)?.text().orEmpty()))
+        put("writtenScore", cleanInlineText(cells.getOrNull(2)?.text().orEmpty()))
+        put("computerScore", cleanInlineText(cells.getOrNull(3)?.text().orEmpty()))
+        put("totalScore", cleanInlineText(cells.getOrNull(4)?.text().orEmpty()))
+        put("writtenLevel", cleanInlineText(cells.getOrNull(5)?.text().orEmpty()))
+        put("computerLevel", cleanInlineText(cells.getOrNull(6)?.text().orEmpty()))
+        put("totalLevel", cleanInlineText(cells.getOrNull(7)?.text().orEmpty()))
+        put("examDate", cleanInlineText(cells.getOrNull(8)?.text().orEmpty()))
+        put(
+          "rawText",
+          buildString {
+            cells.forEachIndexed { cellIndex, cell ->
+              if (cellIndex > 0) append('\n')
+              append(cleanInlineText(cell.text()))
+            }
+          }
+        )
+      }
+
+      val examName = item.optString("examName")
+      val totalScore = item.optString("totalScore")
+      val totalLevel = item.optString("totalLevel")
+      val examDate = item.optString("examDate")
+      if (examName.isBlank() && totalScore.isBlank() && totalLevel.isBlank() && examDate.isBlank()) {
+        return@forEach
+      }
+
+      result.put(item)
+    }
+
+    appendDebugLog("LEVEL_EXAM_PARSE", "SUCCESS", "等级考试解析完成，共 ${result.length()} 条")
     return result
   }
 

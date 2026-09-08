@@ -2,6 +2,9 @@ import {
   examHtmlPath,
   examJsonPath,
   examViewPath,
+  levelExamHtmlPath,
+  levelExamJsonPath,
+  levelExamViewPath,
   loadConfig,
   scoreHtmlPath,
   scoreJsonPath,
@@ -23,6 +26,9 @@ import { renderExamPage } from "./exam-ui.js";
 import { openScorePage, readScorePageHtml } from "./score-page.js";
 import { parseScoreHtml } from "./score-parser.js";
 import { renderScorePage } from "./score-ui.js";
+import { openLevelExamPage, readLevelExamPageHtml } from "./level-exam-page.js";
+import { parseLevelExamHtml } from "./level-exam-parser.js";
+import { renderLevelExamPage } from "./level-exam-ui.js";
 
 const run = async (): Promise<void> => {
   logDivider("START");
@@ -90,6 +96,25 @@ const run = async (): Promise<void> => {
     logStep(`Done. Score JSON saved to ${scoreJsonPath}`);
     logStep(`Done. Score View saved to ${scoreViewPath}`);
     logStep(`Parsed ${scores.length} score entries.`);
+
+    // --- Level Exams ---
+    logDivider("LEVEL EXAMS");
+    const levelExamPage = await openLevelExamPage(context, config);
+
+    logStep("Capturing level exam page HTML.");
+    const levelExamHtml = await readLevelExamPageHtml(levelExamPage);
+    await writeTextFile(levelExamHtmlPath, levelExamHtml);
+    logStep(`Done. Level exam HTML saved to ${levelExamHtmlPath}`);
+
+    logStep("Parsing level exam data from saved HTML.");
+    const levelExams = parseLevelExamHtml(levelExamHtml);
+    await writeTextFile(levelExamJsonPath, JSON.stringify(levelExams, null, 2));
+    await writeTextFile(levelExamViewPath, renderLevelExamPage(levelExams));
+    await writeTextFile(scoreViewPath, renderScorePage(scores, levelExams));
+
+    logStep(`Done. Level exam JSON saved to ${levelExamJsonPath}`);
+    logStep(`Done. Level exam View saved to ${levelExamViewPath}`);
+    logStep(`Parsed ${levelExams.length} level exam entries.`);
   } finally {
     logStep("Closing browser.");
     await context.close();

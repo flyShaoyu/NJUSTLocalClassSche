@@ -1,5 +1,7 @@
 ﻿import { ScoreRecord } from "./types.js";
 
+import { LevelExamRecord } from "./types.js";
+
 const serializeForScript = (value: unknown): string =>
   JSON.stringify(value)
     .replace(/</g, "\\u003c")
@@ -8,9 +10,10 @@ const serializeForScript = (value: unknown): string =>
     .replace(/\u2028/g, "\\u2028")
     .replace(/\u2029/g, "\\u2029");
 
-const buildScorePageScript = (scoresJson: string): string => `
+const buildScorePageScript = (scoresJson: string, levelExamsJson: string): string => `
   <script>
     const rawScores = ${scoresJson};
+    const levelExams = ${levelExamsJson};
     const scoreValueMap = {
       "优+": 98,
       "优": 95,
@@ -241,12 +244,24 @@ const buildScorePageScript = (scoresJson: string): string => `
       return value.toFixed(1).replace(/\\.0$/, "");
     };
 
+    const cetCourse = (() => {
+      const scores = levelExams
+        .filter((record) => /cet[ -]*[46]|英语.*[四六]级|四六级/i.test(String(record.examName || "")))
+        .map((record) => String(record.totalScore ?? "").trim())
+        .filter((score) => score !== "")
+        .map(toNumber)
+        .filter((score) => score !== null && score >= 0 && score <= 710);
+      if (!scores.length) return null;
+      const numericScore = Math.max(...scores) / 710 * 100;
+      return { credits: 8, numericScore, gradePoint: scoreToPoint(numericScore) };
+    })();
+
     const summaryRows = () => {
       const selected = selectedRecords();
       return [
         { label: "全部课程", items: records },
         { label: "当前勾选", items: selected },
-        { label: "必修课程", items: selected.filter((item) => item.required) }
+        { label: "已选+四六级", items: cetCourse ? [...selected, cetCourse] : selected }
       ];
     };
 
@@ -431,7 +446,7 @@ const buildScorePageScript = (scoresJson: string): string => `
   </script>
 `;
 
-export const renderScorePage = (scores: ScoreRecord[]): string => `<!DOCTYPE html>
+export const renderScorePage = (scores: ScoreRecord[], levelExams: LevelExamRecord[] = []): string => `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
@@ -558,6 +573,9 @@ export const renderScorePage = (scores: ScoreRecord[]): string => `<!DOCTYPE htm
       font-family: var(--font-cn);
       font-weight: 600;
       font-size: 15px;
+      min-width: 0;
+      padding: 4px;
+      overflow-wrap: anywhere;
     }
 
     .semester-head {
@@ -897,6 +915,6 @@ export const renderScorePage = (scores: ScoreRecord[]): string => `<!DOCTYPE htm
   </div>
 
   <div id="tip" class="tip"></div>
-  ${buildScorePageScript(serializeForScript(scores))}
+  ${buildScorePageScript(serializeForScript(scores), serializeForScript(levelExams))}
 </body>
 </html>`;

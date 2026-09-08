@@ -6,6 +6,7 @@ import {
 } from "./config.js";
 import { renderExamPage } from "./exam-ui.js";
 import { renderHomePage } from "./home-page-ui.js";
+import { renderLevelExamPage } from "./level-exam-ui.js";
 import { logDivider, logStep } from "./logger.js";
 import { renderScorePage } from "./score-ui.js";
 import { renderTimetablePage } from "./timetable-ui.js";
@@ -15,12 +16,14 @@ const bundledTemplateFiles = {
   timetableView: "timetable-view.html",
   examView: "exam-view.html",
   scoreView: "score-view.html",
+  levelExamView: "level-exam-view.html",
   homeView: "home-view.html"
 } as const;
 const personalDataFiles = [
   "timetable.json",
   "exam-list.json",
   "score-list.json",
+  "level-exam-list.json",
   "timetable.html"
 ] as const;
 
@@ -129,6 +132,7 @@ const writeMetaFile = async (): Promise<void> => {
       timetableView: bundledTemplateFiles.timetableView,
       examView: bundledTemplateFiles.examView,
       scoreView: bundledTemplateFiles.scoreView,
+      levelExamView: bundledTemplateFiles.levelExamView,
       homeView: bundledTemplateFiles.homeView
     }
   };
@@ -145,6 +149,7 @@ const run = async (): Promise<void> => {
   await writeTextAsset(bundledTemplateFiles.timetableView, renderTimetablePage([]));
   await writeTextAsset(bundledTemplateFiles.examView, renderExamPage([]));
   await writeTextAsset(bundledTemplateFiles.scoreView, renderScorePage([]));
+  await writeTextAsset(bundledTemplateFiles.levelExamView, renderLevelExamPage([]));
   await writeTextAsset(bundledTemplateFiles.homeView, renderHomePage([], bundledHomeImages));
 
   for (const fileName of personalDataFiles) {

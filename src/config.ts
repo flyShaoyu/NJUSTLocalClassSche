@@ -36,6 +36,9 @@ export const examViewPath = path.resolve("artifacts", "exam-view.html");
 export const scoreHtmlPath = path.resolve("artifacts", "score-list.html");
 export const scoreJsonPath = path.resolve("artifacts", "score-list.json");
 export const scoreViewPath = path.resolve("artifacts", "score-view.html");
+export const levelExamHtmlPath = path.resolve("artifacts", "level-exam-list.html");
+export const levelExamJsonPath = path.resolve("artifacts", "level-exam-list.json");
+export const levelExamViewPath = path.resolve("artifacts", "level-exam-view.html");
 export const homeViewPath = path.resolve("artifacts", "home-view.html");
 export const homeImageArtifactsDir = path.resolve("artifacts", "resources");
 export const homeImageSourceDir = path.resolve("resources");
@@ -55,6 +58,9 @@ export const loadConfig = (): AppConfig => ({
   scoreUrl:
     process.env.SCORE_URL?.trim() ||
     "http://202.119.81.112:9080/njlgdx/kscj/cjcx_list",
+  levelExamUrl:
+    process.env.LEVEL_EXAM_URL?.trim() ||
+    "http://202.119.81.112:9080/njlgdx/kscj/djkscj_list",
   username: getOptionalEnv("USERNAME"),
   password: getOptionalEnv("PASSWORD"),
   semester: process.env.SEMESTER?.trim() || "2025-2026-2",

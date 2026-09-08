@@ -32,7 +32,7 @@ const PERIOD_SLOTS: Record<number, { start: string; end: string }> = {
 const MENU_ITEMS = [
   { key: "exam", label: "考试安排", enabled: true },
   { key: "score", label: "成绩查询", enabled: true },
-  { key: "level", label: "等级考试", enabled: false },
+  { key: "level", label: "等级考试", enabled: true },
   { key: "add", label: "添加课表", enabled: false },
   { key: "schedule", label: "课表查询", enabled: true },
   { key: "room", label: "空闲教室", enabled: false },
@@ -56,7 +56,8 @@ export const renderHomePage = (
   images: HomeImageAsset[],
   timetablePageHref = "./timetable-view.html",
   examPageHref = "./exam-view.html",
-  scorePageHref = "./score-view.html"
+  scorePageHref = "./score-view.html",
+  levelExamPageHref = "./level-exam-view.html"
 ): string => {
   const displayImages = images.map((image) => ({
     ...image,
@@ -614,6 +615,7 @@ export const renderHomePage = (
     timetablePageHrefJson: serializeForScript(timetablePageHref),
     examPageHrefJson: serializeForScript(examPageHref),
     scorePageHrefJson: serializeForScript(scorePageHref),
+    levelExamPageHrefJson: serializeForScript(levelExamPageHref),
     anchorWeek: ANCHOR_WEEK,
     anchorMondayJson: serializeForScript(ANCHOR_MONDAY + "T00:00:00")
   })}

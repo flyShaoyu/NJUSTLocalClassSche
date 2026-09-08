@@ -7,6 +7,7 @@
   timetablePageHrefJson: string;
   examPageHrefJson: string;
   scorePageHrefJson: string;
+  levelExamPageHrefJson: string;
   anchorWeek: number;
   anchorMondayJson: string;
 }
@@ -21,6 +22,7 @@ export const buildHomePageScript = (params: HomeScriptParams): string => `
     const timetablePageHref = ${params.timetablePageHrefJson};
     const examPageHref = ${params.examPageHrefJson};
     const scorePageHref = ${params.scorePageHrefJson};
+    const levelExamPageHref = ${params.levelExamPageHrefJson};
     const anchorWeek = ${params.anchorWeek};
     const anchorMonday = new Date(${params.anchorMondayJson});
 
@@ -232,6 +234,10 @@ export const buildHomePageScript = (params: HomeScriptParams): string => `
 
         if (item.key === "score") {
           return '<a class="' + classes + '" href="' + scorePageHref + '">' + inner + "</a>";
+        }
+
+        if (item.key === "level") {
+          return '<a class="' + classes + '" href="' + levelExamPageHref + '">' + inner + "</a>";
         }
 
         return '<button type="button" class="' + classes + '" data-menu="' + escapeHtml(item.key) + '">' + inner + "</button>";

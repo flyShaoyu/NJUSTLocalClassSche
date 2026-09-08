@@ -5,6 +5,7 @@ export interface AppConfig {
   examQueryUrl: string;
   examListUrl: string;
   scoreUrl: string;
+  levelExamUrl: string;
   username?: string;
   password?: string;
   semester?: string;
@@ -52,5 +53,18 @@ export interface ScoreRecord {
   courseAttribute: string;
   courseNature: string;
   isHighlighted: boolean;
+  rawText: string;
+}
+
+export interface LevelExamRecord {
+  index: number;
+  examName: string;
+  writtenScore: string;
+  computerScore: string;
+  totalScore: string;
+  writtenLevel: string;
+  computerLevel: string;
+  totalLevel: string;
+  examDate: string;
   rawText: string;
 }

@@ -8,6 +8,8 @@ import {
   homeImageArtifactsDir,
   homeImageSourceDir,
   homeViewPath,
+  levelExamJsonPath,
+  levelExamViewPath,
   scoreJsonPath,
   scoreViewPath,
   timetableJsonPath,
@@ -16,10 +18,11 @@ import {
 import { ensureArtifactsDirectory, writeTextFile } from "./fs-utils.js";
 import { renderExamPage } from "./exam-ui.js";
 import { renderHomePage } from "./home-page-ui.js";
+import { renderLevelExamPage } from "./level-exam-ui.js";
 import { logDivider, logStep } from "./logger.js";
 import { renderScorePage } from "./score-ui.js";
 import { renderTimetablePage } from "./timetable-ui.js";
-import { ExamArrangement, ScoreRecord, TimetableCourse } from "./types.js";
+import { ExamArrangement, LevelExamRecord, ScoreRecord, TimetableCourse } from "./types.js";
 
 const imageExtensions = new Set([".jpg", ".jpeg", ".png", ".webp", ".gif"]);
 const execFileAsync = promisify(execFile);
@@ -163,15 +166,27 @@ const run = async (): Promise<void> => {
     await writeTextFile(examViewPath, renderExamPage([]));
   }
 
+  let levelExams: LevelExamRecord[] = [];
+  try {
+    logStep(`Reading level exam JSON from ${levelExamJsonPath}`);
+    const levelExamContent = await fs.readFile(levelExamJsonPath, "utf8");
+    levelExams = JSON.parse(levelExamContent) as LevelExamRecord[];
+    await writeTextFile(levelExamViewPath, renderLevelExamPage(levelExams));
+    logStep("Rendering level exam frontend.");
+  } catch {
+    logStep(`Level exam JSON not found, rendering empty level exam frontend: ${levelExamJsonPath}`);
+    await writeTextFile(levelExamViewPath, renderLevelExamPage([]));
+  }
+
   try {
     logStep(`Reading score JSON from ${scoreJsonPath}`);
     const scoreContent = await fs.readFile(scoreJsonPath, "utf8");
     const scores = JSON.parse(scoreContent) as ScoreRecord[];
-    await writeTextFile(scoreViewPath, renderScorePage(scores));
+    await writeTextFile(scoreViewPath, renderScorePage(scores, levelExams));
     logStep("Rendering score frontend.");
   } catch {
     logStep(`Score JSON not found, rendering empty score frontend: ${scoreJsonPath}`);
-    await writeTextFile(scoreViewPath, renderScorePage([]));
+    await writeTextFile(scoreViewPath, renderScorePage([], levelExams));
   }
 
   logStep("Rendering home frontend.");
@@ -180,6 +195,7 @@ const run = async (): Promise<void> => {
   logStep(`Done. Frontend page saved to ${timetableViewPath}`);
   logStep(`Done. Exam page saved to ${examViewPath}`);
   logStep(`Done. Score page saved to ${scoreViewPath}`);
+  logStep(`Done. Level exam page saved to ${levelExamViewPath}`);
   logStep(`Done. Home page saved to ${homeViewPath}`);
   logDivider("END");
 };

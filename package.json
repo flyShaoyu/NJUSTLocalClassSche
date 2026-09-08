@@ -8,6 +8,7 @@
     "start": "tsx src/index.ts",
     "fetch:exams": "tsx src/fetch-exams.ts",
     "fetch:scores": "tsx src/fetch-scores.ts",
+    "fetch:level-exams": "tsx src/fetch-level-exams.ts",
     "check": "tsc --noEmit -p tsconfig.json",
     "parse": "tsx src/parse-html.ts",
     "render:ui": "tsx src/render-ui.ts",
