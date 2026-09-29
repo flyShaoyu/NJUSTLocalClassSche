@@ -39,3 +39,7 @@
 具体字段以 [`src/types.ts`](src/types.ts) 为准。课表 `courseType` 表示课程性质，`courseSequence` 是课程序号；不要互相代用。`credits` 为课程学分。修改这些字段时同步检查 Android 的 `TimetableCourse.kt`、`TimetableParser.kt` 和页面渲染器。
 
 Android 的个人数据保存在应用私有目录，桌面 `artifacts/` 与 Android 运行时缓存不是同一个文件位置。详细构建与安全边界见 [ANDROID.md](ANDROID.md)。
+
+Android 的应用版本检查由 `MainActivity.kt` 负责：有更新和无更新结果都按当前应用版本缓存 24 小时，手动重新获取时绕过缓存；APK 安装包由系统 `DownloadManager` 在后台继续下载，应用恢复时查询并显示进度，也可在弹窗中取消并清理文件。这与 `ResourceUpdateStore.kt` 的公共页面资源热更新是两条独立链路。
+
+Android 登录与后台成绩同步只尝试统一认证，不再处理旧教务登录页的本地验证码；因此构建不再依赖 ML Kit 文本识别。

@@ -8,23 +8,15 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.graphics.Bitmap
-import android.graphics.Color
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
-import com.google.mlkit.vision.common.InputImage
-import com.google.mlkit.vision.text.TextRecognition
-import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
-import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicReference
 
 object HeadlessScoreSyncManager {
   private const val LOGIN_URL = UniversityEndpoints.LOGIN
@@ -97,14 +89,13 @@ object HeadlessScoreSyncManager {
       loginUrl = LOGIN_URL,
       timetableUrl = TIMETABLE_URL,
       username = username,
-      password = password,
-      recognizeCaptcha = ::recognizeCaptchaTextSync
+      password = password
     )
     log(
       context,
       "HEADLESS_SCORE_SYNC",
       "INFO",
-      "纯 HTTP 登录完成，验证码尝试=${loginResult.captchaAttempts} cookieCount=${loginResult.cookies.size}"
+      "纯 HTTP 登录完成，cookieCount=${loginResult.cookies.size}"
     )
 
     val latestScores = fetchScoreRecordsWithCookies(context, loginResult.cookies)
@@ -427,57 +418,6 @@ object HeadlessScoreSyncManager {
 
   private fun cleanInlineText(value: String): String =
     normalizeText(value).replace(Regex("\\s*\\n\\s*"), " ")
-
-  private fun recognizeCaptchaTextSync(bitmap: Bitmap): String? {
-    val result = AtomicReference<String?>()
-    val error = AtomicReference<Throwable?>()
-    val latch = CountDownLatch(1)
-    val processedBitmap = preprocessCaptcha(bitmap)
-    val image = InputImage.fromBitmap(processedBitmap, 0)
-    val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
-    recognizer.process(image)
-      .addOnSuccessListener { visionText ->
-        result.set(visionText.text.replace(Regex("[^a-zA-Z0-9]"), ""))
-        latch.countDown()
-      }
-      .addOnFailureListener { throwable ->
-        error.set(throwable)
-        latch.countDown()
-      }
-
-    if (!latch.await(12, TimeUnit.SECONDS)) {
-      throw IllegalStateException("验证码识别超时")
-    }
-    error.get()?.let { throw IllegalStateException(it.message ?: "验证码识别失败", it) }
-    return result.get()
-  }
-
-  private fun preprocessCaptcha(src: Bitmap): Bitmap {
-    val scale = 3f
-    val scaledWidth = (src.width * scale).toInt()
-    val scaledHeight = (src.height * scale).toInt()
-    val scaledBitmap = Bitmap.createScaledBitmap(src, scaledWidth, scaledHeight, true)
-
-    val result = Bitmap.createBitmap(scaledWidth, scaledHeight, Bitmap.Config.ARGB_8888)
-    val canvas = android.graphics.Canvas(result)
-    val paint = android.graphics.Paint()
-    val colorMatrix = android.graphics.ColorMatrix().apply { setSaturation(0f) }
-    paint.colorFilter = android.graphics.ColorMatrixColorFilter(colorMatrix)
-    canvas.drawBitmap(scaledBitmap, 0f, 0f, paint)
-
-    val pixels = IntArray(scaledWidth * scaledHeight)
-    result.getPixels(pixels, 0, scaledWidth, 0, 0, scaledWidth, scaledHeight)
-    for (i in pixels.indices) {
-      val p = pixels[i]
-      val r = Color.red(p)
-      val g = Color.green(p)
-      val b = Color.blue(p)
-      val gray = (r * 0.299 + g * 0.587 + b * 0.114).toInt()
-      pixels[i] = if (gray > 165) Color.WHITE else Color.BLACK
-    }
-    result.setPixels(pixels, 0, scaledWidth, 0, 0, scaledWidth, scaledHeight)
-    return result
-  }
 
   private fun log(context: Context, scope: String, status: String, message: String) {
     AppDebugLog.append(context, scope, status, message)

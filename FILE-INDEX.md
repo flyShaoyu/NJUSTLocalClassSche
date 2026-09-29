@@ -21,8 +21,11 @@
 | --- | --- |
 | 登录入口、SSO、登录态复用 | [`src/endpoints.ts`](src/endpoints.ts)、[`src/login.ts`](src/login.ts)、[`src/authenticated-page.ts`](src/authenticated-page.ts)、[`src/browser.ts`](src/browser.ts) |
 | Android 登录、密码保存 | [`MainActivity.kt`](android/app/src/main/java/com/classsche/mobile/MainActivity.kt)、[`CredentialStore.kt`](android/app/src/main/java/com/classsche/mobile/CredentialStore.kt)、[`HeadlessLoginClient.kt`](android/app/src/main/java/com/classsche/mobile/HeadlessLoginClient.kt) |
+| Android 静默更新课表、切换学期 | [`MainActivity.kt`](android/app/src/main/java/com/classsche/mobile/MainActivity.kt) 的 `startSilentTimetableRefresh`、[`HeadlessLoginClient.kt`](android/app/src/main/java/com/classsche/mobile/HeadlessLoginClient.kt) 的学期表单提交、[`TimetableSemesterStore.kt`](android/app/src/main/java/com/classsche/mobile/TimetableSemesterStore.kt) |
 | 错误分类与提示 | [`src/diagnostics.ts`](src/diagnostics.ts)、[`src/authenticated-page.ts`](src/authenticated-page.ts)、[`src/raw-page.ts`](src/raw-page.ts)、[`FailureDetails.kt`](android/app/src/main/java/com/classsche/mobile/FailureDetails.kt)、`MainActivity.kt` |
-| 登录提示和页面布局 | [`strings_login.xml`](android/app/src/main/res/values/strings_login.xml)、[`activity_main.xml`](android/app/src/main/res/layout/activity_main.xml) |
+| 登录提示和页面布局 | [`strings_login.xml`](android/app/src/main/res/values/strings_login.xml)、[`activity_main.xml`](android/app/src/main/res/layout/activity_main.xml)、[`themes.xml`](android/app/src/main/res/values/themes.xml)、[`colors.xml`](android/app/src/main/res/values/colors.xml) |
+| Android 应用版本检查与结果缓存 | [`MainActivity.kt`](android/app/src/main/java/com/classsche/mobile/MainActivity.kt) 的 `checkForAppUpdate`、`showLatestVersionDialog` 与 `PREF_UPDATE_*` |
+| Android 设置二级页视觉样式 | [`themes.xml`](android/app/src/main/res/values/themes.xml)、[`AndroidManifest.xml`](android/app/src/main/AndroidManifest.xml)、[`res/layout/`](android/app/src/main/res/layout/) 中的 `activity_*settings.xml`、`activity_log_viewer.xml` 和 `activity_score_editor.xml` |
 | 课表抓取、解析和网页 | [`src/timetable-page.ts`](src/timetable-page.ts)、[`src/html-parser.ts`](src/html-parser.ts)、[`src/timetable-ui.ts`](src/timetable-ui.ts)、[`src/timetable-ui-script.ts`](src/timetable-ui-script.ts) |
 | 考试、成绩、等级考试 | `src/` 中对应的 `*-page.ts`、`*-parser.ts`、`*-ui.ts` 和 `fetch-*.ts` |
 | 首页和 Android 网页资源 | [`src/home-page-ui.ts`](src/home-page-ui.ts)、[`src/render-ui.ts`](src/render-ui.ts)、[`src/export-android.ts`](src/export-android.ts) |
@@ -33,6 +36,7 @@
 | 文件 | 用途 |
 | --- | --- |
 | [`README.md`](README.md) | 项目介绍、运行和构建说明。 |
+| [`CHANGELOG.md`](CHANGELOG.md) | 未发布改动的简要记录。 |
 | [`LOGIN-MIGRATION.md`](LOGIN-MIGRATION.md) | 新统一认证入口、页面实测结果和登录态迁移记录。 |
 | [`ANDROID.md`](ANDROID.md)、[`API.md`](API.md) | Android 和接口相关说明。 |
 | [`AGENT.md`](AGENT.md) | 维护约定，尤其是渲染后再导出 Android 资源的执行顺序。 |

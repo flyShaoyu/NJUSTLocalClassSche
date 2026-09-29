@@ -799,21 +799,27 @@
             android:id="@+id/loginPage"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
+            android:background="@color/surface"
+            android:fillViewport="true"
+            android:theme="@style/Theme.ClassScheMobile.BluePage"
             android:visibility="gone">
 
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:padding="16dp">
+                android:paddingStart="0dp"
+                android:paddingTop="2dp"
+                android:paddingEnd="0dp"
+                android:paddingBottom="14dp">
 
                 <com.google.android.material.card.MaterialCardView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     app:cardBackgroundColor="@android:color/white"
-                    app:cardCornerRadius="20dp"
-                    app:cardElevation="2dp"
-                    app:strokeColor="#D8E4F2"
+                    app:cardCornerRadius="8dp"
+                    app:cardElevation="0dp"
+                    app:strokeColor="#4DBBC8D9"
                     app:strokeWidth="1dp">
 
                     <LinearLayout
@@ -854,7 +860,9 @@
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="16dp"
-                            android:hint="@string/username_label">
+                            android:hint="@string/username_label"
+                            app:boxStrokeColor="@color/login_blue"
+                            app:hintTextColor="@color/login_blue_dark">
 
                             <com.google.android.material.textfield.TextInputEditText
                                 android:layout_width="match_parent"
@@ -868,45 +876,15 @@
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="12dp"
-                            android:hint="@string/password_label">
+                            android:hint="@string/password_label"
+                            app:boxStrokeColor="@color/login_blue"
+                            app:hintTextColor="@color/login_blue_dark">
 
                             <com.google.android.material.textfield.TextInputEditText
                                 android:layout_width="match_parent"
                                 android:layout_height="wrap_content"
                                 android:inputType="textPassword" />
                         </com.google.android.material.textfield.TextInputLayout>
-
-                        <LinearLayout
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="12dp"
-                            android:gravity="center_vertical"
-                            android:orientation="horizontal">
-
-                            <com.google.android.material.textfield.TextInputLayout
-                                android:id="@+id/captchaInput"
-                                style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
-                                android:layout_width="0dp"
-                                android:layout_height="wrap_content"
-                                android:layout_weight="1"
-                                android:hint="@string/captcha_label">
-
-                                <com.google.android.material.textfield.TextInputEditText
-                                    android:layout_width="match_parent"
-                                    android:layout_height="wrap_content"
-                                    android:inputType="text" />
-                            </com.google.android.material.textfield.TextInputLayout>
-
-                            <ImageView
-                                android:id="@+id/captchaImage"
-                                android:layout_width="130dp"
-                                android:layout_height="54dp"
-                                android:layout_marginStart="12dp"
-                                android:background="#EEF5FC"
-                                android:contentDescription="@string/captcha_loading"
-                                android:padding="6dp"
-                                android:scaleType="fitCenter" />
-                        </LinearLayout>
 
                         <LinearLayout
                             android:layout_width="match_parent"
@@ -921,59 +899,13 @@
                                 android:text="@string/login_submit_label" />
 
                             <com.google.android.material.button.MaterialButton
-                                android:id="@+id/identityLoginButton"
-                                style="@style/Widget.Material3.Button.OutlinedButton"
-                                android:layout_width="match_parent"
-                                android:layout_height="wrap_content"
-                                android:text="@string/open_identity_login_label" />
-
-                            <LinearLayout
+                                android:id="@+id/openLoginButton"
+                                style="@style/Widget.Material3.Button.TonalButton"
                                 android:layout_width="match_parent"
                                 android:layout_height="wrap_content"
                                 android:layout_marginTop="10dp"
-                                android:orientation="horizontal">
+                                android:text="@string/init_login_label" />
 
-                                <com.google.android.material.button.MaterialButton
-                                    android:id="@+id/openLoginButton"
-                                    style="@style/Widget.Material3.Button.TonalButton"
-                                    android:layout_width="0dp"
-                                    android:layout_height="wrap_content"
-                                    android:layout_weight="1"
-                                    android:text="@string/init_login_label" />
-
-                                <com.google.android.material.button.MaterialButton
-                                    android:id="@+id/refreshCaptchaButton"
-                                    style="@style/Widget.Material3.Button.OutlinedButton"
-                                    android:layout_width="0dp"
-                                    android:layout_height="wrap_content"
-                                    android:layout_marginStart="10dp"
-                                    android:layout_weight="1"
-                                    android:text="@string/refresh_captcha_label" />
-                            </LinearLayout>
-
-                            <LinearLayout
-                                android:layout_width="match_parent"
-                                android:layout_height="wrap_content"
-                                android:layout_marginTop="10dp"
-                                android:orientation="horizontal">
-
-                                <com.google.android.material.button.MaterialButton
-                                    android:id="@+id/openTimetableButton"
-                                    style="@style/Widget.Material3.Button.OutlinedButton"
-                                    android:layout_width="0dp"
-                                    android:layout_height="wrap_content"
-                                    android:layout_weight="1"
-                                    android:text="@string/open_timetable_label" />
-
-                                <com.google.android.material.button.MaterialButton
-                                    android:id="@+id/viewCacheButton"
-                                    style="@style/Widget.Material3.Button.OutlinedButton"
-                                    android:layout_width="0dp"
-                                    android:layout_height="wrap_content"
-                                    android:layout_marginStart="10dp"
-                                    android:layout_weight="1"
-                                    android:text="@string/view_cache_label" />
-                            </LinearLayout>
                         </LinearLayout>
 
                         <TextView

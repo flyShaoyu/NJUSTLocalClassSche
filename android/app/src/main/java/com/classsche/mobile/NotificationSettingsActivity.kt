@@ -9,11 +9,10 @@ import android.os.PowerManager
 import android.provider.Settings
 import android.util.TypedValue
 import android.view.View
-import android.widget.AdapterView
-import android.widget.ArrayAdapter
 import android.widget.ImageButton
 import android.widget.NumberPicker
 import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -73,21 +72,7 @@ class NotificationSettingsActivity : AppCompatActivity() {
     }
     binding.notifyHourPicker.setOnValueChangedListener(listener)
     binding.notifyMinutePicker.setOnValueChangedListener(listener)
-    val examAdapter = ArrayAdapter(
-      this,
-      android.R.layout.simple_spinner_item,
-      ExamOngoingNotificationScheduler.leadOptions().map(ExamOngoingNotificationScheduler::formatLeadLabel)
-    )
-    examAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-    binding.examLeadSpinner.adapter = examAdapter
-    binding.examLeadSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-      override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
-        if (restoringValues) return
-        persistExamLeadTime()
-      }
-
-      override fun onNothingSelected(parent: AdapterView<*>?) = Unit
-    }
+    binding.examLeadRow.setOnClickListener { showExamLeadTimeDialog() }
     binding.openExactAlarmButton.setOnClickListener {
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:$packageName")))
@@ -99,10 +84,6 @@ class NotificationSettingsActivity : AppCompatActivity() {
     restoringValues = true
     binding.notifyHourPicker.value = CourseNotificationService.getLeadHours(this)
     binding.notifyMinutePicker.value = CourseNotificationService.getLeadMinutePart(this)
-    val examIndex = ExamOngoingNotificationScheduler.leadOptions()
-      .indexOf(ExamOngoingNotificationScheduler.getLeadMinutes(this))
-      .coerceAtLeast(0)
-    binding.examLeadSpinner.setSelection(examIndex, false)
     restoringValues = false
     renderLeadTimeSummaries()
   }
@@ -122,9 +103,21 @@ class NotificationSettingsActivity : AppCompatActivity() {
     renderLeadTimeSummaries()
   }
 
-  private fun persistExamLeadTime() {
-    val minutes = ExamOngoingNotificationScheduler.leadOptions()
-      .getOrElse(binding.examLeadSpinner.selectedItemPosition) { ExamOngoingNotificationScheduler.defaultLeadMinutes() }
+  private fun showExamLeadTimeDialog() {
+    val options = ExamOngoingNotificationScheduler.leadOptions()
+    val labels = options.map(ExamOngoingNotificationScheduler::formatLeadLabel).toTypedArray()
+    val checkedIndex = options.indexOf(ExamOngoingNotificationScheduler.getLeadMinutes(this)).coerceAtLeast(0)
+    AlertDialog.Builder(this)
+      .setTitle(R.string.notification_setting_dialog_title)
+      .setSingleChoiceItems(labels, checkedIndex) { dialog, which ->
+        persistExamLeadTime(options[which])
+        dialog.dismiss()
+      }
+      .setNegativeButton("取消", null)
+      .show()
+  }
+
+  private fun persistExamLeadTime(minutes: Int) {
     ExamOngoingNotificationScheduler.saveLeadMinutes(this, minutes)
     ExamOngoingNotificationScheduler.sync(this)
     renderLeadTimeSummaries()

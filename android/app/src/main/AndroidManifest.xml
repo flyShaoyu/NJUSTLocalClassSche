@@ -33,26 +33,31 @@
         <activity
             android:name=".NotificationSettingsActivity"
             android:exported="false"
+            android:theme="@style/Theme.ClassScheMobile.BluePage"
             android:screenOrientation="portrait" />
 
         <activity
             android:name=".ScoreSyncSettingsActivity"
             android:exported="false"
+            android:theme="@style/Theme.ClassScheMobile.BluePage"
             android:screenOrientation="portrait" />
 
         <activity
             android:name=".TimetableSemesterSettingsActivity"
             android:exported="false"
+            android:theme="@style/Theme.ClassScheMobile.BluePage"
             android:screenOrientation="portrait" />
 
         <activity
             android:name=".LogViewerActivity"
             android:exported="false"
+            android:theme="@style/Theme.ClassScheMobile.BluePage"
             android:screenOrientation="portrait" />
 
         <activity
             android:name=".LocalScoreEditorActivity"
             android:exported="false"
+            android:theme="@style/Theme.ClassScheMobile.BluePage"
             android:screenOrientation="portrait" />
 
         <provider

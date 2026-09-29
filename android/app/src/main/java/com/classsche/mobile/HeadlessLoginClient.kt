@@ -1,12 +1,9 @@
 package com.classsche.mobile
 
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.io.ByteArrayInputStream
-import java.io.BufferedInputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
@@ -27,8 +24,7 @@ internal class HeadlessLoginClient(
   private val cookieJar = CookieManager(null, CookiePolicy.ACCEPT_ORIGINAL_SERVER)
   data class LoginResult(
     val cookies: Map<String, String>,
-    val timetableHtml: String,
-    val captchaAttempts: Int
+    val timetableHtml: String
   )
 
   fun login(
@@ -36,7 +32,7 @@ internal class HeadlessLoginClient(
     timetableUrl: String,
     username: String,
     password: String,
-    recognizeCaptcha: (Bitmap) -> String?
+    desiredSemester: String = ""
   ): LoginResult {
     // Reuse WebView cookies within their original domain/path boundaries.
     for (origin in listOf(timetableUrl, "https://ids.njust.edu.cn/authserver/")) {
@@ -53,95 +49,36 @@ internal class HeadlessLoginClient(
       }
     }
     val existing = fetchDocument(timetableUrl, null)
-    if (looksLikeTimetableDocument(existing)) return LoginResult(sessionCookies(timetableUrl), existing.outerHtml(), 0)
-    var loginDocument = fetchDocument(loginUrl, referer = null)
+    if (looksLikeTimetableDocument(existing)) return timetableResult(existing, timetableUrl, desiredSemester)
+    val loginDocument = fetchDocument(loginUrl, referer = null)
     if (loginDocument.selectFirst("#pwdEncryptSalt") != null) {
-      return loginIdentity(loginDocument, timetableUrl, username, password)
+      return loginIdentity(loginDocument, timetableUrl, username, password, desiredSemester)
     }
     // A still-valid identity session can complete the SSO redirect without a form.
     if (!looksLikeLoginDocument(loginDocument)) {
       val timetable = fetchDocument(timetableUrl, loginUrl)
-      if (looksLikeTimetableDocument(timetable)) return LoginResult(sessionCookies(timetableUrl), timetable.outerHtml(), 0)
+      if (looksLikeTimetableDocument(timetable)) return timetableResult(timetable, timetableUrl, desiredSemester)
     }
-    logger("HEADLESS_LOGIN", "INFO", "已拉取登录页 title=${loginDocument.title().ifBlank { "-" }}")
-
-    repeat(6) { attemptIndex ->
-      val form = loginDocument.selectFirst("form") ?: throw IllegalStateException("未找到登录表单")
-      val captchaUrl = resolveCaptchaUrl(loginDocument, loginUrl)
-      val captchaBitmap = fetchBitmap(captchaUrl, referer = loginUrl)
-      val captchaText = recognizeCaptcha(captchaBitmap)
-        ?.replace(Regex("[^a-zA-Z0-9]"), "")
-        ?.take(4)
-        .orEmpty()
-
-      if (captchaText.length != 4) {
-        logger("HEADLESS_LOGIN", "WARN", "第 ${attemptIndex + 1} 次验证码识别失败：$captchaText")
-        loginDocument = fetchDocument(loginUrl, referer = loginUrl)
-        return@repeat
-      }
-
-      val method = form.attr("method").ifBlank { "post" }.uppercase()
-      val actionUrl = resolveActionUrl(loginUrl, form)
-      val formData = extractFormParameters(form).apply {
-        this[findFieldName(form, USERNAME_SELECTORS) ?: "username"] = username
-        this[findFieldName(form, PASSWORD_SELECTORS) ?: "password"] = password
-        this[findFieldName(form, CAPTCHA_SELECTORS) ?: "RANDOMCODE"] = captchaText
-      }
-
-      logger(
-        "HEADLESS_LOGIN",
-        "INFO",
-        "第 ${attemptIndex + 1} 次提交 action=$actionUrl method=$method captcha=$captchaText"
-      )
-      val submitResponse = executeRequest(
-        url = actionUrl,
-        method = method,
-        referer = loginUrl,
-        formBody = if (method == "POST") encodeFormBody(formData) else null
-      )
-      val submitDocument = parseHtml(submitResponse.body, actionUrl)
-      logger(
-        "HEADLESS_LOGIN",
-        if (looksLikeLoginDocument(submitDocument)) "WARN" else "INFO",
-        "提交后响应码=${submitResponse.code} title=${submitDocument.title().ifBlank { "-" }}"
-      )
-
-      val timetableResponse = executeRequest(
-        url = timetableUrl,
-        method = "GET",
-        referer = loginUrl
-      )
-      val timetableDocument = parseHtml(timetableResponse.body, timetableUrl)
-      if (looksLikeTimetableDocument(timetableDocument)) {
-        logger("HEADLESS_LOGIN", "SUCCESS", "纯 HTTP 登录成功，验证码尝试次数=${attemptIndex + 1}")
-        return LoginResult(
-          cookies = sessionCookies(timetableUrl),
-          timetableHtml = timetableDocument.outerHtml(),
-          captchaAttempts = attemptIndex + 1
-        )
-      }
-
-      logger(
-        "HEADLESS_LOGIN",
-        "WARN",
-        "第 ${attemptIndex + 1} 次登录后仍未进入课表页 title=${timetableDocument.title().ifBlank { "-" }}"
-      )
-      loginDocument = fetchDocument(loginUrl, referer = timetableUrl)
+    logger("HEADLESS_LOGIN", "WARN", "教务入口返回旧版登录页，改走统一认证")
+    val identityDocument = fetchDocument(UniversityEndpoints.PORTAL_LOGIN, referer = loginUrl)
+    if (identityDocument.selectFirst("#pwdEncryptSalt") != null) {
+      return loginIdentity(identityDocument, timetableUrl, username, password, desiredSemester)
     }
-
-    throw IllegalStateException("纯 HTTP 登录连续多次失败")
+    if (!looksLikeLoginDocument(identityDocument)) {
+      val timetable = fetchDocument(timetableUrl, identityDocument.location())
+      if (looksLikeTimetableDocument(timetable)) return timetableResult(timetable, timetableUrl, desiredSemester)
+    }
+    throw IllegalStateException("统一认证未能恢复教务会话，请检查认证状态后再试")
   }
 
   private fun loginIdentity(
-    document: Document, timetableUrl: String, username: String, password: String,
+    document: Document, timetableUrl: String, username: String, password: String, desiredSemester: String,
   ): LoginResult {
+    if (username.isBlank() || password.isBlank()) {
+      throw IllegalStateException("未保存账号和密码，现有登录状态也已失效；请先在登录页完成一次认证")
+    }
     val loginUrl = document.location()
     val form = document.selectFirst("form#pwdFromId") ?: throw IllegalStateException("未找到统一认证表单")
-    val checkUrl = "https://ids.njust.edu.cn/authserver/checkNeedCaptcha.htl?username=${URLEncoder.encode(username, "UTF-8")}"
-    val check = executeRequest(checkUrl, "GET", loginUrl)
-    if (org.json.JSONObject(String(check.body, Charsets.UTF_8)).optBoolean("isNeed", true)) {
-      throw IllegalStateException("统一认证需要验证码，请在登录页打开认证网页完成验证")
-    }
     val salt = form.selectFirst("#pwdEncryptSalt")?.attr("value").orEmpty()
     val parameters = extractFormParameters(form).apply {
       remove("passwordText")
@@ -154,7 +91,54 @@ internal class HeadlessLoginClient(
     }
     val timetable = fetchDocument(timetableUrl, loginUrl)
     if (!looksLikeTimetableDocument(timetable)) throw IllegalStateException("统一认证后未取得教务会话，请重新登录")
-    return LoginResult(sessionCookies(timetableUrl), timetable.outerHtml(), 0)
+    return timetableResult(timetable, timetableUrl, desiredSemester)
+  }
+
+  private fun timetableResult(document: Document, timetableUrl: String, desiredSemester: String): LoginResult {
+    val selectedDocument = selectTimetableSemester(document, desiredSemester.trim())
+    return LoginResult(sessionCookies(timetableUrl), selectedDocument.outerHtml())
+  }
+
+  private fun selectTimetableSemester(document: Document, desiredSemester: String): Document {
+    if (desiredSemester.isBlank()) return document
+    val select = document.selectFirst("select[name=xnxq01id]") ?: document.selectFirst("#xnxq01id")
+      ?: throw IllegalStateException("课表页面缺少学期选项，无法静默更新所选学期")
+    val options = select.select("option")
+    if (options.none { it.attr("value").trim().ifBlank { it.text().trim() } == desiredSemester }) {
+      throw IllegalStateException("网站课表中没有所选学期 $desiredSemester，原缓存已保留")
+    }
+    val currentSemester = select.selectFirst("option[selected]")?.attr("value")?.trim()
+      .orEmpty().ifBlank { options.firstOrNull()?.attr("value")?.trim().orEmpty() }
+    if (currentSemester == desiredSemester) return document
+
+    val form = select.parents().firstOrNull { it.tagName().equals("form", ignoreCase = true) }
+      ?: throw IllegalStateException("课表页面缺少学期查询表单，原缓存已保留")
+    val parameters = extractFormParameters(form).apply {
+      this["xnxq01id"] = desiredSemester
+      if (containsKey("zc")) this["zc"] = ""
+    }
+    val method = form.attr("method").ifBlank { "POST" }.uppercase()
+    val actionUrl = resolveActionUrl(document.location(), form)
+    val requestUrl = if (method == "GET") {
+      actionUrl + (if (actionUrl.contains('?')) "&" else "?") + encodeFormBody(parameters)
+    } else {
+      actionUrl
+    }
+    logger("HEADLESS_LOGIN", "INFO", "静默切换课表学期 $currentSemester → $desiredSemester")
+    val response = executeRequest(requestUrl, method, document.location(),
+      if (method == "POST") encodeFormBody(parameters) else null)
+    val selectedDocument = parseHtml(response.body, response.url)
+    if (!looksLikeTimetableDocument(selectedDocument)) {
+      throw IllegalStateException("切换学期后未获取到有效课表，原缓存已保留")
+    }
+    val selectedSelect = selectedDocument.selectFirst("select[name=xnxq01id]")
+      ?: throw IllegalStateException("切换学期后页面缺少学期选项，原缓存已保留")
+    val selectedSemester = selectedSelect.selectFirst("option[selected]")?.attr("value")?.trim()
+      .orEmpty().ifBlank { selectedSelect.selectFirst("option")?.attr("value")?.trim().orEmpty() }
+    if (selectedSemester != desiredSemester) {
+      throw IllegalStateException("网站返回学期 $selectedSemester，与所选学期 $desiredSemester 不一致；原缓存已保留")
+    }
+    return selectedDocument
   }
 
   private fun encryptIdentityPassword(password: String, salt: String): String {
@@ -180,32 +164,6 @@ internal class HeadlessLoginClient(
   ): Document {
     val response = executeRequest(url = url, method = "GET", referer = referer)
     return parseHtml(response.body, response.url)
-  }
-
-  private fun fetchBitmap(
-    url: String,
-    referer: String?,
-  ): Bitmap {
-    val response = executeRequest(url = url, method = "GET", referer = referer)
-    return ByteArrayInputStream(response.body).use { input ->
-      BufferedInputStream(input).use { buffered ->
-        BitmapFactory.decodeStream(buffered)
-      }
-    } ?: throw IllegalStateException("验证码图片解码失败")
-  }
-
-  private fun resolveCaptchaUrl(document: Document, loginUrl: String): String {
-    val image = document.selectFirst("#SafeCodeImg")
-      ?: document.selectFirst("img[src*=SafeCode]")
-      ?: document.selectFirst("img[src*=verify]")
-      ?: document.selectFirst("img[src*=captcha]")
-      ?: document.selectFirst("img[src*=code]")
-      ?: throw IllegalStateException("未找到验证码图片")
-    val src = image.attr("src").ifBlank { image.absUrl("src") }
-    if (src.isBlank()) {
-      throw IllegalStateException("验证码图片地址为空")
-    }
-    return URL(URL(loginUrl), src).toString()
   }
 
   private fun resolveActionUrl(loginUrl: String, form: Element): String {
@@ -247,21 +205,6 @@ internal class HeadlessLoginClient(
       }
     }
     return result
-  }
-
-  private fun findFieldName(form: Element, selectors: List<String>): String? {
-    selectors.forEach { selector ->
-      val field = form.selectFirst(selector) ?: return@forEach
-      val name = field.attr("name").trim()
-      if (name.isNotBlank()) {
-        return name
-      }
-      val id = field.id().trim()
-      if (id.isNotBlank()) {
-        return id
-      }
-    }
-    return null
   }
 
   private fun executeRequest(
@@ -358,29 +301,4 @@ internal class HeadlessLoginClient(
     val url: String
   )
 
-  companion object {
-    private val USERNAME_SELECTORS = listOf(
-      "#xh",
-      "#username",
-      "input[name='USERNAME']",
-      "input[name='username']",
-      "input[type='text']"
-    )
-
-    private val PASSWORD_SELECTORS = listOf(
-      "#pwd",
-      "#password",
-      "input[name='PASSWORD']",
-      "input[name='password']",
-      "input[type='password']"
-    )
-
-    private val CAPTCHA_SELECTORS = listOf(
-      "#SafeCode",
-      "#RANDOMCODE",
-      "input[name='RANDOMCODE']",
-      "input[name='randomcode']",
-      "input[name='captcha']"
-    )
-  }
 }

@@ -3,4 +3,7 @@
     <cache-path
         name="update_apk"
         path="updates/" />
+    <external-files-path
+        name="downloaded_update_apk"
+        path="Download/updates/" />
 </paths>

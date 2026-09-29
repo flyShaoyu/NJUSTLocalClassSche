@@ -4,7 +4,20 @@
         <item name="android:statusBarColor">@color/sky_top</item>
         <item name="android:navigationBarColor">@color/sky_bottom</item>
         <item name="colorSurface">@color/surface</item>
+        <item name="colorPrimary">@color/login_blue</item>
+        <item name="colorOnPrimary">@android:color/white</item>
+        <item name="colorPrimaryContainer">@color/login_blue_light</item>
+        <item name="colorOnPrimaryContainer">@color/login_blue_dark</item>
+        <item name="colorSecondary">@color/login_blue</item>
+        <item name="colorSecondaryContainer">@color/login_blue_light</item>
+        <item name="colorOnSecondaryContainer">@color/login_blue_dark</item>
+        <item name="colorOutline">@color/login_blue</item>
+        <item name="colorOnSurfaceVariant">@color/login_blue_dark</item>
+        <item name="colorControlActivated">@color/login_blue</item>
+        <item name="colorAccent">@color/login_blue</item>
+        <item name="android:colorAccent">@color/login_blue</item>
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:windowLightNavigationBar" tools:targetApi="o_mr1">false</item>
     </style>
+    <style name="Theme.ClassScheMobile.BluePage" parent="Theme.ClassScheMobile" />
 </resources>

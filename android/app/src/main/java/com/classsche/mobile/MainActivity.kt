@@ -5,6 +5,7 @@ import android.animation.ObjectAnimator
 import android.animation.ValueAnimator
 import android.annotation.SuppressLint
 import android.Manifest
+import android.app.DownloadManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -21,8 +22,11 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.Environment
 import android.os.SystemClock
 import android.provider.Settings
+import android.text.method.LinkMovementMethod
+import android.text.util.Linkify
 import android.util.Log
 import android.util.LruCache
 import android.util.TypedValue
@@ -59,11 +63,6 @@ import com.classsche.mobile.databinding.ActivityMainBinding
 import androidx.core.app.NotificationCompat
 import org.json.JSONArray
 import org.json.JSONObject
-import com.google.mlkit.vision.common.InputImage
-import com.google.mlkit.vision.text.TextRecognition
-import com.google.mlkit.vision.text.latin.TextRecognizerOptions
-import java.io.BufferedInputStream
-import java.io.BufferedOutputStream
 import java.io.File
 import java.io.IOException
 import java.net.HttpURLConnection
@@ -72,10 +71,8 @@ import java.net.URLEncoder
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.temporal.ChronoUnit
-import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.max
 import kotlin.math.abs
 
@@ -93,9 +90,11 @@ class MainActivity : AppCompatActivity() {
   private var lastStatusBarInsetTop = 0
 
   private var loginSubmitted = false
+  private var loginAttemptSequence = 0
+  private var authPageLoading = false
   private var failedAuthPageUrl: String? = null
   private var isAutoUpdating = false
-  private var autoUpdateFailedAttempts = 0
+  private var homeRefreshLabel: TextView? = null
   private var cacheCaptureInProgress = false
   private var showingLiveTimetable = false
   private var currentWebScreen = WebScreen.HOME
@@ -103,6 +102,7 @@ class MainActivity : AppCompatActivity() {
   private var currentAssetExportId: String? = null
   private var renderedHomeSignature: String? = null
   private var loginSessionBootstrapped = false
+  private var legacyLoginRedirectAttempted = false
   private var headlessLoginInProgress = false
   private var lastAutoScoreSyncElapsed = 0L
   private var pendingNotificationToggleTarget: NotificationToggleTarget? = null
@@ -114,6 +114,17 @@ class MainActivity : AppCompatActivity() {
   private var updateDownloadNotesView: TextView? = null
   private var updateDownloadProgressBar: ProgressBar? = null
   private var updateDownloadProgressText: TextView? = null
+  private var updateDownloadFallbackInProgress = false
+  private var updateDownloadUiVisible = false
+  private val updateDownloadPollRunnable = object : Runnable {
+    override fun run() {
+      refreshUpdateDownloadState()
+      if (updateDownloadUiVisible && prefs.getLong(PREF_UPDATE_DOWNLOAD_ID, -1L) > 0L) {
+        mainHandler.removeCallbacks(this)
+        mainHandler.postDelayed(this, 1000L)
+      }
+    }
+  }
   private var lastAutoUpdateCheckElapsed = 0L
   private var resourceUpdateCheckInProgress = false
   private var lastAutoResourceUpdateCheckElapsed = 0L
@@ -317,7 +328,19 @@ class MainActivity : AppCompatActivity() {
     private const val CURRENT_TIMETABLE_CACHE_PARSER_VERSION = 3
     private const val PREF_UPDATE_AVAILABLE_VERSION = "update_available_version"
     private const val PREF_UPDATE_AVAILABLE_SOURCE = "update_available_source"
+    private const val PREF_UPDATE_AVAILABLE_RELEASE = "update_available_release"
+    private const val PREF_UPDATE_AVAILABLE_CHECKED_AT = "update_available_checked_at"
     private const val PREF_UPDATE_PROMPTED_VERSION = "update_prompted_version"
+    private const val PREF_UPDATE_LATEST_APP_VERSION = "update_latest_app_version"
+    private const val PREF_UPDATE_LATEST_CHECKED_AT = "update_latest_checked_at"
+    private const val PREF_UPDATE_DOWNLOAD_ID = "update_download_id"
+    private const val PREF_UPDATE_DOWNLOAD_VERSION = "update_download_version"
+    private const val PREF_UPDATE_DOWNLOAD_SOURCE = "update_download_source"
+    private const val PREF_UPDATE_DOWNLOAD_URL = "update_download_url"
+    private const val PREF_UPDATE_DOWNLOAD_PAGE = "update_download_page"
+    private const val PREF_UPDATE_DOWNLOAD_NOTES = "update_download_notes"
+    private const val PREF_UPDATE_DOWNLOAD_FALLBACK_TRIED = "update_download_fallback_tried"
+    private val UPDATE_LATEST_CACHE_DURATION_MS = TimeUnit.HOURS.toMillis(24)
     private const val CACHE_META_ASSET = "cache-meta.json"
     private val HOME_MENU_ITEMS = listOf(
       HomeMenuEntry("exam", "考试安排", R.drawable.ic_home_exam, true),
@@ -365,14 +388,6 @@ class MainActivity : AppCompatActivity() {
       "input[name='PASSWORD']",
       "input[name='password']",
       "input[type='password']"
-    )
-
-    private val CAPTCHA_SELECTORS = listOf(
-      "#SafeCode",
-      "#RANDOMCODE",
-      "input[name='RANDOMCODE']",
-      "input[name='randomcode']",
-      "input[name='captcha']"
     )
 
     private fun serializeForScript(json: String): String {
@@ -425,7 +440,10 @@ class MainActivity : AppCompatActivity() {
   }
 
   override fun onDestroy() {
+    loginAttemptSequence++
     mainHandler.removeCallbacks(homeCarouselRunnable)
+    mainHandler.removeCallbacks(updateDownloadPollRunnable)
+    dismissUpdateDownloadDialog()
     homeImageVelocityTracker?.recycle()
     homeImageVelocityTracker = null
     homeViewerVelocityTracker?.recycle()
@@ -436,13 +454,21 @@ class MainActivity : AppCompatActivity() {
     super.onDestroy()
   }
 
+  override fun onPause() {
+    updateDownloadUiVisible = false
+    mainHandler.removeCallbacks(updateDownloadPollRunnable)
+    super.onPause()
+  }
+
   override fun onResume() {
     super.onResume()
+    updateDownloadUiVisible = true
     restoreNotificationSettings()
     updateNotificationLeadTimeSummary()
     refreshNotificationInputEnabledState()
     updateAppVersionSummary()
     refreshUpdateBadge()
+    resumeUpdateDownloadIfNeeded()
     resumePendingApkInstallIfReady()
     refreshGeneratedCacheAfterStartup()
     triggerPendingTimetableSemesterRefreshIfNeeded()
@@ -470,13 +496,12 @@ class MainActivity : AppCompatActivity() {
   }
 
   private fun triggerPendingTimetableSemesterRefreshIfNeeded() {
+    if (isAutoUpdating || loginSubmitted || authPageLoading || cacheCaptureInProgress) return
     if (!TimetableSemesterStore.consumeRefreshRequest(this)) {
       return
     }
-    authTimetableCaptureShouldShowCache = false
     appendDebugLog("TIMETABLE_SEMESTER", "START", "检测到课表学期变更，开始静默刷新课表缓存")
-    updateStatus("课表学期已变更，正在刷新课表缓存…")
-    binding.authWebView.loadUrl(TIMETABLE_URL)
+    startSilentTimetableRefresh(showStartToast = false)
   }
 
   private fun triggerScoreSyncOnAppOpenIfNeeded() {
@@ -575,6 +600,8 @@ class MainActivity : AppCompatActivity() {
       override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
         super.onPageStarted(view, url, favicon)
         failedAuthPageUrl = null
+        authPageLoading = true
+        updateLoginActionState()
       }
 
       override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
@@ -585,7 +612,9 @@ class MainActivity : AppCompatActivity() {
         val detail = "$reason：${request.url.host}${request.url.path}（WebView ${error.errorCode}：${error.description}）"
         appendDebugLog("AUTH_WEB", "FAIL", detail)
         updateStatus(detail)
-        isAutoUpdating = false
+        loginSubmitted = false
+        authPageLoading = false
+        updateLoginActionState()
       }
 
       override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, response: WebResourceResponse) {
@@ -595,18 +624,23 @@ class MainActivity : AppCompatActivity() {
         val detail = "网站返回错误：HTTP ${response.statusCode}，地址 ${request.url.host}${request.url.path}"
         appendDebugLog("AUTH_WEB", "FAIL", detail)
         updateStatus(detail)
-        isAutoUpdating = false
+        loginSubmitted = false
+        authPageLoading = false
+        updateLoginActionState()
       }
 
       override fun onPageFinished(view: WebView, url: String) {
         super.onPageFinished(view, url)
         if (failedAuthPageUrl == url) return
+        authPageLoading = false
+        updateLoginActionState()
         val loadedUri = Uri.parse(url)
         if (loginSubmitted && loadedUri.scheme != "file" && loadedUri.host !in setOf("ids.njust.edu.cn", "ehall2.njust.edu.cn", "bkjw.njust.edu.cn")) {
           val detail = "目标网站跳转错误：登录后进入了 ${loadedUri.host.orEmpty()}${loadedUri.path.orEmpty()}，请检查学校网站状态"
           appendDebugLog("AUTH_WEB", "FAIL", detail)
           updateStatus(detail)
-          isAutoUpdating = false
+          loginSubmitted = false
+          updateLoginActionState()
           return
         }
         updateStatus(getString(R.string.status_page_loaded, "${loadedUri.host.orEmpty()}${loadedUri.path.orEmpty()}"))
@@ -623,20 +657,30 @@ class MainActivity : AppCompatActivity() {
             "login" -> {
               val submitted = loginSubmitted
               loginSubmitted = false
+              updateLoginActionState()
               if (submitted) {
-                isAutoUpdating = false
                 updateStatus("登录尚未完成，请检查统一认证密码，或打开认证网页完成验证")
+              } else if (loadedUri.host == "ids.njust.edu.cn") {
+                updateStatus("统一认证已就绪，请输入账号和密码")
               } else if (looksLikeLoginUrl(url)) {
-                fetchCaptchaFromWebView()
+                if (!legacyLoginRedirectAttempted) {
+                  legacyLoginRedirectAttempted = true
+                  updateStatus("教务站点返回旧版登录页，正在切换统一认证…")
+                  view.loadUrl(UniversityEndpoints.PORTAL_LOGIN)
+                } else {
+                  updateStatus("未能进入统一认证，请点击“加载登录页”重试")
+                }
               } else {
                 // The teaching server serves its legacy login form at the timetable URL.
                 view.loadUrl(LOGIN_URL)
               }
             }
             "timetable" -> {
+              legacyLoginRedirectAttempted = false
               CookieManager.getInstance().flush()
               if (loginSubmitted) saveCredentials()
               loginSubmitted = false
+              updateLoginActionState()
               identityLoginDialog?.dismiss()
               if (authTimetableCaptureShouldShowCache) {
                 showingLiveTimetable = true
@@ -766,32 +810,85 @@ class MainActivity : AppCompatActivity() {
     }
 
     binding.openLoginButton.setOnClickListener {
-      isAutoUpdating = false
+      if (authPageLoading || loginSubmitted || cacheCaptureInProgress || isAutoUpdating) {
+        updateStatus("登录或课表更新正在进行，请等待结果")
+        return@setOnClickListener
+      }
       bootstrapLoginSession(forceReload = true)
-    }
-
-    binding.refreshCaptchaButton.setOnClickListener {
-      refreshCaptchaInWebView()
-    }
-
-    binding.identityLoginButton.setOnClickListener {
-      isAutoUpdating = false
-      showIdentityLoginWebPage()
     }
 
     binding.loginButton.setOnClickListener {
       submitLogin()
     }
+  }
 
-    binding.openTimetableButton.setOnClickListener {
-      showLiveTimetable()
-      updateStatus(getString(R.string.status_opening_timetable))
+  private fun updateLoginActionState() {
+    val busy = authPageLoading || loginSubmitted || cacheCaptureInProgress || isAutoUpdating
+    binding.loginButton.isEnabled = !busy
+    binding.loginButton.text = when {
+      loginSubmitted -> "登录中…"
+      authPageLoading -> "加载中…"
+      cacheCaptureInProgress -> "同步中…"
+      isAutoUpdating -> "更新中…"
+      else -> getString(R.string.login_submit_label)
     }
+    binding.openLoginButton.isEnabled = !busy
+  }
 
-    binding.viewCacheButton.setOnClickListener {
-      showCachedTimetable()
+  private fun setTimetableRefreshInProgress(inProgress: Boolean) {
+    isAutoUpdating = inProgress
+    updateHomeRefreshActionState()
+    updateLoginActionState()
+  }
+
+  private fun updateHomeRefreshActionState() {
+    homeRefreshLabel?.text = if (isAutoUpdating || cacheCaptureInProgress) "更新中…" else "更新课表"
+  }
+
+  private fun startSilentTimetableRefresh(showStartToast: Boolean = true) {
+    if (isAutoUpdating || loginSubmitted || authPageLoading || cacheCaptureInProgress) {
+      Toast.makeText(this, "登录或课表更新正在进行，请等待结果", Toast.LENGTH_SHORT).show()
+      return
     }
+    val credentials = CredentialStore.credentials(this)
 
+    setTimetableRefreshInProgress(true)
+    updateStatus("正在后台登录并获取课表…")
+    if (showStartToast) Toast.makeText(this, "正在后台更新课表…", Toast.LENGTH_SHORT).show()
+    val desiredSemester = TimetableSemesterStore.readSelectedSemester(this)
+    ioExecutor.execute {
+      try {
+        val result = HeadlessLoginClient(::appendDebugLog).login(
+          loginUrl = LOGIN_URL,
+          timetableUrl = TIMETABLE_URL,
+          username = credentials?.username.orEmpty(),
+          password = credentials?.password.orEmpty(),
+          desiredSemester = desiredSemester
+        )
+        if (TimetableSemesterStore.readSelectedSemester(this) != desiredSemester) {
+          appendDebugLog("TIMETABLE_REFRESH", "INFO", "刷新期间学期选择变化，跳过旧学期结果")
+          mainHandler.post {
+            setTimetableRefreshInProgress(false)
+            triggerPendingTimetableSemesterRefreshIfNeeded()
+          }
+          return@execute
+        }
+        handleCapturedTimetableHtml(
+          result.timetableHtml,
+          showCachedAfterSuccess = false,
+          sessionCookies = result.cookies
+        )
+      } catch (error: Throwable) {
+        val detail = FailureDetails.describe(error)
+        appendDebugLog("TIMETABLE_REFRESH", "FAIL", detail)
+        mainHandler.post {
+          setTimetableRefreshInProgress(false)
+          updateStatus("课表更新失败：$detail；原缓存已保留")
+          Toast.makeText(this, "课表更新失败：$detail", Toast.LENGTH_LONG).show()
+          triggerPendingTimetableSemesterRefreshIfNeeded()
+        }
+      }
+    }
   }
 
   private fun setupNotificationSettings() {
@@ -912,10 +1009,35 @@ class MainActivity : AppCompatActivity() {
 
   private fun updateAppVersionSummary(statusText: String? = null) {
     val currentVersion = currentAppVersionName()
+    val availableVersion = prefs.getString(PREF_UPDATE_AVAILABLE_VERSION, "").orEmpty().trim()
     binding.profileCheckUpdateSummary.text = when {
-      statusText.isNullOrBlank() -> getString(R.string.profile_current_version_format, currentVersion)
-      else -> statusText
+      !statusText.isNullOrBlank() -> statusText
+      availableVersion.isNotBlank() && compareVersionNames(availableVersion, currentVersion) > 0 ->
+        getString(R.string.profile_update_available_format, currentVersion, availableVersion)
+      hasFreshLatestUpdateCache(currentVersion) -> getString(R.string.profile_update_latest_format, currentVersion)
+      else -> getString(R.string.profile_current_version_format, currentVersion)
     }
+  }
+
+  private fun hasFreshLatestUpdateCache(currentVersion: String): Boolean {
+    if (prefs.getString(PREF_UPDATE_LATEST_APP_VERSION, "") != currentVersion) return false
+    val checkedAt = prefs.getLong(PREF_UPDATE_LATEST_CHECKED_AT, 0L)
+    val age = System.currentTimeMillis() - checkedAt
+    return checkedAt > 0L && age >= 0L && age < UPDATE_LATEST_CACHE_DURATION_MS
+  }
+
+  private fun persistLatestUpdateCache(currentVersion: String) {
+    prefs.edit()
+      .putString(PREF_UPDATE_LATEST_APP_VERSION, currentVersion)
+      .putLong(PREF_UPDATE_LATEST_CHECKED_AT, System.currentTimeMillis())
+      .apply()
+  }
+
+  private fun clearLatestUpdateCache() {
+    prefs.edit()
+      .remove(PREF_UPDATE_LATEST_APP_VERSION)
+      .remove(PREF_UPDATE_LATEST_CHECKED_AT)
+      .apply()
   }
 
   private fun refreshUpdateBadge() {
@@ -929,14 +1051,42 @@ class MainActivity : AppCompatActivity() {
       prefs.edit()
         .remove(PREF_UPDATE_AVAILABLE_VERSION)
         .remove(PREF_UPDATE_AVAILABLE_SOURCE)
+        .remove(PREF_UPDATE_AVAILABLE_RELEASE)
+        .remove(PREF_UPDATE_AVAILABLE_CHECKED_AT)
         .apply()
     } else {
+      val releaseJson = JSONObject().apply {
+        put("version", release.versionName)
+        put("source", release.sourceLabel)
+        put("page", release.pageUrl)
+        put("apk", release.apkUrl.orEmpty())
+        put("notes", release.releaseNotes)
+      }
       prefs.edit()
         .putString(PREF_UPDATE_AVAILABLE_VERSION, release.versionName)
         .putString(PREF_UPDATE_AVAILABLE_SOURCE, release.sourceLabel)
+        .putString(PREF_UPDATE_AVAILABLE_RELEASE, releaseJson.toString())
+        .putLong(PREF_UPDATE_AVAILABLE_CHECKED_AT, System.currentTimeMillis())
         .apply()
     }
     refreshUpdateBadge()
+  }
+
+  private fun cachedAvailableRelease(currentVersion: String): AppReleaseInfo? {
+    val checkedAt = prefs.getLong(PREF_UPDATE_AVAILABLE_CHECKED_AT, 0L)
+    val age = System.currentTimeMillis() - checkedAt
+    if (checkedAt <= 0L || age < 0L || age >= UPDATE_LATEST_CACHE_DURATION_MS) return null
+    val raw = prefs.getString(PREF_UPDATE_AVAILABLE_RELEASE, "").orEmpty()
+    return runCatching {
+      val json = JSONObject(raw)
+      AppReleaseInfo(
+        sourceLabel = json.getString("source"),
+        pageUrl = json.getString("page"),
+        versionName = json.getString("version"),
+        apkUrl = json.optString("apk").takeIf { it.isNotBlank() },
+        releaseNotes = json.optString("notes")
+      )
+    }.getOrNull()?.takeIf { compareVersionNames(it.versionName, currentVersion) > 0 }
   }
 
   private fun shouldAutoPromptUpdate(release: AppReleaseInfo): Boolean {
@@ -997,7 +1147,7 @@ class MainActivity : AppCompatActivity() {
     }
   }
 
-  private fun checkForAppUpdate(silent: Boolean = false) {
+  private fun checkForAppUpdate(silent: Boolean = false, forceRefresh: Boolean = false) {
     if (updateCheckInProgress) {
       appendDebugLog("UPDATE", "INFO", "重复触发检查更新，已忽略")
       if (!silent) {
@@ -1009,6 +1159,19 @@ class MainActivity : AppCompatActivity() {
     }
 
     val currentVersion = currentAppVersionName()
+    if (!forceRefresh) {
+      val cachedRelease = cachedAvailableRelease(currentVersion)
+      if (cachedRelease != null) {
+        updateAppVersionSummary(getString(R.string.profile_update_available_format, currentVersion, cachedRelease.versionName))
+        if (!silent) showUpdateAvailableDialog(currentVersion, cachedRelease)
+        return
+      }
+    }
+    if (!forceRefresh && hasFreshLatestUpdateCache(currentVersion)) {
+      updateAppVersionSummary(getString(R.string.profile_update_latest_format, currentVersion))
+      if (!silent) showLatestVersionDialog(currentVersion)
+      return
+    }
     appendDebugLog("UPDATE", "START", "开始检查更新，当前版本=$currentVersion")
     updateCheckInProgress = true
     if (!silent) {
@@ -1034,7 +1197,9 @@ class MainActivity : AppCompatActivity() {
         } catch (fallbackError: Throwable) {
           mainHandler.post {
             updateCheckInProgress = false
-            if (!silent) {
+            val shouldReportResult = !silent || pendingManualUpdateResult
+            pendingManualUpdateResult = false
+            if (shouldReportResult) {
               updateAppVersionSummary(getString(R.string.profile_update_failed_format, currentVersion))
               showUpdateCheckFailedDialog(giteeError, fallbackError)
             }
@@ -1051,6 +1216,7 @@ class MainActivity : AppCompatActivity() {
         val comparison = compareVersionNames(latestVersion, currentVersion)
         if (comparison > 0) {
           appendDebugLog("UPDATE", "SUCCESS", "发现新版本 $latestVersion，来源=${release.sourceLabel}")
+          clearLatestUpdateCache()
           persistAvailableUpdateState(release)
           updateAppVersionSummary(getString(R.string.profile_update_available_format, currentVersion, latestVersion))
           if (shouldReportResult) {
@@ -1065,17 +1231,23 @@ class MainActivity : AppCompatActivity() {
         } else {
           appendDebugLog("UPDATE", "SUCCESS", "当前已是最新版本，远端版本=$latestVersion")
           persistAvailableUpdateState(null)
+          persistLatestUpdateCache(currentVersion)
           updateAppVersionSummary(getString(R.string.profile_update_latest_format, currentVersion))
           if (shouldReportResult) {
-            AlertDialog.Builder(this)
-              .setTitle("已是最新版本")
-              .setMessage("当前版本 $currentVersion 已是最新版本。")
-              .setPositiveButton("知道了", null)
-              .show()
+            showLatestVersionDialog(currentVersion)
           }
         }
       }
     }
+  }
+
+  private fun showLatestVersionDialog(currentVersion: String) {
+    AlertDialog.Builder(this)
+      .setTitle("已是最新版本")
+      .setMessage("当前版本 $currentVersion 已是最新版本。")
+      .setNegativeButton("知道了", null)
+      .setPositiveButton("重新获取更新") { _, _ -> checkForAppUpdate(forceRefresh = true) }
+      .show()
   }
 
   private fun showUpdateCheckFailedDialog(giteeError: Throwable?, githubError: Throwable?) {
@@ -1102,13 +1274,14 @@ class MainActivity : AppCompatActivity() {
       if (release.apkUrl.isNullOrBlank()) {
         append("\n\n未在发布页中找到 APK 下载链接，可打开发布页手动下载安装。")
       }
+      append("\n\n发布页：").append(release.pageUrl)
     }
 
-    AlertDialog.Builder(this)
+    val dialog = AlertDialog.Builder(this)
       .setTitle("发现新版本")
       .setMessage(message)
       .setNegativeButton("取消", null)
-      .setNeutralButton("查看发布页") { _, _ -> openUrl(release.pageUrl) }
+      .setNeutralButton("重新获取更新") { _, _ -> checkForAppUpdate(forceRefresh = true) }
       .setPositiveButton(if (release.apkUrl.isNullOrBlank()) "知道了" else "下载安装") { _, _ ->
         if (release.apkUrl.isNullOrBlank()) {
           openUrl(release.pageUrl)
@@ -1117,6 +1290,11 @@ class MainActivity : AppCompatActivity() {
         }
       }
       .show()
+    dialog.findViewById<TextView>(android.R.id.message)?.apply {
+      setLinkTextColor(ContextCompat.getColor(this@MainActivity, R.color.login_blue_dark))
+      Linkify.addLinks(this, Linkify.WEB_URLS)
+      movementMethod = LinkMovementMethod.getInstance()
+    }
   }
 
   private fun downloadAndInstallReleaseApk(release: AppReleaseInfo) {
@@ -1126,83 +1304,192 @@ class MainActivity : AppCompatActivity() {
       openUrl(giteeReleasePageUrlForVersion(release.versionName, release))
       return
     }
+    if (prefs.getLong(PREF_UPDATE_DOWNLOAD_ID, -1L) > 0L) {
+      resumeUpdateDownloadIfNeeded()
+      Toast.makeText(this, "安装包正在下载", Toast.LENGTH_SHORT).show()
+      return
+    }
+    runCatching { enqueueUpdateDownload(release, fallbackTried = false) }
+      .onFailure { error -> showUpdateDownloadFailure(release, error.message ?: "无法启动下载") }
+  }
 
-    appendDebugLog("UPDATE_DOWNLOAD", "START", "开始下载版本 ${release.versionName}，首选来源=${release.sourceLabel}")
+  private fun updateDownloadManager(): DownloadManager =
+    getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+
+  private fun updateDownloadFile(versionName: String): File? {
+    val downloadsDir = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: return null
+    val safeVersion = versionName.replace(Regex("[^A-Za-z0-9._-]"), "_")
+    return File(downloadsDir, "updates/classsche-$safeVersion.apk")
+  }
+
+  private fun enqueueUpdateDownload(release: AppReleaseInfo, fallbackTried: Boolean) {
+    val apkUrl = release.apkUrl ?: throw IOException("发布页没有 APK 下载链接")
+    val targetFile = updateDownloadFile(release.versionName) ?: throw IOException("无法访问应用下载目录")
+    targetFile.parentFile?.mkdirs()
+    if (targetFile.exists() && !targetFile.delete()) throw IOException("无法清理上一次下载文件")
+    val request = DownloadManager.Request(Uri.parse(apkUrl))
+      .setTitle("周三课表 ${release.versionName}")
+      .setDescription("正在下载安装包")
+      .setMimeType("application/vnd.android.package-archive")
+      .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+      .setDestinationInExternalFilesDir(
+        this,
+        Environment.DIRECTORY_DOWNLOADS,
+        "updates/${targetFile.name}"
+      )
+    val downloadId = updateDownloadManager().enqueue(request)
+    prefs.edit()
+      .putLong(PREF_UPDATE_DOWNLOAD_ID, downloadId)
+      .putString(PREF_UPDATE_DOWNLOAD_VERSION, release.versionName)
+      .putString(PREF_UPDATE_DOWNLOAD_SOURCE, release.sourceLabel)
+      .putString(PREF_UPDATE_DOWNLOAD_URL, apkUrl)
+      .putString(PREF_UPDATE_DOWNLOAD_PAGE, release.pageUrl)
+      .putString(PREF_UPDATE_DOWNLOAD_NOTES, release.releaseNotes)
+      .putBoolean(PREF_UPDATE_DOWNLOAD_FALLBACK_TRIED, fallbackTried)
+      .apply()
+    appendDebugLog("UPDATE_DOWNLOAD", "START", "系统下载任务已启动，版本=${release.versionName}，来源=${release.sourceLabel}，任务=$downloadId")
     updateStatus("正在下载 ${release.versionName} 安装包…")
-    Toast.makeText(this, "开始下载 ${release.versionName} 安装包", Toast.LENGTH_SHORT).show()
-    showUpdateDownloadDialog(release)
+    if (updateDownloadUiVisible) {
+      showUpdateDownloadDialog(release)
+      startUpdateDownloadPolling()
+    }
+  }
 
-    ioExecutor.execute {
-      val targetDir = File(cacheDir, "updates").apply { mkdirs() }
-      val targetFile = File(targetDir, "classsche-${release.versionName}.apk")
-      val downloadCandidates = buildReleaseDownloadCandidates(release)
-      val failureMessages = mutableListOf<String>()
+  private fun storedUpdateDownloadRelease(): AppReleaseInfo = AppReleaseInfo(
+    sourceLabel = prefs.getString(PREF_UPDATE_DOWNLOAD_SOURCE, "").orEmpty(),
+    pageUrl = prefs.getString(PREF_UPDATE_DOWNLOAD_PAGE, "").orEmpty(),
+    versionName = prefs.getString(PREF_UPDATE_DOWNLOAD_VERSION, "").orEmpty(),
+    apkUrl = prefs.getString(PREF_UPDATE_DOWNLOAD_URL, ""),
+    releaseNotes = prefs.getString(PREF_UPDATE_DOWNLOAD_NOTES, "").orEmpty()
+  )
 
-      for (candidate in downloadCandidates) {
-        val candidateApkUrl = candidate.apkUrl
-        if (candidateApkUrl.isNullOrBlank()) {
-          failureMessages += "${candidate.sourceLabel}：未找到 APK 下载链接"
-          continue
-        }
+  private fun clearUpdateDownloadState() {
+    prefs.edit()
+      .remove(PREF_UPDATE_DOWNLOAD_ID)
+      .remove(PREF_UPDATE_DOWNLOAD_VERSION)
+      .remove(PREF_UPDATE_DOWNLOAD_SOURCE)
+      .remove(PREF_UPDATE_DOWNLOAD_URL)
+      .remove(PREF_UPDATE_DOWNLOAD_PAGE)
+      .remove(PREF_UPDATE_DOWNLOAD_NOTES)
+      .remove(PREF_UPDATE_DOWNLOAD_FALLBACK_TRIED)
+      .apply()
+    mainHandler.removeCallbacks(updateDownloadPollRunnable)
+    dismissUpdateDownloadDialog()
+  }
 
-        try {
-          mainHandler.post {
-            updateUpdateDownloadProgress(
-              versionName = release.versionName,
-              sourceLabel = candidate.sourceLabel,
-              downloadedBytes = 0L,
-              totalBytes = -1L
-            )
-          }
-          appendDebugLog("UPDATE_DOWNLOAD", "INFO", "尝试从 ${candidate.sourceLabel} 下载 ${release.versionName}")
-          downloadFile(candidateApkUrl, targetFile) { downloadedBytes, totalBytes ->
-            mainHandler.post {
-              updateUpdateDownloadProgress(
-                versionName = release.versionName,
-                sourceLabel = candidate.sourceLabel,
-                downloadedBytes = downloadedBytes,
-                totalBytes = totalBytes
-              )
-            }
-          }
-          mainHandler.post {
-            dismissUpdateDownloadDialog()
+  private fun cancelUpdateDownload() {
+    val downloadId = prefs.getLong(PREF_UPDATE_DOWNLOAD_ID, -1L)
+    if (downloadId <= 0L) {
+      dismissUpdateDownloadDialog()
+      return
+    }
+    val release = storedUpdateDownloadRelease()
+    mainHandler.removeCallbacks(updateDownloadPollRunnable)
+    runCatching { updateDownloadManager().remove(downloadId) }
+      .onFailure { error -> appendDebugLog("UPDATE_DOWNLOAD", "WARN", "撤销系统下载任务失败：${error.message ?: "unknown"}") }
+    val partialFile = updateDownloadFile(release.versionName)
+    if (partialFile?.exists() == true && !partialFile.delete()) {
+      appendDebugLog("UPDATE_DOWNLOAD", "WARN", "未能删除未完成安装包：${partialFile.name}")
+    }
+    clearUpdateDownloadState()
+    pendingApkInstallFile = null
+    updateStatus("安装包下载已取消")
+    appendDebugLog("UPDATE_DOWNLOAD", "INFO", "已取消安装包下载并清理临时文件，任务=$downloadId")
+  }
+
+  private fun startUpdateDownloadPolling() {
+    if (!updateDownloadUiVisible) return
+    mainHandler.removeCallbacks(updateDownloadPollRunnable)
+    mainHandler.post(updateDownloadPollRunnable)
+  }
+
+  private fun resumeUpdateDownloadIfNeeded() {
+    if (prefs.getLong(PREF_UPDATE_DOWNLOAD_ID, -1L) > 0L) startUpdateDownloadPolling()
+  }
+
+  private fun refreshUpdateDownloadState() {
+    val downloadId = prefs.getLong(PREF_UPDATE_DOWNLOAD_ID, -1L)
+    if (downloadId <= 0L) return
+    val release = storedUpdateDownloadRelease()
+    val cursor = runCatching {
+      updateDownloadManager().query(DownloadManager.Query().setFilterById(downloadId))
+    }.getOrNull()
+    if (cursor == null) return
+    cursor.use {
+      if (!it.moveToFirst()) {
+        clearUpdateDownloadState()
+        showUpdateDownloadFailure(release, "系统下载任务不存在，请重新下载")
+        return
+      }
+      val status = it.getInt(it.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
+      val downloadedBytes = it.getLong(it.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR))
+      val totalBytes = it.getLong(it.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES))
+      when (status) {
+        DownloadManager.STATUS_SUCCESSFUL -> {
+          val targetFile = updateDownloadFile(release.versionName)
+          clearUpdateDownloadState()
+          if (targetFile == null || !targetFile.exists() || targetFile.length() == 0L) {
+            showUpdateDownloadFailure(release, "下载完成，但安装包文件不存在")
+          } else {
+            appendDebugLog("UPDATE_DOWNLOAD", "SUCCESS", "安装包已下载完成：${targetFile.length()} bytes")
             updateStatus("安装包下载完成，准备安装…")
             promptInstallDownloadedApk(targetFile)
           }
-          appendDebugLog("UPDATE_DOWNLOAD", "SUCCESS", "已从 ${candidate.sourceLabel} 下载完成 ${targetFile.length()} bytes")
-          return@execute
-        } catch (error: Throwable) {
-          if (targetFile.exists()) {
-            targetFile.delete()
+        }
+        DownloadManager.STATUS_FAILED -> {
+          val reason = it.getInt(it.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON))
+          handleUpdateDownloadFailure(release, "系统下载失败（代码 $reason）")
+        }
+        else -> {
+          if (updateDownloadDialog?.isShowing != true) showUpdateDownloadDialog(release)
+          updateUpdateDownloadProgress(release.versionName, release.sourceLabel, downloadedBytes, totalBytes)
+          if (status == DownloadManager.STATUS_PAUSED) {
+            updateDownloadProgressText?.append(" · 网络暂停，等待自动恢复")
           }
-          val message = error.message?.takeIf { it.isNotBlank() } ?: "unknown"
-          appendDebugLog("UPDATE_DOWNLOAD", "WARN", "${candidate.sourceLabel} 下载失败：$message")
-          failureMessages += "${candidate.sourceLabel}：$message"
         }
       }
-
-      val giteePageUrl = giteeReleasePageUrlForVersion(release.versionName, release)
-      mainHandler.post {
-        dismissUpdateDownloadDialog()
-        updateStatus("安装包下载失败，已打开 Gitee 发布页")
-        Toast.makeText(this, "两边安装包都下载失败，已打开 Gitee 发布页", Toast.LENGTH_LONG).show()
-        if (failureMessages.isNotEmpty()) {
-          AlertDialog.Builder(this)
-            .setTitle("下载失败")
-            .setMessage(
-              buildString {
-                append("Gitee 和 GitHub 安装包都下载失败，已为你打开 Gitee 发布页。\n\n")
-                append(failureMessages.joinToString("\n"))
-              }
-            )
-            .setPositiveButton("知道了", null)
-            .show()
-        }
-        openUrl(giteePageUrl)
-      }
-      appendDebugLog("UPDATE_DOWNLOAD", "FAIL", "双源下载失败，已回退到 $giteePageUrl")
     }
+  }
+
+  private fun handleUpdateDownloadFailure(release: AppReleaseInfo, message: String) {
+    if (updateDownloadFallbackInProgress) return
+    appendDebugLog("UPDATE_DOWNLOAD", "WARN", "${release.sourceLabel} 下载失败：$message")
+    if (prefs.getBoolean(PREF_UPDATE_DOWNLOAD_FALLBACK_TRIED, false)) {
+      clearUpdateDownloadState()
+      showUpdateDownloadFailure(release, message)
+      return
+    }
+    updateDownloadFallbackInProgress = true
+    val failedDownloadId = prefs.getLong(PREF_UPDATE_DOWNLOAD_ID, -1L)
+    updateDownloadProgressText?.text = "当前来源下载失败，正在尝试备用来源…"
+    ioExecutor.execute {
+      val alternate = fetchAlternateReleaseInfo(release)
+        ?.takeIf { !it.apkUrl.isNullOrBlank() && it.apkUrl != release.apkUrl }
+      mainHandler.post {
+        updateDownloadFallbackInProgress = false
+        if (isFinishing || isDestroyed || prefs.getLong(PREF_UPDATE_DOWNLOAD_ID, -1L) != failedDownloadId) return@post
+        val oldId = prefs.getLong(PREF_UPDATE_DOWNLOAD_ID, -1L)
+        if (oldId > 0L) updateDownloadManager().remove(oldId)
+        clearUpdateDownloadState()
+        if (alternate == null) {
+          showUpdateDownloadFailure(release, "$message；备用来源不可用")
+        } else {
+          runCatching { enqueueUpdateDownload(alternate.copy(releaseNotes = release.releaseNotes), fallbackTried = true) }
+            .onFailure { error -> showUpdateDownloadFailure(release, error.message ?: "备用来源无法启动下载") }
+        }
+      }
+    }
+  }
+
+  private fun showUpdateDownloadFailure(release: AppReleaseInfo, message: String) {
+    appendDebugLog("UPDATE_DOWNLOAD", "FAIL", "安装包下载失败：$message")
+    updateStatus("安装包下载失败：$message")
+    AlertDialog.Builder(this)
+      .setTitle("下载失败")
+      .setMessage(message)
+      .setNegativeButton("关闭", null)
+      .setPositiveButton("查看发布页") { _, _ -> openUrl(giteeReleasePageUrlForVersion(release.versionName, release)) }
+      .show()
   }
 
   private fun showUpdateDownloadDialog(release: AppReleaseInfo) {
@@ -1218,6 +1505,23 @@ class MainActivity : AppCompatActivity() {
       textSize = 16f
       setTextColor(Color.parseColor("#1F2937"))
       includeFontPadding = false
+      layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+    }
+
+    val closeButton = ImageButton(this).apply {
+      setImageResource(android.R.drawable.ic_menu_close_clear_cancel)
+      imageTintList = android.content.res.ColorStateList.valueOf(ContextCompat.getColor(this@MainActivity, R.color.login_blue_dark))
+      contentDescription = "取消下载并清理安装包"
+      setBackgroundColor(Color.TRANSPARENT)
+      layoutParams = LinearLayout.LayoutParams(dpToPx(48), dpToPx(48))
+      setOnClickListener { cancelUpdateDownload() }
+    }
+
+    val header = LinearLayout(this).apply {
+      orientation = LinearLayout.HORIZONTAL
+      gravity = android.view.Gravity.CENTER_VERTICAL
+      addView(titleView)
+      addView(closeButton)
     }
 
     val notesView = TextView(this).apply {
@@ -1225,6 +1529,8 @@ class MainActivity : AppCompatActivity() {
       textSize = 13f
       setTextColor(Color.parseColor("#6B7380"))
       includeFontPadding = false
+      maxLines = 5
+      ellipsize = android.text.TextUtils.TruncateAt.END
       layoutParams = LinearLayout.LayoutParams(
         ViewGroup.LayoutParams.MATCH_PARENT,
         ViewGroup.LayoutParams.WRAP_CONTENT
@@ -1258,7 +1564,7 @@ class MainActivity : AppCompatActivity() {
       }
     }
 
-    container.addView(titleView)
+    container.addView(header)
     container.addView(notesView)
     container.addView(progressBar)
     container.addView(progressText)
@@ -1268,7 +1574,6 @@ class MainActivity : AppCompatActivity() {
     updateDownloadProgressBar = progressBar
     updateDownloadProgressText = progressText
     updateDownloadDialog = AlertDialog.Builder(this)
-      .setTitle("下载安装包")
       .setView(container)
       .setCancelable(false)
       .show()
@@ -1364,50 +1669,6 @@ class MainActivity : AppCompatActivity() {
       addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
     startActivity(intent)
-  }
-
-  @Throws(IOException::class)
-  private fun downloadFile(
-    fileUrl: String,
-    targetFile: File,
-    onProgress: ((downloadedBytes: Long, totalBytes: Long) -> Unit)? = null
-  ) {
-    val connection = (URL(fileUrl).openConnection() as HttpURLConnection).apply {
-      requestMethod = "GET"
-      instanceFollowRedirects = true
-      connectTimeout = 15000
-      readTimeout = 30000
-      setRequestProperty("User-Agent", UPDATE_USER_AGENT)
-    }
-
-    try {
-      connection.connect()
-      if (connection.responseCode !in 200..299) {
-        throw IOException("HTTP ${connection.responseCode}")
-      }
-
-      val totalBytes = connection.contentLengthLong
-      val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-      var downloadedBytes = 0L
-      onProgress?.invoke(0L, totalBytes)
-
-      BufferedInputStream(connection.inputStream).use { input ->
-        BufferedOutputStream(targetFile.outputStream()).use { output ->
-          while (true) {
-            val count = input.read(buffer)
-            if (count < 0) {
-              break
-            }
-            output.write(buffer, 0, count)
-            downloadedBytes += count
-            onProgress?.invoke(downloadedBytes, totalBytes)
-          }
-          output.flush()
-        }
-      }
-    } finally {
-      connection.disconnect()
-    }
   }
 
   @Throws(IOException::class)
@@ -1828,15 +2089,6 @@ class MainActivity : AppCompatActivity() {
     return tail.substring(0, end).trim()
   }
 
-  private fun buildReleaseDownloadCandidates(release: AppReleaseInfo): List<AppReleaseInfo> {
-    val candidates = mutableListOf(release)
-    val fallback = fetchAlternateReleaseInfo(release)
-    if (fallback != null) {
-      candidates += fallback
-    }
-    return candidates.distinctBy { "${it.sourceLabel}|${it.apkUrl}|${it.pageUrl}" }
-  }
-
   private fun fetchAlternateReleaseInfo(release: AppReleaseInfo): AppReleaseInfo? {
     val fallbackSource = if (release.sourceLabel.equals("Gitee", ignoreCase = true)) "GitHub" else "Gitee"
     val fallbackUrl = if (fallbackSource == "Gitee") GITEE_RELEASES_URL else GITHUB_RELEASES_URL
@@ -1930,6 +2182,7 @@ class MainActivity : AppCompatActivity() {
 
     loginSessionBootstrapped = true
     if (forceReload) {
+      legacyLoginRedirectAttempted = false
       clearSessionCookies()
     }
     loadLoginPageInWebView()
@@ -2025,30 +2278,6 @@ class MainActivity : AppCompatActivity() {
     }
   }
 
-  private fun recognizeCaptchaTextSync(bitmap: Bitmap): String? {
-    val result = AtomicReference<String?>()
-    val error = AtomicReference<Throwable?>()
-    val latch = CountDownLatch(1)
-    val processedBitmap = preprocessCaptcha(bitmap)
-    val image = InputImage.fromBitmap(processedBitmap, 0)
-    val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
-    recognizer.process(image)
-      .addOnSuccessListener { visionText ->
-        result.set(visionText.text.replace(Regex("[^a-zA-Z0-9]"), ""))
-        latch.countDown()
-      }
-      .addOnFailureListener { throwable ->
-        error.set(throwable)
-        latch.countDown()
-      }
-
-    if (!latch.await(12, TimeUnit.SECONDS)) {
-      throw IllegalStateException("验证码识别超时")
-    }
-    error.get()?.let { throw IllegalStateException(it.message ?: "验证码识别失败", it) }
-    return result.get()
-  }
-
   private fun runHeadlessScoreTest() {
     val credentials = resolveCurrentCredentials()
     if (credentials == null) {
@@ -2073,8 +2302,7 @@ class MainActivity : AppCompatActivity() {
           loginUrl = LOGIN_URL,
           timetableUrl = TIMETABLE_URL,
           username = username,
-          password = password,
-          recognizeCaptcha = ::recognizeCaptchaTextSync
+          password = password
         )
         val scores = fetchScoreRecordsWithCookies(loginResult.cookies)
         File(filesDir, HEADLESS_SCORE_TEST_FILE).writeText(scores.toString(), Charsets.UTF_8)
@@ -3682,7 +3910,7 @@ class MainActivity : AppCompatActivity() {
       }
 
       val label = TextView(this).apply {
-        text = item.label
+        text = if (item.key == "refresh" && (isAutoUpdating || cacheCaptureInProgress)) "更新中…" else item.label
         textSize = 14f
         setTextColor(Color.parseColor("#6B7380"))
         gravity = android.view.Gravity.CENTER
@@ -3692,6 +3920,7 @@ class MainActivity : AppCompatActivity() {
 
       itemView.addView(iconContainer)
       itemView.addView(label)
+      if (item.key == "refresh") homeRefreshLabel = label
       itemView.setOnClickListener {
         if (item.key == "schedule") {
           showCachedTimetable()
@@ -3702,15 +3931,7 @@ class MainActivity : AppCompatActivity() {
         } else if (item.key == "level") {
           showCachedLevelExamPage()
         } else if (item.key == "refresh") {
-          val credentials = CredentialStore.credentials(this)
-          if (credentials == null) {
-             Toast.makeText(this, "请先在个人中心填写账号密码", Toast.LENGTH_SHORT).show()
-          } else {
-             isAutoUpdating = true
-             autoUpdateFailedAttempts = 0
-             Toast.makeText(this, "开始后台自动更新课表...", Toast.LENGTH_SHORT).show()
-             bootstrapLoginSession(forceReload = true)
-          }
+          startSilentTimetableRefresh()
         } else {
           Toast.makeText(this, "该功能入口已预留，暂未实现", Toast.LENGTH_SHORT).show()
         }
@@ -4046,167 +4267,31 @@ class MainActivity : AppCompatActivity() {
     }
   }
 
-  private fun refreshCaptchaInWebView(retryCount: Int = 0) {
-    updateStatus(getString(R.string.status_refreshing_captcha))
-    binding.authWebView.evaluateJavascript(
-      """
-      (function() {
-        if (typeof ReShowCode === 'function') {
-          ReShowCode();
-        } else {
-          var img = document.getElementById('SafeCodeImg');
-          if (img) {
-            img.click();
-          }
-        }
-        return true;
-      })();
-      """.trimIndent()
-    ) { _ ->
-      mainHandler.postDelayed({ fetchCaptchaFromWebView(retryCount) }, 500)
-    }
-  }
-
-  private fun fetchCaptchaFromWebView(retryCount: Int = 0) {
-    if (Uri.parse(binding.authWebView.url.orEmpty()).host == "ids.njust.edu.cn") {
-      binding.captchaInput.visibility = View.GONE
-      binding.captchaImage.visibility = View.GONE
-      binding.refreshCaptchaButton.visibility = View.GONE
-      updateStatus("统一认证已就绪，请输入统一认证密码；如需验证请打开认证网页")
-      if (isAutoUpdating) submitLogin()
+  private fun submitLogin() {
+    if (loginSubmitted || authPageLoading || cacheCaptureInProgress || isAutoUpdating) {
+      updateStatus("登录正在进行，请等待当前操作完成")
       return
     }
-    binding.captchaInput.visibility = View.VISIBLE
-    binding.captchaImage.visibility = View.VISIBLE
-    binding.refreshCaptchaButton.visibility = View.VISIBLE
-    binding.authWebView.evaluateJavascript(
-      """
-      (function() {
-        var img = document.getElementById('SafeCodeImg');
-        return img ? (img.getAttribute('src') || img.src || '') : '';
-      })();
-      """.trimIndent()
-    ) { rawValue ->
-      val relativeUrl = decodeJsValue(rawValue)
-      if (relativeUrl.isBlank()) {
-        updateStatus(getString(R.string.status_captcha_not_found))
-        return@evaluateJavascript
-      }
-
-      loadCaptchaImage(relativeUrl, retryCount)
-    }
-  }
-
-  private fun loadCaptchaImage(relativeUrl: String, retryCount: Int = 0) {
-    val absoluteUrl = URL(URL(binding.authWebView.url ?: LOGIN_URL), relativeUrl).toString()
-    val cookie = CookieManager.getInstance().getCookie(absoluteUrl).orEmpty()
-
-    ioExecutor.execute {
-      try {
-        val connection = URL(absoluteUrl).openConnection() as HttpURLConnection
-        connection.requestMethod = "GET"
-        connection.useCaches = false
-        connection.instanceFollowRedirects = true
-        connection.connectTimeout = 10000
-        connection.readTimeout = 10000
-        if (cookie.isNotBlank()) {
-          connection.setRequestProperty("Cookie", cookie)
-        }
-
-        BufferedInputStream(connection.inputStream).use { input ->
-          val bitmap = BitmapFactory.decodeStream(input)
-          mainHandler.post {
-            binding.captchaImage.setImageBitmap(bitmap)
-            binding.captchaImage.contentDescription = getString(R.string.captcha_loaded)
-            updateStatus(getString(R.string.status_captcha_loaded))
-          }
-          
-          if (bitmap != null) {
-            val processedBitmap = preprocessCaptcha(bitmap)
-            val image = InputImage.fromBitmap(processedBitmap, 0)
-            val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
-            recognizer.process(image)
-              .addOnSuccessListener { visionText ->
-                val text = visionText.text.replace(Regex("[^a-zA-Z0-9]"), "")
-                if (text.length == 4) {
-                  mainHandler.post {
-                    binding.captchaInput.editText?.setText(text)
-                    updateStatus("验证码识别成功")
-                    if (isAutoUpdating) {
-                      submitLogin()
-                    }
-                  }
-                } else if (retryCount < 5) {
-                  mainHandler.post { 
-                    updateStatus("验证码识别失败，正在重试...")
-                    refreshCaptchaInWebView(retryCount + 1) 
-                  }
-                } else {
-                  mainHandler.post {
-                    binding.captchaInput.editText?.setText(text)
-                    updateStatus("验证码识别达到最大重试次数")
-                  }
-                }
-              }
-              .addOnFailureListener {
-                if (retryCount < 5) {
-                  mainHandler.post { 
-                    updateStatus("验证码识别异常，正在重试...")
-                    refreshCaptchaInWebView(retryCount + 1) 
-                  }
-                }
-              }
-          }
-        }
-      } catch (error: Exception) {
-        mainHandler.post {
-          updateStatus(getString(R.string.status_captcha_failed, FailureDetails.describe(error)))
-        }
-      }
-    }
-  }
-
-  private fun preprocessCaptcha(src: Bitmap): Bitmap {
-    val scale = 3f
-    val scaledWidth = (src.width * scale).toInt()
-    val scaledHeight = (src.height * scale).toInt()
-    val scaledBitmap = Bitmap.createScaledBitmap(src, scaledWidth, scaledHeight, true)
-    
-    val result = Bitmap.createBitmap(scaledWidth, scaledHeight, Bitmap.Config.ARGB_8888)
-    val canvas = android.graphics.Canvas(result)
-    val paint = android.graphics.Paint()
-    val colorMatrix = android.graphics.ColorMatrix().apply {
-      setSaturation(0f)
-    }
-    paint.colorFilter = android.graphics.ColorMatrixColorFilter(colorMatrix)
-    canvas.drawBitmap(scaledBitmap, 0f, 0f, paint)
-
-    val pixels = IntArray(scaledWidth * scaledHeight)
-    result.getPixels(pixels, 0, scaledWidth, 0, 0, scaledWidth, scaledHeight)
-    for (i in pixels.indices) {
-      val p = pixels[i]
-      val r = Color.red(p)
-      val g = Color.green(p)
-      val b = Color.blue(p)
-      val gray = (r * 0.299 + g * 0.587 + b * 0.114).toInt()
-      pixels[i] = if (gray > 165) Color.WHITE else Color.BLACK
-    }
-    result.setPixels(pixels, 0, scaledWidth, 0, 0, scaledWidth, scaledHeight)
-    return result
-  }
-
-  private fun submitLogin() {
     val username = binding.usernameInput.editText?.text?.toString().orEmpty().trim()
     val password = binding.passwordInput.editText?.text?.toString().orEmpty().trim()
-    val captcha = binding.captchaInput.editText?.text?.toString().orEmpty().trim()
 
     val identityLogin = Uri.parse(binding.authWebView.url.orEmpty()).host == "ids.njust.edu.cn"
-    if (username.isBlank() || password.isBlank() || (!identityLogin && captcha.isBlank())) {
+    if (username.isBlank() || password.isBlank()) {
       updateStatus(getString(R.string.status_missing_fields))
+      return
+    }
+    if (!identityLogin) {
+      legacyLoginRedirectAttempted = true
+      authPageLoading = true
+      updateLoginActionState()
+      updateStatus("正在重新打开统一认证，请页面加载后再次提交")
+      binding.authWebView.loadUrl(UniversityEndpoints.PORTAL_LOGIN)
       return
     }
 
     loginSubmitted = true
+    val attemptSequence = ++loginAttemptSequence
+    updateLoginActionState()
     updateStatus(getString(R.string.status_submitting_login))
 
     val script = """
@@ -4226,8 +4311,6 @@ class MainActivity : AppCompatActivity() {
 
         const userOk = setValue(${toJsArray(USERNAME_SELECTORS)}, ${toJsString(username)});
         const passwordOk = setValue(${toJsArray(PASSWORD_SELECTORS)}, ${toJsString(password)});
-        const captchaOk = setValue(${toJsArray(CAPTCHA_SELECTORS)}, ${toJsString(captcha)});
-
         const identityButton = Array.from(document.querySelectorAll('#login_submit')).find(el => el.getClientRects().length);
         if (identityButton) {
           if (userOk && passwordOk) identityButton.click();
@@ -4238,31 +4321,47 @@ class MainActivity : AppCompatActivity() {
 
         if (button) {
           button.click();
-          return JSON.stringify({ userOk, passwordOk, captchaOk, submitted: true });
+          return JSON.stringify({ userOk, passwordOk, submitted: true });
         }
 
         if (form) {
           form.submit();
-          return JSON.stringify({ userOk, passwordOk, captchaOk, submitted: true });
+          return JSON.stringify({ userOk, passwordOk, submitted: true });
         }
 
-        return JSON.stringify({ userOk, passwordOk, captchaOk, submitted: false });
+        return JSON.stringify({ userOk, passwordOk, submitted: false });
       })();
     """.trimIndent()
 
     binding.authWebView.evaluateJavascript(script) { result ->
+      val submitted = runCatching { JSONObject(decodeJsValue(result)).optBoolean("submitted") }.getOrNull()
+      if (submitted == false) {
+        loginSubmitted = false
+        updateLoginActionState()
+        updateStatus("登录表单未提交，请重新加载登录页后重试")
+        return@evaluateJavascript
+      }
       updateStatus(getString(R.string.status_submit_result, decodeJsValue(result)))
       if (identityLogin) {
         mainHandler.postDelayed({
-          if (loginSubmitted && Uri.parse(binding.authWebView.url.orEmpty()).host == "ids.njust.edu.cn") {
+          if (loginSubmitted && loginAttemptSequence == attemptSequence && Uri.parse(binding.authWebView.url.orEmpty()).host == "ids.njust.edu.cn") {
             loginSubmitted = false
-            isAutoUpdating = false
+            updateLoginActionState()
             updateStatus("请在统一认证网页检查登录结果或完成验证")
             showIdentityLoginWebPage()
           }
         }, 5000)
       }
     }
+    mainHandler.postDelayed({
+      if (loginSubmitted && loginAttemptSequence == attemptSequence) {
+        binding.authWebView.stopLoading()
+        loginSubmitted = false
+        authPageLoading = false
+        updateLoginActionState()
+        updateStatus("登录等待超时，请检查网络或重新加载登录页后重试")
+      }
+    }, 45_000)
   }
 
   private fun captureTimetablePage(
@@ -4274,6 +4373,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     cacheCaptureInProgress = true
+    updateHomeRefreshActionState()
+    updateLoginActionState()
     updateStatus("已进入课表页，正在抓取并更新本地缓存…")
 
     webView.evaluateJavascript(
@@ -4286,6 +4387,8 @@ class MainActivity : AppCompatActivity() {
       val html = decodeJsValue(rawValue)
       if (html.isBlank()) {
         cacheCaptureInProgress = false
+        setTimetableRefreshInProgress(false)
+        updateLoginActionState()
         updateStatus("课表页面抓取失败：HTML 为空。")
         return@evaluateJavascript
       }
@@ -4299,7 +4402,8 @@ class MainActivity : AppCompatActivity() {
   private fun handleCapturedTimetableHtml(
     html: String,
     successStatus: String? = null,
-    showCachedAfterSuccess: Boolean = true
+    showCachedAfterSuccess: Boolean = true,
+    sessionCookies: Map<String, String>? = null
   ) {
     try {
       appendDebugLog(
@@ -4330,15 +4434,17 @@ class MainActivity : AppCompatActivity() {
         .putInt(PREF_TIMETABLE_CACHE_PARSER_VERSION, CURRENT_TIMETABLE_CACHE_PARSER_VERSION)
         .apply()
       appendDebugLog("TIMETABLE_CAPTURE", "INFO", "课表缓存文件写入完成")
-      val examSyncResult = runCatching { syncExamCacheFromSession(courses) }
+      val examSyncResult = runCatching { syncExamCacheFromSession(courses, sessionCookies) }
         .onFailure { appendDebugLog("EXAM", "FAIL", it.message ?: "unknown") }
-      val scoreSyncResult = runCatching { syncScoreCacheFromSession() }
+      val scoreSyncResult = runCatching { syncScoreCacheFromSession(sessionCookies) }
         .onFailure { appendDebugLog("SCORE", "FAIL", it.message ?: "unknown") }
-      val levelExamSyncResult = runCatching { syncLevelExamCacheFromSession() }
+      val levelExamSyncResult = runCatching { syncLevelExamCacheFromSession(sessionCookies) }
         .onFailure { appendDebugLog("LEVEL_EXAM", "FAIL", it.message ?: "unknown") }
 
       mainHandler.post {
         cacheCaptureInProgress = false
+        updateHomeRefreshActionState()
+        updateLoginActionState()
         renderedHomeSignature = null
         val examCount = examSyncResult.getOrNull()
         val scoreCount = scoreSyncResult.getOrNull()
@@ -4358,9 +4464,9 @@ class MainActivity : AppCompatActivity() {
         CourseNotificationScheduler.sync(this@MainActivity)
         ExamOngoingNotificationScheduler.sync(this@MainActivity)
         if (isAutoUpdating) {
-          val msg = if (autoUpdateFailedAttempts == 0) "更新成功 (1次通过)" else "更新成功 (失败 ${autoUpdateFailedAttempts} 次后)"
-          Toast.makeText(this@MainActivity, msg, Toast.LENGTH_LONG).show()
-          isAutoUpdating = false
+          Toast.makeText(this@MainActivity, "课表更新成功，共 ${courses.size} 条课程", Toast.LENGTH_LONG).show()
+          setTimetableRefreshInProgress(false)
+          triggerPendingTimetableSemesterRefreshIfNeeded()
         }
         if (showCachedAfterSuccess) {
           showCachedTimetable()
@@ -4378,10 +4484,14 @@ class MainActivity : AppCompatActivity() {
       )
       mainHandler.post {
         cacheCaptureInProgress = false
+        updateHomeRefreshActionState()
+        updateLoginActionState()
         authTimetableCaptureShouldShowCache = true
         updateStatus("课表缓存同步失败：${FailureDetails.describe(error)}；原缓存已保留")
         if (isAutoUpdating) {
-          isAutoUpdating = false
+          Toast.makeText(this@MainActivity, "课表更新失败：${FailureDetails.describe(error)}", Toast.LENGTH_LONG).show()
+          setTimetableRefreshInProgress(false)
+          triggerPendingTimetableSemesterRefreshIfNeeded()
         }
       }
     }
@@ -4469,18 +4579,18 @@ class MainActivity : AppCompatActivity() {
     }
   }
 
-  private fun syncExamCacheFromSession(courses: List<TimetableCourse>): Int {
+  private fun syncExamCacheFromSession(courses: List<TimetableCourse>, sessionCookies: Map<String, String>? = null): Int {
     appendDebugLog("EXAM", "START", "开始同步考试缓存，课程数=${courses.size}")
-    val exams = fetchExamArrangements(courses)
+    val exams = fetchExamArrangements(courses, sessionCookies)
     File(filesDir, EXAM_JSON_FILE).writeText(ExamRenderer.toJson(exams), Charsets.UTF_8)
     appendDebugLog("EXAM", "SUCCESS", "考试缓存写入完成，共 ${exams.size} 场")
     return exams.size
   }
 
-  private fun syncScoreCacheFromSession(): Int {
+  private fun syncScoreCacheFromSession(sessionCookies: Map<String, String>? = null): Int {
     appendDebugLog("SCORE", "START", "开始同步成绩缓存")
     val previousScores = readScoreArrayFromFile(File(filesDir, SCORE_JSON_FILE))
-    val scores = fetchScoreRecords()
+    val scores = fetchScoreRecords(sessionCookies)
     File(filesDir, SCORE_JSON_FILE).writeText(scores.toString(), Charsets.UTF_8)
     val updatedItems = detectUpdatedScoreItems(previousScores, scores)
     val hasNewUpdates = previousScores.length() > 0 && updatedItems.isNotEmpty()
@@ -4497,9 +4607,9 @@ class MainActivity : AppCompatActivity() {
     return scores.length()
   }
 
-  private fun syncLevelExamCacheFromSession(): Int {
+  private fun syncLevelExamCacheFromSession(sessionCookies: Map<String, String>? = null): Int {
     appendDebugLog("LEVEL_EXAM", "START", "开始同步等级考试缓存")
-    val records = fetchLevelExamRecords()
+    val records = fetchLevelExamRecords(sessionCookies)
     File(filesDir, LEVEL_EXAM_JSON_FILE).writeText(records.toString(), Charsets.UTF_8)
     appendDebugLog("LEVEL_EXAM", "SUCCESS", "等级考试缓存写入完成，共 ${records.length()} 条")
     return records.length()
@@ -4878,20 +4988,20 @@ class MainActivity : AppCompatActivity() {
     return ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
   }
 
-  private fun fetchExamArrangements(courses: List<TimetableCourse>): List<ExamArrangement> {
-    val queryDocument = fetchExamQueryDocument()
+  private fun fetchExamArrangements(courses: List<TimetableCourse>, sessionCookies: Map<String, String>? = null): List<ExamArrangement> {
+    val queryDocument = fetchExamQueryDocument(sessionCookies)
     val form = queryDocument.selectFirst("form[name=ksapQueryForm]") ?: queryDocument.selectFirst("form")
       ?: throw IllegalStateException("未找到考试查询表单")
     val method = form.attr("method").ifBlank { "post" }
     val actionUrl = resolveExamListUrl(form)
     val parameters = extractExamFormParameters(form)
-    val examBytes = submitExamQuery(actionUrl, method, parameters)
+    val examBytes = submitExamQuery(actionUrl, method, parameters, sessionCookies)
     return ExamParser.parseBytes(examBytes, actionUrl, courses)
   }
 
-  private fun fetchScoreRecords(): JSONArray {
+  private fun fetchScoreRecords(sessionCookies: Map<String, String>? = null): JSONArray {
     appendDebugLog("SCORE_FETCH", "START", "开始请求成绩页")
-    val bytes = withSessionConnection(SCORE_LIST_URL, method = "GET", referer = TIMETABLE_URL) { connection ->
+    val bytes = withSessionConnection(SCORE_LIST_URL, method = "GET", referer = TIMETABLE_URL, sessionCookies = sessionCookies) { connection ->
       val responseCode = connection.responseCode
       appendDebugLog(
         "SCORE_FETCH",
@@ -4971,9 +5081,9 @@ class MainActivity : AppCompatActivity() {
     return result
   }
 
-  private fun fetchLevelExamRecords(): JSONArray {
+  private fun fetchLevelExamRecords(sessionCookies: Map<String, String>? = null): JSONArray {
     appendDebugLog("LEVEL_EXAM_FETCH", "START", "开始请求等级考试页")
-    val bytes = withSessionConnection(LEVEL_EXAM_LIST_URL, method = "GET", referer = TIMETABLE_URL) { connection ->
+    val bytes = withSessionConnection(LEVEL_EXAM_LIST_URL, method = "GET", referer = TIMETABLE_URL, sessionCookies = sessionCookies) { connection ->
       val responseCode = connection.responseCode
       appendDebugLog(
         "LEVEL_EXAM_FETCH",
@@ -5051,8 +5161,8 @@ class MainActivity : AppCompatActivity() {
     return result
   }
 
-  private fun fetchExamQueryDocument() =
-    withSessionConnection(EXAM_QUERY_URL, method = "GET") { connection ->
+  private fun fetchExamQueryDocument(sessionCookies: Map<String, String>? = null) =
+    withSessionConnection(EXAM_QUERY_URL, method = "GET", sessionCookies = sessionCookies) { connection ->
       val code = connection.responseCode
       check(code in 200..299) {
         "考试查询页面 HTTP $code，地址 $EXAM_QUERY_URL，跳转目标 ${connection.getHeaderField("Location") ?: "无"}"
@@ -5130,7 +5240,8 @@ class MainActivity : AppCompatActivity() {
   private fun submitExamQuery(
     url: String,
     method: String,
-    parameters: Map<String, String>
+    parameters: Map<String, String>,
+    sessionCookies: Map<String, String>? = null
   ): ByteArray {
     val normalizedMethod = method.uppercase()
     val requestUrl = if (normalizedMethod == "GET" && parameters.isNotEmpty()) {
@@ -5140,7 +5251,7 @@ class MainActivity : AppCompatActivity() {
       url
     }
 
-    return withSessionConnection(requestUrl, method = normalizedMethod, referer = EXAM_QUERY_URL) { connection ->
+    return withSessionConnection(requestUrl, method = normalizedMethod, referer = EXAM_QUERY_URL, sessionCookies = sessionCookies) { connection ->
       if (method.equals("post", ignoreCase = true)) {
         connection.doOutput = true
         connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
@@ -5161,9 +5272,10 @@ class MainActivity : AppCompatActivity() {
     url: String,
     method: String,
     referer: String? = null,
+    sessionCookies: Map<String, String>? = null,
     block: (HttpURLConnection) -> T
   ): T {
-    val connection = openSessionConnection(url, method, referer)
+    val connection = openSessionConnection(url, method, referer, sessionCookies)
     return try {
       block(connection)
     } finally {
@@ -5174,7 +5286,8 @@ class MainActivity : AppCompatActivity() {
   private fun openSessionConnection(
     url: String,
     method: String,
-    referer: String? = null
+    referer: String? = null,
+    sessionCookies: Map<String, String>? = null
   ): HttpURLConnection {
     val connection = URL(url).openConnection() as HttpURLConnection
     connection.requestMethod = method.uppercase()
@@ -5186,7 +5299,7 @@ class MainActivity : AppCompatActivity() {
     connection.setRequestProperty("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.6")
     connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome Mobile Safari/537.36")
     referer?.let { connection.setRequestProperty("Referer", it) }
-    val cookie = buildCookieHeader(url)
+    val cookie = buildCookieHeader(url, sessionCookies)
     if (cookie.isNotBlank()) {
       connection.setRequestProperty("Cookie", cookie)
     }
@@ -5198,7 +5311,10 @@ class MainActivity : AppCompatActivity() {
     return connection
   }
 
-  private fun buildCookieHeader(targetUrl: String): String {
+  private fun buildCookieHeader(targetUrl: String, sessionCookies: Map<String, String>? = null): String {
+    if (sessionCookies != null) {
+      return sessionCookies.entries.joinToString("; ") { (name, value) -> "$name=$value" }
+    }
     return CookieManager.getInstance().getCookie(targetUrl).orEmpty()
   }
 
@@ -5261,7 +5377,6 @@ class MainActivity : AppCompatActivity() {
   private fun clearInputFocus() {
     binding.usernameInput.editText?.clearFocus()
     binding.passwordInput.editText?.clearFocus()
-    binding.captchaInput.editText?.clearFocus()
     currentFocus?.clearFocus()
   }
 

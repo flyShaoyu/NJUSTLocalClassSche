@@ -3,4 +3,7 @@
     <color name="sky_top">#6CA7E0</color>
     <color name="sky_bottom">#79AFE6</color>
     <color name="surface">#F7F8FC</color>
+    <color name="login_blue">#4F8FC9</color>
+    <color name="login_blue_dark">#315F8E</color>
+    <color name="login_blue_light">#EAF4FF</color>
 </resources>
