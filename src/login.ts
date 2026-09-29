@@ -1,149 +1,43 @@
-﻿import { Page } from "playwright";
+import { Page } from "playwright";
 import { AppConfig } from "./types.js";
 import { logStep } from "./logger.js";
 
-const DEFAULT_USERNAME_SELECTORS = [
-  "#xh",
-  "#username",
-  "input[name='USERNAME']",
-  "input[name='username']",
-  "input[type='text']"
-];
-
-const DEFAULT_PASSWORD_SELECTORS = [
-  "#pwd",
-  "#password",
-  "input[name='PASSWORD']",
-  "input[name='password']",
-  "input[type='password']"
-];
-
-const DEFAULT_SUCCESS_SELECTORS = [
-  "text=课表",
-  "text=退出",
-  "text=安全退出",
-  "text=学生课表",
-  "text=个人课表"
-];
-
-const buildSelectorList = (
-  preferred: string | undefined,
-  fallbackSelectors: string[]
-): string[] => (preferred ? [preferred, ...fallbackSelectors] : fallbackSelectors);
-
-const redactUrlForLog = (value: string): string => {
-  try {
-    const url = new URL(value);
-    for (const key of [...url.searchParams.keys()]) {
-      if (/user|name|xh|account|password|pwd/i.test(key)) {
-        url.searchParams.set(key, "[redacted]");
-      }
-    }
-    return url.toString();
-  } catch {
-    return value.replace(/([?&](?:USERNAME|PASSWORD|username|password|pwd|xh)=)[^&]*/gi, "$1[redacted]");
-  }
+export const isIdentityLogin = (url: string): boolean => {
+  const parsed = new URL(url);
+  return parsed.hostname === "ids.njust.edu.cn" && parsed.pathname.startsWith("/authserver/");
 };
 
-const firstVisibleSelector = async (
-  page: Page,
-  selectors: string[]
-): Promise<string | undefined> => {
-  for (const selector of selectors) {
-    try {
-      await page.locator(selector).first().waitFor({ state: "visible", timeout: 500 });
-      return selector;
-    } catch {
-      continue;
-    }
-  }
-
-  return undefined;
-};
-
-const prefillSavedCredentials = async (page: Page, config: AppConfig): Promise<void> => {
-  if (!config.username && !config.password) {
-    logStep("No saved username/password found in .env. Waiting for full manual login.");
-    return;
-  }
-
-  const usernameSelector = await firstVisibleSelector(page, DEFAULT_USERNAME_SELECTORS);
-  const passwordSelector = await firstVisibleSelector(page, DEFAULT_PASSWORD_SELECTORS);
-
-  if (config.username && usernameSelector) {
-    logStep(`Prefilling username input: ${usernameSelector}`);
-    await page.locator(usernameSelector).first().fill(config.username);
-  }
-
-  if (config.password && passwordSelector) {
-    logStep(`Prefilling password input: ${passwordSelector}`);
-    await page.locator(passwordSelector).first().fill(config.password);
-  }
-};
-
-export const looksLikeLoginPage = async (page: Page): Promise<boolean> => {
-  const usernameSelector = await firstVisibleSelector(page, DEFAULT_USERNAME_SELECTORS);
-  const passwordSelector = await firstVisibleSelector(page, DEFAULT_PASSWORD_SELECTORS);
-  const isLogin = Boolean(usernameSelector && passwordSelector);
-  logStep(`Login page detection result: ${isLogin ? `matched ${usernameSelector} and ${passwordSelector}` : "not matched"}`);
-  return isLogin;
-};
-
-const hasSuccessIndicator = async (
-  page: Page,
-  selectors: string[]
-): Promise<string | undefined> => {
-  for (const selector of selectors) {
-    try {
-      const locator = page.locator(selector).first();
-      if (await locator.isVisible({ timeout: 200 })) {
-        return selector;
-      }
-    } catch {
-      continue;
-    }
-  }
-
-  return undefined;
-};
+export const looksLikeLoginPage = async (page: Page): Promise<boolean> =>
+  isIdentityLogin(page.url()) || await page.locator("input[type='password']:visible").count() > 0;
 
 export const waitForManualLogin = async (page: Page, config: AppConfig): Promise<void> => {
-  logStep("Session is missing or expired. Please complete login manually in the opened browser window.");
-  await prefillSavedCredentials(page, config);
-  logStep("Enter the captcha in the page, adjust credentials if needed, then submit the form.");
+  const identityLogin = isIdentityLogin(page.url());
+  const username = page.locator("#username:visible, #xh:visible, input[name='USERNAME']:visible").first();
+  const password = page.locator("input[type='password']:visible").first();
+  const savedPassword = config.password;
+  if (config.username && await username.count()) await username.fill(config.username);
+  if (savedPassword && await password.count()) await password.fill(savedPassword);
 
-  const successSelectors = buildSelectorList(config.loginSuccessSelector, DEFAULT_SUCCESS_SELECTORS);
-  const deadline = Date.now() + config.manualLoginTimeoutMs;
-  let iteration = 0;
-
-  while (Date.now() < deadline) {
-    iteration++;
-    await page.waitForLoadState("domcontentloaded").catch(() => undefined);
-    const currentUrl = page.url();
-    const safeCurrentUrl = redactUrlForLog(currentUrl);
-
-    const successSelector = await hasSuccessIndicator(page, successSelectors);
-    if (successSelector) {
-      logStep(`Manual login success indicator matched: ${successSelector}. URL: ${safeCurrentUrl}`);
-      return;
-    }
-
-    const isLoginPage = await looksLikeLoginPage(page);
-    logStep(
-      `Login check #${iteration}: URL=${safeCurrentUrl}, success_found=${Boolean(
-        successSelector
-      )}, is_login_page=${isLoginPage}`
-    );
-
-    if (!isLoginPage) {
-      logStep("The login form is no longer visible. Treating manual login as complete.");
-      return;
-    }
-
-    await page.waitForTimeout(1000);
+  // Use the university's encryption handler. Submit once, leaving challenges manual.
+  const submit = page.locator("#login_submit:visible").first();
+  if (identityLogin && config.username && savedPassword && await submit.count()) {
+    logStep("Submitting unified identity login using PASSWORD.");
+    await submit.click();
   }
-
-  throw new Error(
-    `Manual login did not complete within ${config.manualLoginTimeoutMs} ms. Please try again.`
-  );
+  logStep("Waiting for authenticated landing page. Complete any verification in the browser.");
+  const deadline = Date.now() + config.manualLoginTimeoutMs;
+  while (Date.now() < deadline) {
+    if (page.isClosed()) throw new Error("登录中断：认证窗口在完成登录前被关闭。");
+    const url = new URL(page.url());
+    if (!await looksLikeLoginPage(page)) {
+      const portal = url.hostname === "ehall2.njust.edu.cn" && url.pathname === "/index.html";
+      const teaching = url.hostname === "bkjw.njust.edu.cn" && url.pathname === "/njlgdx/framework/main.jsp";
+      const table = await page.locator("#kbtable, #dataList").count() > 0;
+      const configured = config.loginSuccessSelector &&
+        await page.locator(config.loginSuccessSelector).first().isVisible();
+      if (portal || teaching || table || configured) return;
+    }
+    await page.waitForTimeout(500);
+  }
+  throw new Error(`登录超时：${config.manualLoginTimeoutMs} 毫秒内未进入认证后的页面；当前地址 ${page.url()}。请检查密码、验证码或网站提示。`);
 };

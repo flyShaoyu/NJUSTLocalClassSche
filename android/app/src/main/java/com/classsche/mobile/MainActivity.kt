@@ -33,6 +33,8 @@ import android.view.ScaleGestureDetector
 import android.view.VelocityTracker
 import android.view.inputmethod.InputMethodManager
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceError
+import android.webkit.WebResourceResponse
 import android.webkit.CookieManager
 import android.webkit.WebChromeClient
 import android.webkit.WebSettings
@@ -91,6 +93,7 @@ class MainActivity : AppCompatActivity() {
   private var lastStatusBarInsetTop = 0
 
   private var loginSubmitted = false
+  private var failedAuthPageUrl: String? = null
   private var isAutoUpdating = false
   private var autoUpdateFailedAttempts = 0
   private var cacheCaptureInProgress = false
@@ -112,6 +115,8 @@ class MainActivity : AppCompatActivity() {
   private var updateDownloadProgressBar: ProgressBar? = null
   private var updateDownloadProgressText: TextView? = null
   private var lastAutoUpdateCheckElapsed = 0L
+  private var resourceUpdateCheckInProgress = false
+  private var lastAutoResourceUpdateCheckElapsed = 0L
   private var authTimetableCaptureShouldShowCache = true
   private data class HomeImageAsset(
     val caption: String,
@@ -276,8 +281,8 @@ class MainActivity : AppCompatActivity() {
   }
 
   companion object {
-    private const val LOGIN_URL = "http://202.119.81.112:8080"
-    private const val TIMETABLE_URL = "http://202.119.81.112:9080/njlgdx/xskb/xskb_list.do"
+    private const val LOGIN_URL = UniversityEndpoints.LOGIN
+    private const val TIMETABLE_URL = UniversityEndpoints.TIMETABLE
     private const val HOME_ASSET_BASE_URL = "file:///android_asset/"
     private const val GENERATED_HOME_HTML_FILE = "home-view-generated.html"
     private const val GENERATED_CACHE_HTML_FILE = "timetable-view-generated.html"
@@ -288,15 +293,17 @@ class MainActivity : AppCompatActivity() {
     private const val HEADLESS_SCORE_TEST_FILE = "headless-score-test.json"
     private const val SCORE_UPDATE_META_FILE = "score-update-meta.json"
     private const val CACHE_RAW_HTML_FILE = "timetable.raw.html"
-    private const val EXAM_QUERY_URL = "http://202.119.81.112:9080/njlgdx/xsks/xsksap_query"
-    private const val EXAM_LIST_URL = "http://202.119.81.112:9080/njlgdx/xsks/xsksap_list"
-    private const val SCORE_LIST_URL = "http://202.119.81.112:9080/njlgdx/kscj/cjcx_list"
-    private const val LEVEL_EXAM_LIST_URL = "http://202.119.81.112:9080/njlgdx/kscj/djkscj_list"
+    private const val EXAM_QUERY_URL = UniversityEndpoints.EXAM_QUERY
+    private const val EXAM_LIST_URL = UniversityEndpoints.EXAM_LIST
+    private const val SCORE_LIST_URL = UniversityEndpoints.SCORES
+    private const val LEVEL_EXAM_LIST_URL = UniversityEndpoints.LEVEL_EXAMS
     private const val GITEE_HOME_URL = "https://gitee.com/flyshaoyu/njust_localclasssche"
     private const val GITHUB_HOME_URL = "https://github.com/flyShaoyu/NJUSTLocalClassSche"
     private const val GITEE_RELEASES_URL = "https://gitee.com/flyshaoyu/njust_localclasssche/releases"
     private const val GITHUB_RELEASES_URL = "https://github.com/flyShaoyu/NJUSTLocalClassSche/releases"
     private const val GITHUB_RELEASES_API_URL = "https://api.github.com/repos/flyShaoyu/NJUSTLocalClassSche/releases?per_page=20"
+    private const val GITEE_RESOURCE_UPDATE_API_URL = "https://gitee.com/api/v5/repos/flyshaoyu/njust_localclasssche/releases/latest"
+    private const val GITHUB_RESOURCE_UPDATE_MANIFEST_URL = "https://github.com/flyShaoyu/NJUSTLocalClassSche/releases/latest/download/manifest.json"
     private const val UPDATE_USER_AGENT = "Mozilla/5.0 ClassScheMobile"
     private const val UPDATE_FETCH_CONNECT_TIMEOUT_MS = 10000
     private const val UPDATE_FETCH_READ_TIMEOUT_MS = 15000
@@ -305,8 +312,6 @@ class MainActivity : AppCompatActivity() {
     private const val SCORE_UPDATE_CHANNEL_ID = "classsche_score_update_v1"
     private const val SCORE_UPDATE_NOTIFICATION_ID = 3101
     private const val EXAM_DEFAULT_SEMESTER = "2025-2026-2"
-    private const val PREF_USERNAME = "username"
-    private const val PREF_PASSWORD = "password"
     private const val PREF_ASSET_EXPORT_ID = "asset_export_id"
     private const val PREF_TIMETABLE_CACHE_PARSER_VERSION = "timetable_cache_parser_version"
     private const val CURRENT_TIMETABLE_CACHE_PARSER_VERSION = 3
@@ -443,6 +448,7 @@ class MainActivity : AppCompatActivity() {
     triggerPendingTimetableSemesterRefreshIfNeeded()
     triggerScoreSyncOnAppOpenIfNeeded()
     triggerAutoUpdateCheckIfNeeded()
+    triggerAutoResourceUpdateCheckIfNeeded()
   }
 
   private fun triggerAutoUpdateCheckIfNeeded() {
@@ -452,6 +458,15 @@ class MainActivity : AppCompatActivity() {
     }
     lastAutoUpdateCheckElapsed = now
     checkForAppUpdate(silent = true)
+  }
+
+  private fun triggerAutoResourceUpdateCheckIfNeeded() {
+    val now = SystemClock.elapsedRealtime()
+    if (now - lastAutoResourceUpdateCheckElapsed < TimeUnit.HOURS.toMillis(1)) {
+      return
+    }
+    lastAutoResourceUpdateCheckElapsed = now
+    checkForResourceUpdate()
   }
 
   private fun triggerPendingTimetableSemesterRefreshIfNeeded() {
@@ -557,35 +572,87 @@ class MainActivity : AppCompatActivity() {
 
     binding.authWebView.webChromeClient = WebChromeClient()
     binding.authWebView.webViewClient = object : WebViewClient() {
+      override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
+        super.onPageStarted(view, url, favicon)
+        failedAuthPageUrl = null
+      }
+
+      override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
+        super.onReceivedError(view, request, error)
+        if (!request.isForMainFrame) return
+        failedAuthPageUrl = request.url.toString()
+        val reason = if (error.errorCode == ERROR_TIMEOUT) "网页连接超时" else "网页连接失败"
+        val detail = "$reason：${request.url.host}${request.url.path}（WebView ${error.errorCode}：${error.description}）"
+        appendDebugLog("AUTH_WEB", "FAIL", detail)
+        updateStatus(detail)
+        isAutoUpdating = false
+      }
+
+      override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, response: WebResourceResponse) {
+        super.onReceivedHttpError(view, request, response)
+        if (!request.isForMainFrame) return
+        failedAuthPageUrl = request.url.toString()
+        val detail = "网站返回错误：HTTP ${response.statusCode}，地址 ${request.url.host}${request.url.path}"
+        appendDebugLog("AUTH_WEB", "FAIL", detail)
+        updateStatus(detail)
+        isAutoUpdating = false
+      }
+
       override fun onPageFinished(view: WebView, url: String) {
         super.onPageFinished(view, url)
-        updateStatus(getString(R.string.status_page_loaded, url))
-
-        if (looksLikeTimetableUrl(url)) {
-          if (authTimetableCaptureShouldShowCache) {
-            showingLiveTimetable = true
-            applyWebScreen(WebScreen.TIMETABLE)
-          }
-          prepareTimetablePage(view, showCachedAfterSuccess = authTimetableCaptureShouldShowCache)
+        if (failedAuthPageUrl == url) return
+        val loadedUri = Uri.parse(url)
+        if (loginSubmitted && loadedUri.scheme != "file" && loadedUri.host !in setOf("ids.njust.edu.cn", "ehall2.njust.edu.cn", "bkjw.njust.edu.cn")) {
+          val detail = "目标网站跳转错误：登录后进入了 ${loadedUri.host.orEmpty()}${loadedUri.path.orEmpty()}，请检查学校网站状态"
+          appendDebugLog("AUTH_WEB", "FAIL", detail)
+          updateStatus(detail)
+          isAutoUpdating = false
           return
         }
+        updateStatus(getString(R.string.status_page_loaded, "${loadedUri.host.orEmpty()}${loadedUri.path.orEmpty()}"))
 
-        if (looksLikeLoginUrl(url)) {
-          if (!authTimetableCaptureShouldShowCache) {
-            authTimetableCaptureShouldShowCache = true
-            appendDebugLog("TIMETABLE_SEMESTER", "WARN", "静默刷新课表时跳回登录页，本次自动刷新已取消")
+        view.evaluateJavascript("""
+          (function() {
+            if (document.querySelector('input[type=password]')) return 'login';
+            if (document.querySelector('#kbtable')) return 'timetable';
+            return 'other';
+          })();
+        """.trimIndent()) { raw ->
+          if (view.url != url) return@evaluateJavascript
+          when (decodeJsValue(raw)) {
+            "login" -> {
+              val submitted = loginSubmitted
+              loginSubmitted = false
+              if (submitted) {
+                isAutoUpdating = false
+                updateStatus("登录尚未完成，请检查统一认证密码，或打开认证网页完成验证")
+              } else if (looksLikeLoginUrl(url)) {
+                fetchCaptchaFromWebView()
+              } else {
+                // The teaching server serves its legacy login form at the timetable URL.
+                view.loadUrl(LOGIN_URL)
+              }
+            }
+            "timetable" -> {
+              CookieManager.getInstance().flush()
+              if (loginSubmitted) saveCredentials()
+              loginSubmitted = false
+              identityLoginDialog?.dismiss()
+              if (authTimetableCaptureShouldShowCache) {
+                showingLiveTimetable = true
+                applyWebScreen(WebScreen.TIMETABLE)
+              }
+              prepareTimetablePage(view, showCachedAfterSuccess = authTimetableCaptureShouldShowCache)
+            }
+            else -> {
+              val uri = Uri.parse(url)
+              if (uri.host == "bkjw.njust.edu.cn" && uri.path == "/njlgdx/framework/main.jsp") {
+                view.loadUrl(TIMETABLE_URL)
+              } else if (uri.host == "ehall2.njust.edu.cn" && uri.path == "/index.html") {
+                view.loadUrl(LOGIN_URL)
+              }
+            }
           }
-          if (!loginSubmitted) {
-            fetchCaptchaFromWebView()
-          }
-          return
-        }
-
-        if (loginSubmitted) {
-          loginSubmitted = false
-          saveCredentials()
-          updateStatus(getString(R.string.status_login_success))
-          binding.authWebView.loadUrl(TIMETABLE_URL)
         }
       }
     }
@@ -705,6 +772,11 @@ class MainActivity : AppCompatActivity() {
 
     binding.refreshCaptchaButton.setOnClickListener {
       refreshCaptchaInWebView()
+    }
+
+    binding.identityLoginButton.setOnClickListener {
+      isAutoUpdating = false
+      showIdentityLoginWebPage()
     }
 
     binding.loginButton.setOnClickListener {
@@ -874,6 +946,55 @@ class MainActivity : AppCompatActivity() {
 
   private fun markUpdatePrompted(versionName: String) {
     prefs.edit().putString(PREF_UPDATE_PROMPTED_VERSION, versionName).apply()
+  }
+
+  private fun checkForResourceUpdate() {
+    if (resourceUpdateCheckInProgress) {
+      appendDebugLog("RESOURCE_UPDATE", "INFO", "资源更新检查正在进行，已忽略重复触发")
+      return
+    }
+
+    resourceUpdateCheckInProgress = true
+    appendDebugLog(
+      "RESOURCE_UPDATE",
+      "START",
+      "开始检查资源更新，当前资源=${ResourceUpdateStore.installedResourceVersion(this).orEmpty().ifBlank { "unknown" }}"
+    )
+
+    ioExecutor.execute {
+      val result = runCatching {
+        ResourceUpdateStore.checkLatestGiteeReleaseUpdate(
+          context = this,
+          releaseApiUrl = GITEE_RESOURCE_UPDATE_API_URL,
+          manifestFileName = "manifest.json",
+          currentAppVersionCode = currentAppVersionCode()
+        ) { status, message ->
+          appendDebugLog("RESOURCE_UPDATE", status, message)
+        }
+      }.recoverCatching { giteeError ->
+        appendDebugLog("RESOURCE_UPDATE", "WARN", "Gitee 资源更新失败，尝试 GitHub：${giteeError.message ?: "unknown"}")
+        ResourceUpdateStore.checkAndApplyUpdate(
+          context = this,
+          manifestUrl = GITHUB_RESOURCE_UPDATE_MANIFEST_URL,
+          currentAppVersionCode = currentAppVersionCode()
+        ) { status, message ->
+          appendDebugLog("RESOURCE_UPDATE", status, message)
+        }
+      }
+
+      mainHandler.post {
+        resourceUpdateCheckInProgress = false
+        result.onSuccess { updateResult ->
+          appendDebugLog("RESOURCE_UPDATE", if (updateResult.applied) "SUCCESS" else "INFO", updateResult.message)
+          if (updateResult.applied) {
+            homeBitmapCache.evictAll()
+            refreshGeneratedCacheAfterStartup()
+          }
+        }.onFailure { error ->
+          appendDebugLog("RESOURCE_UPDATE", "WARN", "资源更新检查失败：${error.message ?: "unknown"}")
+        }
+      }
+    }
   }
 
   private fun checkForAppUpdate(silent: Boolean = false) {
@@ -1767,6 +1888,21 @@ class MainActivity : AppCompatActivity() {
     return packageInfo.versionName?.takeIf { it.isNotBlank() } ?: "0.0.0"
   }
 
+  private fun currentAppVersionCode(): Long {
+    val packageInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+      packageManager.getPackageInfo(packageName, PackageManager.PackageInfoFlags.of(0))
+    } else {
+      @Suppress("DEPRECATION")
+      packageManager.getPackageInfo(packageName, 0)
+    }
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+      packageInfo.longVersionCode
+    } else {
+      @Suppress("DEPRECATION")
+      packageInfo.versionCode.toLong()
+    }
+  }
+
   private fun openUrl(url: String) {
     startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
   }
@@ -1837,6 +1973,36 @@ class MainActivity : AppCompatActivity() {
     updateToolbarNavigationButtonLayout()
   }
 
+  private var identityLoginDialog: AlertDialog? = null
+
+  @SuppressLint("SetJavaScriptEnabled")
+  private fun showIdentityLoginWebPage() {
+    if (identityLoginDialog != null) return
+    val webView = binding.authWebView
+    val parent = webView.parent as ViewGroup
+    val index = parent.indexOfChild(webView)
+    val originalParams = webView.layoutParams
+    parent.removeView(webView)
+    webView.visibility = View.VISIBLE
+    val container = FrameLayout(this)
+    container.addView(webView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+    val dialog = AlertDialog.Builder(this)
+      .setTitle("统一身份认证")
+      .setView(container)
+      .setNegativeButton("关闭") { _, _ -> }
+      .create()
+    identityLoginDialog = dialog
+    dialog.setOnDismissListener {
+      container.removeView(webView)
+      parent.addView(webView, index, originalParams)
+      webView.visibility = View.INVISIBLE
+      identityLoginDialog = null
+    }
+    dialog.show()
+    dialog.window?.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, (resources.displayMetrics.heightPixels * 0.9).toInt())
+    if (webView.url.isNullOrBlank()) webView.loadUrl(LOGIN_URL)
+  }
+
   private fun loadLoginPageInWebView() {
     updateStatus(getString(R.string.status_loading_login))
     binding.authWebView.loadUrl(LOGIN_URL)
@@ -1849,9 +2015,9 @@ class MainActivity : AppCompatActivity() {
 
   private fun resolveCurrentCredentials(): Pair<String, String>? {
     val username = binding.usernameInput.editText?.text?.toString().orEmpty().trim()
-      .ifBlank { prefs.getString(PREF_USERNAME, "").orEmpty().trim() }
+      .ifBlank { CredentialStore.username(this) }
     val password = binding.passwordInput.editText?.text?.toString().orEmpty().trim()
-      .ifBlank { prefs.getString(PREF_PASSWORD, "").orEmpty().trim() }
+      .ifBlank { CredentialStore.password(this).orEmpty().trim() }
     return if (username.isNotBlank() && password.isNotBlank()) {
       username to password
     } else {
@@ -1926,7 +2092,7 @@ class MainActivity : AppCompatActivity() {
         appendDebugLog("HEADLESS_SCORE_TEST", "FAIL", error.message ?: "unknown")
         mainHandler.post {
           headlessLoginInProgress = false
-          updateStatus(getString(R.string.status_headless_score_test_failed, error.message ?: "unknown"))
+          updateStatus(getString(R.string.status_headless_score_test_failed, FailureDetails.describe(error)))
           Toast.makeText(this, "纯 HTTP 成绩测试失败", Toast.LENGTH_SHORT).show()
         }
       }
@@ -1939,7 +2105,7 @@ class MainActivity : AppCompatActivity() {
     try {
       connection.requestMethod = "GET"
       connection.useCaches = false
-      connection.instanceFollowRedirects = true
+      connection.instanceFollowRedirects = false
       connection.connectTimeout = 10000
       connection.readTimeout = 10000
       connection.setRequestProperty("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
@@ -2641,10 +2807,14 @@ class MainActivity : AppCompatActivity() {
     return hasUsableExamCache(cacheJsonFile)
   }
 
+  private fun runtimeAssetBaseUrl(): String =
+    ResourceUpdateStore.baseUrl(this)
+
+  private fun readRuntimeAssetText(fileName: String): String? =
+    ResourceUpdateStore.readText(this, fileName)
+
   private fun loadExamPageWithLatestData() {
-    val templateHtml = runCatching {
-      assets.open("exam-view.html").bufferedReader(Charsets.UTF_8).use { it.readText() }
-    }.getOrNull()
+    val templateHtml = readRuntimeAssetText("exam-view.html")
 
     if (templateHtml.isNullOrBlank()) {
       binding.contentWebView.stopLoading()
@@ -2665,7 +2835,7 @@ class MainActivity : AppCompatActivity() {
     binding.contentWebView.clearHistory()
     binding.contentWebView.clearCache(true)
     binding.contentWebView.loadDataWithBaseURL(
-      HOME_ASSET_BASE_URL,
+      runtimeAssetBaseUrl(),
       html,
       "text/html",
       "utf-8",
@@ -2679,15 +2849,11 @@ class MainActivity : AppCompatActivity() {
       return runtimeFile.readText(Charsets.UTF_8)
     }
 
-    return runCatching {
-      assets.open(EXAM_JSON_FILE).bufferedReader(Charsets.UTF_8).use { it.readText() }
-    }.getOrNull()
+    return readRuntimeAssetText(EXAM_JSON_FILE)
   }
 
   private fun loadScorePageWithLatestData() {
-    val templateHtml = runCatching {
-      assets.open("score-view.html").bufferedReader(Charsets.UTF_8).use { it.readText() }
-    }.getOrNull()?.let {
+    val templateHtml = readRuntimeAssetText("score-view.html")?.let {
       injectLevelExamJsonIntoTemplate(it, readLatestLevelExamJson() ?: "[]")
     }
 
@@ -2719,7 +2885,7 @@ class MainActivity : AppCompatActivity() {
     binding.contentWebView.clearHistory()
     binding.contentWebView.clearCache(true)
     binding.contentWebView.loadDataWithBaseURL(
-      HOME_ASSET_BASE_URL,
+      runtimeAssetBaseUrl(),
       html,
       "text/html",
       "utf-8",
@@ -2733,15 +2899,11 @@ class MainActivity : AppCompatActivity() {
       return runtimeFile.readText(Charsets.UTF_8)
     }
 
-    return runCatching {
-      assets.open(SCORE_JSON_FILE).bufferedReader(Charsets.UTF_8).use { it.readText() }
-    }.getOrNull()
+    return readRuntimeAssetText(SCORE_JSON_FILE)
   }
 
   private fun loadLevelExamPageWithLatestData() {
-    val templateHtml = runCatching {
-      assets.open("level-exam-view.html").bufferedReader(Charsets.UTF_8).use { it.readText() }
-    }.getOrNull()
+    val templateHtml = readRuntimeAssetText("level-exam-view.html")
 
     if (templateHtml.isNullOrBlank()) {
       binding.contentWebView.stopLoading()
@@ -2762,7 +2924,7 @@ class MainActivity : AppCompatActivity() {
     binding.contentWebView.clearHistory()
     binding.contentWebView.clearCache(true)
     binding.contentWebView.loadDataWithBaseURL(
-      HOME_ASSET_BASE_URL,
+      runtimeAssetBaseUrl(),
       html,
       "text/html",
       "utf-8",
@@ -2776,9 +2938,7 @@ class MainActivity : AppCompatActivity() {
       return runtimeFile.readText(Charsets.UTF_8)
     }
 
-    return runCatching {
-      assets.open(LEVEL_EXAM_JSON_FILE).bufferedReader(Charsets.UTF_8).use { it.readText() }
-    }.getOrNull()
+    return readRuntimeAssetText(LEVEL_EXAM_JSON_FILE)
   }
 
   private fun injectExamJsonIntoTemplate(templateHtml: String, examsJson: String): String {
@@ -2939,9 +3099,7 @@ class MainActivity : AppCompatActivity() {
   }
 
   private fun loadHomeImages(): List<HomeImageAsset> {
-    val html = runCatching {
-      assets.open("home-view.html").bufferedReader(Charsets.UTF_8).use { it.readText() }
-    }.getOrNull().orEmpty()
+    val html = readRuntimeAssetText("home-view.html").orEmpty()
     val match = Regex("""const images = (\[.*?]);""", setOf(RegexOption.DOT_MATCHES_ALL)).find(html)
       ?: return emptyList()
     val rawArray = match.groupValues.getOrNull(1) ?: return emptyList()
@@ -3452,7 +3610,7 @@ class MainActivity : AppCompatActivity() {
 
     val bitmap = candidatePaths.firstNotNullOfOrNull { candidatePath ->
       runCatching {
-        assets.open(candidatePath).use { BitmapFactory.decodeStream(it) }
+        ResourceUpdateStore.openStream(this, candidatePath)?.use { BitmapFactory.decodeStream(it) }
       }.getOrNull()
     } ?: return null
 
@@ -3544,9 +3702,8 @@ class MainActivity : AppCompatActivity() {
         } else if (item.key == "level") {
           showCachedLevelExamPage()
         } else if (item.key == "refresh") {
-          val user = prefs.getString(PREF_USERNAME, "")
-          val pwd = prefs.getString(PREF_PASSWORD, "")
-          if (user.isNullOrBlank() || pwd.isNullOrBlank()) {
+          val credentials = CredentialStore.credentials(this)
+          if (credentials == null) {
              Toast.makeText(this, "请先在个人中心填写账号密码", Toast.LENGTH_SHORT).show()
           } else {
              isAutoUpdating = true
@@ -3911,6 +4068,17 @@ class MainActivity : AppCompatActivity() {
   }
 
   private fun fetchCaptchaFromWebView(retryCount: Int = 0) {
+    if (Uri.parse(binding.authWebView.url.orEmpty()).host == "ids.njust.edu.cn") {
+      binding.captchaInput.visibility = View.GONE
+      binding.captchaImage.visibility = View.GONE
+      binding.refreshCaptchaButton.visibility = View.GONE
+      updateStatus("统一认证已就绪，请输入统一认证密码；如需验证请打开认证网页")
+      if (isAutoUpdating) submitLogin()
+      return
+    }
+    binding.captchaInput.visibility = View.VISIBLE
+    binding.captchaImage.visibility = View.VISIBLE
+    binding.refreshCaptchaButton.visibility = View.VISIBLE
     binding.authWebView.evaluateJavascript(
       """
       (function() {
@@ -3930,8 +4098,8 @@ class MainActivity : AppCompatActivity() {
   }
 
   private fun loadCaptchaImage(relativeUrl: String, retryCount: Int = 0) {
-    val absoluteUrl = URL(URL(LOGIN_URL), relativeUrl).toString()
-    val cookie = CookieManager.getInstance().getCookie(LOGIN_URL).orEmpty()
+    val absoluteUrl = URL(URL(binding.authWebView.url ?: LOGIN_URL), relativeUrl).toString()
+    val cookie = CookieManager.getInstance().getCookie(absoluteUrl).orEmpty()
 
     ioExecutor.execute {
       try {
@@ -3992,7 +4160,7 @@ class MainActivity : AppCompatActivity() {
         }
       } catch (error: Exception) {
         mainHandler.post {
-          updateStatus(getString(R.string.status_captcha_failed, error.message ?: "unknown"))
+          updateStatus(getString(R.string.status_captcha_failed, FailureDetails.describe(error)))
         }
       }
     }
@@ -4032,7 +4200,8 @@ class MainActivity : AppCompatActivity() {
     val password = binding.passwordInput.editText?.text?.toString().orEmpty().trim()
     val captcha = binding.captchaInput.editText?.text?.toString().orEmpty().trim()
 
-    if (username.isBlank() || password.isBlank() || captcha.isBlank()) {
+    val identityLogin = Uri.parse(binding.authWebView.url.orEmpty()).host == "ids.njust.edu.cn"
+    if (username.isBlank() || password.isBlank() || (!identityLogin && captcha.isBlank())) {
       updateStatus(getString(R.string.status_missing_fields))
       return
     }
@@ -4044,7 +4213,7 @@ class MainActivity : AppCompatActivity() {
       (function() {
         const setValue = (selectors, value) => {
           for (const selector of selectors) {
-            const input = document.querySelector(selector);
+            const input = Array.from(document.querySelectorAll(selector)).find(el => el.getClientRects().length && el.type !== 'hidden');
             if (input) {
               input.value = value;
               input.dispatchEvent(new Event('input', { bubbles: true }));
@@ -4059,7 +4228,12 @@ class MainActivity : AppCompatActivity() {
         const passwordOk = setValue(${toJsArray(PASSWORD_SELECTORS)}, ${toJsString(password)});
         const captchaOk = setValue(${toJsArray(CAPTCHA_SELECTORS)}, ${toJsString(captcha)});
 
-        const button = document.querySelector("input[type='submit'], button[type='submit'], #btnsubmit, .login_btn");
+        const identityButton = Array.from(document.querySelectorAll('#login_submit')).find(el => el.getClientRects().length);
+        if (identityButton) {
+          if (userOk && passwordOk) identityButton.click();
+          return JSON.stringify({ userOk, passwordOk, submitted: userOk && passwordOk });
+        }
+        const button = document.querySelector("input[type='submit'], button[type='submit'], #btnSubmit, .login_btn");
         const form = button ? button.form : document.querySelector("form");
 
         if (button) {
@@ -4078,16 +4252,16 @@ class MainActivity : AppCompatActivity() {
 
     binding.authWebView.evaluateJavascript(script) { result ->
       updateStatus(getString(R.string.status_submit_result, decodeJsValue(result)))
-      mainHandler.postDelayed({
-        if (binding.authWebView.url?.let(::looksLikeLoginUrl) == true) {
-          loginSubmitted = false
-          if (isAutoUpdating) {
-            autoUpdateFailedAttempts++
-            updateStatus("登录失败，正在进行第 ${autoUpdateFailedAttempts} 次重试...")
+      if (identityLogin) {
+        mainHandler.postDelayed({
+          if (loginSubmitted && Uri.parse(binding.authWebView.url.orEmpty()).host == "ids.njust.edu.cn") {
+            loginSubmitted = false
+            isAutoUpdating = false
+            updateStatus("请在统一认证网页检查登录结果或完成验证")
+            showIdentityLoginWebPage()
           }
-          fetchCaptchaFromWebView()
-        }
-      }, 1200)
+        }, 5000)
+      }
     }
   }
 
@@ -4133,6 +4307,10 @@ class MainActivity : AppCompatActivity() {
         "START",
         "开始处理课表 HTML，length=${html.length}，showCachedAfterSuccess=$showCachedAfterSuccess"
       )
+      val document = org.jsoup.Jsoup.parse(html)
+      check(document.selectFirst("input[type=password]") == null && document.selectFirst("#kbtable") != null) {
+        "未获取到有效课表，登录可能已过期；已保留原缓存"
+      }
       TimetableSemesterStore.updateFromTimetableHtml(this@MainActivity, html)
       appendDebugLog("TIMETABLE_CAPTURE", "INFO", "课表学期目录已从 HTML 刷新")
       val courses = TimetableParser.parse(html)
@@ -4165,21 +4343,18 @@ class MainActivity : AppCompatActivity() {
         val examCount = examSyncResult.getOrNull()
         val scoreCount = scoreSyncResult.getOrNull()
         val levelExamCount = levelExamSyncResult.getOrNull()
-        when {
-          successStatus != null -> updateStatus(successStatus)
-          examCount != null && scoreCount != null && levelExamCount != null ->
-            updateStatus("本地缓存已更新，共解析 ${courses.size} 条课程，${examCount} 场考试，${scoreCount} 条成绩，${levelExamCount} 条等级考试。")
-          examCount != null && scoreCount != null ->
-            updateStatus("本地缓存已更新，共解析 ${courses.size} 条课程，${examCount} 场考试，${scoreCount} 条成绩；等级考试同步失败。")
-          examCount != null ->
-            updateStatus("课表缓存已更新，共解析 ${courses.size} 条课程，${examCount} 场考试；成绩和等级考试同步失败。")
-          scoreCount != null ->
-            updateStatus("课表缓存已更新，共解析 ${courses.size} 条课程，${scoreCount} 条成绩；考试安排和等级考试同步失败。")
-          levelExamCount != null ->
-            updateStatus("课表缓存已更新，共解析 ${courses.size} 条课程，${levelExamCount} 条等级考试；考试安排和成绩同步失败。")
-          else ->
-            updateStatus("课表缓存已更新，共解析 ${courses.size} 条课程；考试安排、成绩和等级考试同步失败。")
-        }
+        val completed = listOfNotNull(
+          examCount?.let { "$it 场考试" },
+          scoreCount?.let { "$it 条成绩" },
+          levelExamCount?.let { "$it 条等级考试" }
+        ).joinToString("，")
+        val failures = listOfNotNull(
+          examSyncResult.exceptionOrNull()?.let { "考试安排：${FailureDetails.describe(it)}" },
+          scoreSyncResult.exceptionOrNull()?.let { "成绩：${FailureDetails.describe(it)}" },
+          levelExamSyncResult.exceptionOrNull()?.let { "等级考试：${FailureDetails.describe(it)}" }
+        )
+        val summary = successStatus ?: "课表缓存已更新，共解析 ${courses.size} 条课程${if (completed.isBlank()) "" else "，$completed"}。"
+        updateStatus(if (failures.isEmpty()) summary else "$summary ${failures.joinToString("；")}")
         CourseNotificationScheduler.sync(this@MainActivity)
         ExamOngoingNotificationScheduler.sync(this@MainActivity)
         if (isAutoUpdating) {
@@ -4204,7 +4379,7 @@ class MainActivity : AppCompatActivity() {
       mainHandler.post {
         cacheCaptureInProgress = false
         authTimetableCaptureShouldShowCache = true
-        updateStatus("缓存同步失败：${error.message ?: "unknown"}")
+        updateStatus("课表缓存同步失败：${FailureDetails.describe(error)}；原缓存已保留")
         if (isAutoUpdating) {
           isAutoUpdating = false
         }
@@ -4723,6 +4898,9 @@ class MainActivity : AppCompatActivity() {
         if (responseCode in 200..299) "INFO" else "WARN",
         "响应码=$responseCode contentType=${connection.contentType ?: "-"}"
       )
+      check(responseCode in 200..299) {
+        "成绩页面 HTTP $responseCode，地址 $SCORE_LIST_URL，跳转目标 ${connection.getHeaderField("Location") ?: "无"}"
+      }
       val input = if (responseCode in 200..299) {
         connection.inputStream
       } else {
@@ -4802,6 +4980,9 @@ class MainActivity : AppCompatActivity() {
         if (responseCode in 200..299) "INFO" else "WARN",
         "响应码=$responseCode contentType=${connection.contentType ?: "-"}"
       )
+      check(responseCode in 200..299) {
+        "等级考试页面 HTTP $responseCode，地址 $LEVEL_EXAM_LIST_URL，跳转目标 ${connection.getHeaderField("Location") ?: "无"}"
+      }
       val input = if (responseCode in 200..299) {
         connection.inputStream
       } else {
@@ -4872,6 +5053,10 @@ class MainActivity : AppCompatActivity() {
 
   private fun fetchExamQueryDocument() =
     withSessionConnection(EXAM_QUERY_URL, method = "GET") { connection ->
+      val code = connection.responseCode
+      check(code in 200..299) {
+        "考试查询页面 HTTP $code，地址 $EXAM_QUERY_URL，跳转目标 ${connection.getHeaderField("Location") ?: "无"}"
+      }
       val bytes = connection.inputStream.use { it.readBytes() }
       org.jsoup.Jsoup.parse(java.io.ByteArrayInputStream(bytes), null, EXAM_QUERY_URL)
     }
@@ -4964,6 +5149,10 @@ class MainActivity : AppCompatActivity() {
         }
       }
 
+      val code = connection.responseCode
+      check(code in 200..299) {
+        "考试列表页面 HTTP $code，地址 $requestUrl，跳转目标 ${connection.getHeaderField("Location") ?: "无"}"
+      }
       connection.inputStream.use { it.readBytes() }
     }
   }
@@ -4990,7 +5179,7 @@ class MainActivity : AppCompatActivity() {
     val connection = URL(url).openConnection() as HttpURLConnection
     connection.requestMethod = method.uppercase()
     connection.useCaches = false
-    connection.instanceFollowRedirects = true
+    connection.instanceFollowRedirects = false
     connection.connectTimeout = 10000
     connection.readTimeout = 10000
     connection.setRequestProperty("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
@@ -5010,18 +5199,7 @@ class MainActivity : AppCompatActivity() {
   }
 
   private fun buildCookieHeader(targetUrl: String): String {
-    val manager = CookieManager.getInstance()
-    return listOf(
-      targetUrl,
-      EXAM_QUERY_URL,
-      EXAM_LIST_URL,
-      TIMETABLE_URL,
-      LOGIN_URL
-    ).mapNotNull { candidate ->
-      manager.getCookie(candidate)?.trim()
-    }.filter { it.isNotBlank() }
-      .distinct()
-      .joinToString("; ")
+    return CookieManager.getInstance().getCookie(targetUrl).orEmpty()
   }
 
   private fun encodeFormBody(parameters: Map<String, String>): String =
@@ -5066,13 +5244,13 @@ class MainActivity : AppCompatActivity() {
   }
 
   private fun restoreSavedCredentials() {
-    binding.usernameInput.editText?.setText(prefs.getString(PREF_USERNAME, "").orEmpty())
-    binding.passwordInput.editText?.setText(prefs.getString(PREF_PASSWORD, "").orEmpty())
+    binding.usernameInput.editText?.setText(CredentialStore.username(this))
+    binding.passwordInput.editText?.setText(CredentialStore.password(this).orEmpty())
     updateProfileWelcome()
   }
 
   private fun updateProfileWelcome() {
-    val username = prefs.getString(PREF_USERNAME, "").orEmpty().trim()
+    val username = CredentialStore.username(this)
     binding.profileUsernameText.text = if (username.isBlank()) {
       getString(R.string.profile_welcome_guest)
     } else {
@@ -5101,11 +5279,12 @@ class MainActivity : AppCompatActivity() {
   }
 
   private fun persistCredentials(username: String, password: String) {
-    prefs.edit()
-      .putString(PREF_USERNAME, username)
-      .putString(PREF_PASSWORD, password)
-      .apply()
-    updateProfileWelcome()
+    if (CredentialStore.save(this, username, password)) {
+      updateProfileWelcome()
+    } else {
+      updateStatus(getString(R.string.status_secure_password_save_failed))
+      Toast.makeText(this, R.string.status_secure_password_save_failed, Toast.LENGTH_LONG).show()
+    }
   }
 
   private fun syncAssetExportId() {
@@ -5172,10 +5351,10 @@ class MainActivity : AppCompatActivity() {
 
   private fun readAssetExportId(): String? {
     return try {
-      assets.open(CACHE_META_ASSET).bufferedReader(Charsets.UTF_8).use { reader ->
-        val json = JSONObject(reader.readText())
-        json.optString("exportedAt").takeIf { it.isNotBlank() }
-      }
+      val json = JSONObject(readRuntimeAssetText(CACHE_META_ASSET).orEmpty())
+      json.optString("resourceVersion")
+        .ifBlank { json.optString("exportedAt") }
+        .takeIf { it.isNotBlank() }
     } catch (_: Exception) {
       null
     }
@@ -5186,11 +5365,9 @@ class MainActivity : AppCompatActivity() {
       return false
     }
 
-    val lower = url.lowercase()
-    return lower.contains("verifycode") ||
-      lower.contains("login") ||
-      lower.contains("index") ||
-      lower.contains(":8080")
+    val uri = Uri.parse(url)
+    return (uri.host == "ids.njust.edu.cn" && uri.path.orEmpty().startsWith("/authserver/")) ||
+      uri.path.orEmpty().endsWith("/xk/Verifyservlet")
   }
 
   private fun looksLikeTimetableUrl(url: String?): Boolean {

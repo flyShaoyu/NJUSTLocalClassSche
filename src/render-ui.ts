@@ -20,12 +20,28 @@ import { renderExamPage } from "./exam-ui.js";
 import { renderHomePage } from "./home-page-ui.js";
 import { renderLevelExamPage } from "./level-exam-ui.js";
 import { logDivider, logStep } from "./logger.js";
+import { parseJsonStep } from "./diagnostics.js";
 import { renderScorePage } from "./score-ui.js";
 import { renderTimetablePage } from "./timetable-ui.js";
 import { ExamArrangement, LevelExamRecord, ScoreRecord, TimetableCourse } from "./types.js";
 
 const imageExtensions = new Set([".jpg", ".jpeg", ".png", ".webp", ".gif"]);
 const execFileAsync = promisify(execFile);
+
+const readJsonArray = async <T>(label: string, filePath: string, optional = false): Promise<T[] | null> => {
+  let content: string;
+  try {
+    content = await fs.readFile(filePath, "utf8");
+  } catch (error) {
+    if (optional && (error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw new Error(`${label}数据读取失败：${filePath}。${error instanceof Error ? error.message : String(error)}`, { cause: error });
+  }
+  const parsed = parseJsonStep<unknown>(label, filePath, content);
+  if (!Array.isArray(parsed)) {
+    throw new Error(`${label}数据格式错误：${filePath} 顶层必须是数组。`);
+  }
+  return parsed as T[];
+};
 
 const powershellQuote = (value: string): string => `'${value.replace(/'/g, "''")}'`;
 
@@ -93,13 +109,11 @@ const collectHomeImages = async (): Promise<Array<{ fileName: string; src: strin
   await fs.mkdir(homeImageSourceDir, { recursive: true });
   await fs.mkdir(homeImageArtifactsDir, { recursive: true });
 
-  const targetEntries = await fs.readdir(homeImageArtifactsDir, { withFileTypes: true }).catch(() => []);
+  const targetEntries = await fs.readdir(homeImageArtifactsDir, { withFileTypes: true });
   await Promise.all(
     targetEntries
       .filter((entry) => entry.isFile())
-      .map((entry) =>
-        fs.rm(path.join(homeImageArtifactsDir, entry.name), { force: true }).catch(() => undefined)
-      )
+      .map((entry) => fs.rm(path.join(homeImageArtifactsDir, entry.name), { force: true }))
   );
 
   const entries = await fs.readdir(homeImageSourceDir, { withFileTypes: true });
@@ -127,7 +141,8 @@ const collectHomeImages = async (): Promise<Array<{ fileName: string; src: strin
         await resizeImageVariant(sourcePath, detailTargetPath, 2200, 2200);
         thumbSrc = `./resources/${thumbFileName}`;
         detailSrc = `./resources/${detailFileName}`;
-      } catch {
+      } catch (error) {
+        logStep(`首页图片 ${entry.name} 缩略图生成失败，改用原图：${error instanceof Error ? error.message : String(error)}`);
         await fs.rm(thumbTargetPath, { force: true }).catch(() => undefined);
         await fs.rm(detailTargetPath, { force: true }).catch(() => undefined);
       }
@@ -147,47 +162,32 @@ const run = async (): Promise<void> => {
   await ensureArtifactsDirectory();
 
   logStep(`Reading timetable JSON from ${timetableJsonPath}`);
-  const content = await fs.readFile(timetableJsonPath, "utf8");
-  const courses = JSON.parse(content) as TimetableCourse[];
+  const courses = (await readJsonArray<TimetableCourse>("课表", timetableJsonPath))!;
   const homeImages = await collectHomeImages();
 
   logStep("Rendering timetable frontend.");
   await writeTextFile(timetableViewPath, renderTimetablePage(courses));
 
-  let exams: ExamArrangement[] = [];
-  try {
-    logStep(`Reading exam JSON from ${examJsonPath}`);
-    const examContent = await fs.readFile(examJsonPath, "utf8");
-    exams = JSON.parse(examContent) as ExamArrangement[];
-    await writeTextFile(examViewPath, renderExamPage(exams));
-    logStep("Rendering exam frontend.");
-  } catch {
-    logStep(`Exam JSON not found, rendering empty exam frontend: ${examJsonPath}`);
-    await writeTextFile(examViewPath, renderExamPage([]));
-  }
+  logStep(`Reading exam JSON from ${examJsonPath}`);
+  const examData = await readJsonArray<ExamArrangement>("考试安排", examJsonPath, true);
+  if (examData === null) logStep(`考试安排数据文件缺失，生成空页面：${examJsonPath}`);
+  const exams = examData ?? [];
+  await writeTextFile(examViewPath, renderExamPage(exams));
+  logStep("Rendering exam frontend.");
 
-  let levelExams: LevelExamRecord[] = [];
-  try {
-    logStep(`Reading level exam JSON from ${levelExamJsonPath}`);
-    const levelExamContent = await fs.readFile(levelExamJsonPath, "utf8");
-    levelExams = JSON.parse(levelExamContent) as LevelExamRecord[];
-    await writeTextFile(levelExamViewPath, renderLevelExamPage(levelExams));
-    logStep("Rendering level exam frontend.");
-  } catch {
-    logStep(`Level exam JSON not found, rendering empty level exam frontend: ${levelExamJsonPath}`);
-    await writeTextFile(levelExamViewPath, renderLevelExamPage([]));
-  }
+  logStep(`Reading level exam JSON from ${levelExamJsonPath}`);
+  const levelExamData = await readJsonArray<LevelExamRecord>("等级考试", levelExamJsonPath, true);
+  if (levelExamData === null) logStep(`等级考试数据文件缺失，生成空页面：${levelExamJsonPath}`);
+  const levelExams = levelExamData ?? [];
+  await writeTextFile(levelExamViewPath, renderLevelExamPage(levelExams));
+  logStep("Rendering level exam frontend.");
 
-  try {
-    logStep(`Reading score JSON from ${scoreJsonPath}`);
-    const scoreContent = await fs.readFile(scoreJsonPath, "utf8");
-    const scores = JSON.parse(scoreContent) as ScoreRecord[];
-    await writeTextFile(scoreViewPath, renderScorePage(scores, levelExams));
-    logStep("Rendering score frontend.");
-  } catch {
-    logStep(`Score JSON not found, rendering empty score frontend: ${scoreJsonPath}`);
-    await writeTextFile(scoreViewPath, renderScorePage([], levelExams));
-  }
+  logStep(`Reading score JSON from ${scoreJsonPath}`);
+  const scoreData = await readJsonArray<ScoreRecord>("成绩", scoreJsonPath, true);
+  if (scoreData === null) logStep(`成绩数据文件缺失，生成空页面：${scoreJsonPath}`);
+  const scores = scoreData ?? [];
+  await writeTextFile(scoreViewPath, renderScorePage(scores, levelExams));
+  logStep("Rendering score frontend.");
 
   logStep("Rendering home frontend.");
   await writeTextFile(homeViewPath, renderHomePage(courses, homeImages));

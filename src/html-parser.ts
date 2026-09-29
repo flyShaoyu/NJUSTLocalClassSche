@@ -309,6 +309,9 @@ export const parseTimetableHtml = (html: string): TimetableCourse[] => {
   logStep("Parsing timetable HTML.");
 
   const $ = cheerio.load(html);
+  if (!$("#kbtable").length) {
+    throw new Error("课表解析错误：缺少 #kbtable，网页可能跳回登录页或网站结构已改变。");
+  }
   const gridMeetings = parseGridMeetings($);
   logStep(`Parsed ${gridMeetings.length} grid timetable entries with week information.`);
 

@@ -1,17 +1,13 @@
 # ClassSche
 
-一个面向 NJUST 教务课表的本地化项目，包含两条主链路：
+面向南京理工大学教务系统的课表、考试和成绩本地查看工具。桌面端使用 Node.js、TypeScript 与 Playwright 抓取和生成页面；Android 端负责登录、缓存展示、通知和后台同步。
 
-- 桌面端：`Node.js + TypeScript + Playwright`
-- 移动端：`Android WebView APK`
+该项目目标链路为：
 
-项目目标链路为：
-
-1. 登录教务系统
-2. 抓取课表 HTML
-3. 解析为结构化 JSON
-4. 渲染为本地课表页面
-5. 导出到 Android 并打包 APK
+1. 通过统一身份认证进入教务系统。
+2. 抓取课表、考试安排、成绩和等级考试页面。
+3. 解析为结构化 JSON，并生成本地页面。
+4. 将不含个人数据的页面模板和公共资源导出到 Android，再构建 APK。
 
 ## 发布下载
 
@@ -33,20 +29,16 @@
 
 ## 当前能力
 
-- 复用桌面端登录态 `artifacts/storageState.json`
-- 登录态失效后切回人工登录
-- 抓取课表页并保存原始 HTML
-- 解析课程名称、星期、节次、教室、周次、教师、课程代码、课程序号、课程性质
-- 生成移动端风格的本地课表页面
-- 导出 Android `assets`
-- Android 端本地登录、验证码显示、课表缓存显示
+- 桌面端使用教务SSO进行登录。
+- 抓取并解析课表、考试安排、成绩和等级考试，生成对应本地页面；课表支持周视图、全学期视图、冲突课程和学分。
+- Android 端提供原生首页、WebView 登录、本地缓存、多学期课表、课程与考试通知、成绩统计及新成绩提醒。
 
 ## 目录结构
 
+按功能查找源码和配置请看 [项目文件索引](FILE-INDEX.md)。
+
 - `src/`
   核心脚本，包含登录、抓取、解析、渲染、Android 导出逻辑
-- `artifacts/`
-  本地产物目录，包含抓取结果、解析结果、渲染页面
 - `android/`
   Android 工程
 
@@ -69,24 +61,25 @@ npx playwright install chromium
 
 2. 复制环境变量模板
 
-```bash
-copy .env.example .env
+```powershell
+Copy-Item .env.example .env
 ```
 
 3. 按需修改 `.env`
 
-- `LOGIN_URL`
-- `TIMETABLE_URL`
-- `LOGIN_SUCCESS_SELECTOR`
-- `MANUAL_LOGIN_TIMEOUT_MS`
+- `USERNAME`：学号或统一身份认证用户名。
+- `PASSWORD`：智慧理工服务门户密码；留空时可在浏览器内手工完成认证。
+- `SEMESTER`：可选的考试查询学期；留空时采用网站当前选择。
 
 ## 常用命令
 
-抓取课表并更新本地产物：
+抓取课表、考试、成绩和等级考试并更新本地产物：
 
 ```bash
 npm run start
 ```
+
+单独抓取：`npm run fetch:exams`、`npm run fetch:scores`、`npm run fetch:level-exams`。
 
 仅重解析已有 HTML：
 
@@ -94,7 +87,7 @@ npm run start
 npm run parse
 ```
 
-仅重绘前端课表页面：
+根据已有 JSON 重绘本地页面：
 
 ```bash
 npm run render:ui
@@ -112,18 +105,15 @@ npm run export:android
 npm run check
 ```
 
+编译和回归测试：`npm run build`，然后运行 `node --test tests/*.test.mjs`。
+
 ## Android 构建
 
 `gradlew.bat` 在 `android/` 目录下，不在仓库根目录。
 
 推荐命令：
 
-```powershell
-cd D:\document\CLassSche\android
-$env:JAVA_HOME='C:\Users\43631\.jdks\jbr-17.0.14'
-$env:Path="$env:JAVA_HOME\bin;$env:Path"
-.\gradlew.bat :app:assembleDebug
-```
+在 `android/` 目录使用 JDK 17 和已安装的 Android SDK 运行 `.\gradlew.bat :app:assembleDebug`。调试 APK 位于 `android/app/build/outputs/apk/debug/app-debug.apk`。
 
 ## 产物说明
 
@@ -135,8 +125,12 @@ $env:Path="$env:JAVA_HOME\bin;$env:Path"
   本地课表页面
 - `artifacts/home-view.html`
   本地首页页面
+- `artifacts/exam-list.json`、`score-list.json`、`level-exam-list.json`
+  考试、成绩和等级考试解析结果
 - `artifacts/storageState.json`
   Playwright 登录态
+
+`artifacts/` 是本机生成目录，不应提交。`export:android` 只写入空数据页面模板、公共图片和资源更新元数据；个人课表、考试及成绩数据保留在本机运行时缓存。
 
 ## 串行执行说明
 
@@ -155,18 +149,23 @@ $env:Path="$env:JAVA_HOME\bin;$env:Path"
 桌面端：
 
 1. 优先复用 `artifacts/storageState.json`
-2. 若失效则打开登录页
-3. 用户手工输入账号、密码、验证码
-4. 登录成功后重存登录态
-5. 访问课表页并抓取 HTML
+2. 教务会话失效时，先通过 `https://bkjw.njust.edu.cn/njlgdx/indexsso.jsp` 兑换已有统一认证会话
+3. 需要重新登录时，打开 `ids.njust.edu.cn`；有 `USERNAME` 和 `PASSWORD` 时尝试提交，验证码或额外验证由用户在浏览器内完成
+4. 统一认证通过后再访问教务 SSO 入口，确认业务表格有效后保存登录态
+5. 课表、考试安排、成绩、等级考试继续共用同一个浏览器上下文和 Cookie
 
 Android 端：
 
-1. 本地登录页输入账号、密码、验证码
-2. 隐藏 `WebView` 打开真实登录页
-3. 拉取验证码图
-4. 提交真实表单
-5. 登录成功后抓取课表并更新本地缓存
+1. 本地登录页输入账号和统一身份认证密码
+2. 隐藏 `WebView` 通过教务 SSO 入口打开真实认证页，点击校方按钮完成加密提交
+3. 如需验证码或额外验证，点击“打开统一认证网页”在同一个 WebView 内完成
+4. 继续使用 `CookieManager` 将教务域名自己的 Cookie 带入 HTTP 抓取，不混合不同域名的同名 Cookie
+5. 后台同步优先复用 WebView 会话；需要重新认证时使用 CAS 加密表单，遇到额外验证则提示用户在认证网页完成
+6. 仅在确认 `#kbtable` 等业务内容存在后更新本地缓存
+
+Android 本地保存密码时使用 Android Keystore 中的不可导出密钥进行 AES-GCM 加密。已有安装中旧版保存的明文密码会在首次读取时迁移到加密字段并删除原字段；应用已关闭系统备份，避免凭据随备份文件离开设备。
+
+当前站点入口、业务页验证记录和登录态限制见 [登录迁移记录](LOGIN-MIGRATION.md)。排错时请保留具体步骤及错误类型（超时、HTTP 状态码、跳转或解析），不要在日志或问题报告中贴出密码与 Cookie。
 
 ## 安全说明
 
@@ -180,11 +179,12 @@ Android 端：
 
 ## 相关文档
 
-- [ANDROID.md](/d:/document/CLassSche/ANDROID.md)
-- [API.md](/d:/document/CLassSche/API.md)
-- [AGENT.md](/d:/document/CLassSche/AGENT.md)
-- [PROMPTS.md](/d:/document/CLassSche/PROMPTS.md)
-- [CHANGELOG.md](/d:/document/CLassSche/CHANGELOG.md)
+- [ANDROID.md](./ANDROID.md)
+- [API.md](./API.md)
+- [AGENT.md](./AGENT.md)
+- [PROMPTS.md](./PROMPTS.md)
+- [FILE-INDEX.md](./FILE-INDEX.md)
+- [LOGIN-MIGRATION.md](./LOGIN-MIGRATION.md)
 
 ## 写在最后
  - 本仓库完全由codex生成，几乎无人工痕迹

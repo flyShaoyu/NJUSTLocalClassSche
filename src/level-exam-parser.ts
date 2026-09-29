@@ -18,6 +18,9 @@ export const parseLevelExamHtml = (html: string): LevelExamRecord[] => {
   logStep("Parsing level exam HTML.");
 
   const $ = cheerio.load(html);
+  if (!$("#dataList").length) {
+    throw new Error("等级考试解析错误：缺少 #dataList，网页可能跳回登录页或网站结构已改变。");
+  }
   const records: LevelExamRecord[] = [];
 
   $("#dataList tr").each((_, row) => {

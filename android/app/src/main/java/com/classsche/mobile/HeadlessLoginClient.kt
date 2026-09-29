@@ -10,11 +10,21 @@ import java.io.BufferedInputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
+import java.net.CookieManager
+import java.net.CookiePolicy
+import java.net.HttpCookie
+import java.net.URI
+import java.security.SecureRandom
+import javax.crypto.Cipher
+import javax.crypto.spec.IvParameterSpec
+import javax.crypto.spec.SecretKeySpec
+import java.util.Base64
 
 internal class HeadlessLoginClient(
   private val logger: (scope: String, status: String, message: String) -> Unit,
   private val userAgent: String = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome Mobile Safari/537.36"
 ) {
+  private val cookieJar = CookieManager(null, CookiePolicy.ACCEPT_ORIGINAL_SERVER)
   data class LoginResult(
     val cookies: Map<String, String>,
     val timetableHtml: String,
@@ -28,14 +38,37 @@ internal class HeadlessLoginClient(
     password: String,
     recognizeCaptcha: (Bitmap) -> String?
   ): LoginResult {
-    val cookies = linkedMapOf<String, String>()
-    var loginDocument = fetchDocument(loginUrl, referer = null, cookies = cookies)
+    // Reuse WebView cookies within their original domain/path boundaries.
+    for (origin in listOf(timetableUrl, "https://ids.njust.edu.cn/authserver/")) {
+      android.webkit.CookieManager.getInstance().getCookie(origin).orEmpty().split(';').forEach { raw ->
+        val parts = raw.trim().split('=', limit = 2)
+        if (parts.size == 2) {
+          val cookie = HttpCookie(parts[0], parts[1]).apply {
+            path = if (origin.contains("ids.njust.edu.cn")) "/authserver" else "/njlgdx"
+            secure = true
+            version = 0
+          }
+          cookieJar.cookieStore.add(URI(origin), cookie)
+        }
+      }
+    }
+    val existing = fetchDocument(timetableUrl, null)
+    if (looksLikeTimetableDocument(existing)) return LoginResult(sessionCookies(timetableUrl), existing.outerHtml(), 0)
+    var loginDocument = fetchDocument(loginUrl, referer = null)
+    if (loginDocument.selectFirst("#pwdEncryptSalt") != null) {
+      return loginIdentity(loginDocument, timetableUrl, username, password)
+    }
+    // A still-valid identity session can complete the SSO redirect without a form.
+    if (!looksLikeLoginDocument(loginDocument)) {
+      val timetable = fetchDocument(timetableUrl, loginUrl)
+      if (looksLikeTimetableDocument(timetable)) return LoginResult(sessionCookies(timetableUrl), timetable.outerHtml(), 0)
+    }
     logger("HEADLESS_LOGIN", "INFO", "已拉取登录页 title=${loginDocument.title().ifBlank { "-" }}")
 
     repeat(6) { attemptIndex ->
       val form = loginDocument.selectFirst("form") ?: throw IllegalStateException("未找到登录表单")
       val captchaUrl = resolveCaptchaUrl(loginDocument, loginUrl)
-      val captchaBitmap = fetchBitmap(captchaUrl, referer = loginUrl, cookies = cookies)
+      val captchaBitmap = fetchBitmap(captchaUrl, referer = loginUrl)
       val captchaText = recognizeCaptcha(captchaBitmap)
         ?.replace(Regex("[^a-zA-Z0-9]"), "")
         ?.take(4)
@@ -43,7 +76,7 @@ internal class HeadlessLoginClient(
 
       if (captchaText.length != 4) {
         logger("HEADLESS_LOGIN", "WARN", "第 ${attemptIndex + 1} 次验证码识别失败：$captchaText")
-        loginDocument = fetchDocument(loginUrl, referer = loginUrl, cookies = cookies)
+        loginDocument = fetchDocument(loginUrl, referer = loginUrl)
         return@repeat
       }
 
@@ -64,7 +97,6 @@ internal class HeadlessLoginClient(
         url = actionUrl,
         method = method,
         referer = loginUrl,
-        cookies = cookies,
         formBody = if (method == "POST") encodeFormBody(formData) else null
       )
       val submitDocument = parseHtml(submitResponse.body, actionUrl)
@@ -77,14 +109,13 @@ internal class HeadlessLoginClient(
       val timetableResponse = executeRequest(
         url = timetableUrl,
         method = "GET",
-        referer = loginUrl,
-        cookies = cookies
+        referer = loginUrl
       )
       val timetableDocument = parseHtml(timetableResponse.body, timetableUrl)
       if (looksLikeTimetableDocument(timetableDocument)) {
         logger("HEADLESS_LOGIN", "SUCCESS", "纯 HTTP 登录成功，验证码尝试次数=${attemptIndex + 1}")
         return LoginResult(
-          cookies = cookies.toMap(),
+          cookies = sessionCookies(timetableUrl),
           timetableHtml = timetableDocument.outerHtml(),
           captchaAttempts = attemptIndex + 1
         )
@@ -95,27 +126,67 @@ internal class HeadlessLoginClient(
         "WARN",
         "第 ${attemptIndex + 1} 次登录后仍未进入课表页 title=${timetableDocument.title().ifBlank { "-" }}"
       )
-      loginDocument = fetchDocument(loginUrl, referer = timetableUrl, cookies = cookies)
+      loginDocument = fetchDocument(loginUrl, referer = timetableUrl)
     }
 
     throw IllegalStateException("纯 HTTP 登录连续多次失败")
   }
 
+  private fun loginIdentity(
+    document: Document, timetableUrl: String, username: String, password: String,
+  ): LoginResult {
+    val loginUrl = document.location()
+    val form = document.selectFirst("form#pwdFromId") ?: throw IllegalStateException("未找到统一认证表单")
+    val checkUrl = "https://ids.njust.edu.cn/authserver/checkNeedCaptcha.htl?username=${URLEncoder.encode(username, "UTF-8")}"
+    val check = executeRequest(checkUrl, "GET", loginUrl)
+    if (org.json.JSONObject(String(check.body, Charsets.UTF_8)).optBoolean("isNeed", true)) {
+      throw IllegalStateException("统一认证需要验证码，请在登录页打开认证网页完成验证")
+    }
+    val salt = form.selectFirst("#pwdEncryptSalt")?.attr("value").orEmpty()
+    val parameters = extractFormParameters(form).apply {
+      remove("passwordText")
+      this["username"] = username
+      this["password"] = encryptIdentityPassword(password, salt)
+    }
+    val result = executeRequest(resolveActionUrl(loginUrl, form), "POST", loginUrl, encodeFormBody(parameters))
+    if (looksLikeLoginDocument(parseHtml(result.body, result.url))) {
+      throw IllegalStateException("统一认证未完成，请检查统一认证密码或在认证网页完成验证")
+    }
+    val timetable = fetchDocument(timetableUrl, loginUrl)
+    if (!looksLikeTimetableDocument(timetable)) throw IllegalStateException("统一认证后未取得教务会话，请重新登录")
+    return LoginResult(sessionCookies(timetableUrl), timetable.outerHtml(), 0)
+  }
+
+  private fun encryptIdentityPassword(password: String, salt: String): String {
+    require(salt.toByteArray(Charsets.UTF_8).size in listOf(16, 24, 32)) { "统一认证加密参数无效" }
+    val random = SecureRandom()
+    val alphabet = "ABCDEFGHJKMNPQRSTWXYZabcdefhijkmnprstwxyz2345678"
+    fun randomText(size: Int) = (1..size).map { alphabet[random.nextInt(alphabet.length)] }.joinToString("")
+    val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
+    cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(salt.toByteArray(Charsets.UTF_8), "AES"),
+      IvParameterSpec(randomText(16).toByteArray(Charsets.UTF_8)))
+    return Base64.getEncoder().encodeToString(cipher.doFinal((randomText(64) + password).toByteArray(Charsets.UTF_8)))
+  }
+
+  private fun sessionCookies(url: String): Map<String, String> = cookieJar.get(URI(url), emptyMap())["Cookie"].orEmpty()
+    .flatMap { it.split(';') }.mapNotNull { raw ->
+      val pair = raw.trim().split('=', limit = 2)
+      if (pair.size == 2 && !pair[0].startsWith('$')) pair[0] to pair[1] else null
+    }.toMap()
+
   private fun fetchDocument(
     url: String,
     referer: String?,
-    cookies: MutableMap<String, String>
   ): Document {
-    val response = executeRequest(url = url, method = "GET", referer = referer, cookies = cookies)
-    return parseHtml(response.body, url)
+    val response = executeRequest(url = url, method = "GET", referer = referer)
+    return parseHtml(response.body, response.url)
   }
 
   private fun fetchBitmap(
     url: String,
     referer: String?,
-    cookies: MutableMap<String, String>
   ): Bitmap {
-    val response = executeRequest(url = url, method = "GET", referer = referer, cookies = cookies)
+    val response = executeRequest(url = url, method = "GET", referer = referer)
     return ByteArrayInputStream(response.body).use { input ->
       BufferedInputStream(input).use { buffered ->
         BitmapFactory.decodeStream(buffered)
@@ -139,7 +210,15 @@ internal class HeadlessLoginClient(
 
   private fun resolveActionUrl(loginUrl: String, form: Element): String {
     val action = form.absUrl("action").ifBlank { form.attr("action") }
-    return if (action.isBlank()) loginUrl else URL(URL(loginUrl), action).toString()
+    if (action.isBlank()) return loginUrl
+    val base = URL(loginUrl)
+    val resolved = URL(base, action)
+    // The IDS page adds ?service via JavaScript; the raw HTML action omits it.
+    if (base.host == "ids.njust.edu.cn" && resolved.host == base.host &&
+      resolved.query.isNullOrBlank() && !base.query.isNullOrBlank()) {
+      return "$resolved?${base.query}"
+    }
+    return resolved.toString()
   }
 
   private fun extractFormParameters(form: Element): LinkedHashMap<String, String> {
@@ -189,7 +268,6 @@ internal class HeadlessLoginClient(
     url: String,
     method: String,
     referer: String?,
-    cookies: MutableMap<String, String>,
     formBody: String? = null
   ): HttpResponse {
     var currentUrl = url
@@ -208,9 +286,8 @@ internal class HeadlessLoginClient(
         setRequestProperty("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.6")
         setRequestProperty("User-Agent", userAgent)
         currentReferer?.let { setRequestProperty("Referer", it) }
-        if (cookies.isNotEmpty()) {
-          setRequestProperty("Cookie", cookies.entries.joinToString("; ") { (name, value) -> "$name=$value" })
-        }
+        cookieJar.get(URI(currentUrl), emptyMap())["Cookie"]?.joinToString("; ")
+          ?.takeIf { it.isNotBlank() }?.let { setRequestProperty("Cookie", it) }
       }
 
       if (currentMethod == "POST" && currentBody != null) {
@@ -222,7 +299,7 @@ internal class HeadlessLoginClient(
       }
 
       val code = connection.responseCode
-      collectCookies(connection, cookies)
+      cookieJar.put(URI(currentUrl), connection.headerFields.filterKeys { it != null })
       val body = (if (code >= 400) connection.errorStream ?: connection.inputStream else connection.inputStream)
         ?.use { it.readBytes() }
         ?: ByteArray(0)
@@ -232,32 +309,27 @@ internal class HeadlessLoginClient(
       if (code in 300..399 && !location.isNullOrBlank()) {
         currentReferer = currentUrl
         currentUrl = URL(URL(currentUrl), location).toString()
+        if (currentUrl.startsWith("http://bkjw.njust.edu.cn/")) currentUrl = currentUrl.replaceFirst("http:", "https:")
         if (code == 303 || ((code == 301 || code == 302) && currentMethod == "POST")) {
           currentMethod = "GET"
           currentBody = null
         }
-        logger("HEADLESS_HTTP", "INFO", "重定向到 $currentUrl code=$code")
+        logger("HEADLESS_HTTP", "INFO", "重定向到 ${URL(currentUrl).host}${URL(currentUrl).path} code=$code")
         return@repeat
       }
 
-      logger("HEADLESS_HTTP", "INFO", "$currentMethod $currentUrl code=$code cookieCount=${cookies.size}")
-      return HttpResponse(code = code, body = body)
+      if (code in 300..399) {
+        throw IllegalStateException("登录步骤目标网站跳转错误：HTTP $code，${URL(currentUrl).host}${URL(currentUrl).path} 未提供 Location")
+      }
+      if (code !in 200..299) {
+        throw IllegalStateException("登录步骤网站返回错误：HTTP $code，地址 ${URL(currentUrl).host}${URL(currentUrl).path}")
+      }
+
+      logger("HEADLESS_HTTP", "INFO", "$currentMethod ${URL(currentUrl).host}${URL(currentUrl).path} code=$code")
+      return HttpResponse(code = code, body = body, url = currentUrl)
     }
 
     throw IllegalStateException("HTTP 重定向次数过多")
-  }
-
-  private fun collectCookies(connection: HttpURLConnection, cookies: MutableMap<String, String>) {
-    connection.headerFields["Set-Cookie"].orEmpty().forEach { raw ->
-      val firstPart = raw.substringBefore(';').trim()
-      val separator = firstPart.indexOf('=')
-      if (separator <= 0) return@forEach
-      val name = firstPart.substring(0, separator).trim()
-      val value = firstPart.substring(separator + 1).trim()
-      if (name.isNotBlank()) {
-        cookies[name] = value
-      }
-    }
   }
 
   private fun parseHtml(bytes: ByteArray, baseUrl: String): Document =
@@ -272,12 +344,7 @@ internal class HeadlessLoginClient(
   }
 
   private fun looksLikeTimetableDocument(document: Document): Boolean {
-    val html = document.outerHtml().lowercase()
-    val title = document.title().lowercase()
-    return html.contains("xskb") ||
-      html.contains("课程表") ||
-      title.contains("课表") ||
-      document.select("table").isNotEmpty()
+    return !looksLikeLoginDocument(document) && document.selectFirst("#kbtable") != null
   }
 
   private fun encodeFormBody(parameters: Map<String, String>): String =
@@ -287,7 +354,8 @@ internal class HeadlessLoginClient(
 
   private data class HttpResponse(
     val code: Int,
-    val body: ByteArray
+    val body: ByteArray,
+    val url: String
   )
 
   companion object {

@@ -4,6 +4,7 @@ dist/
 .env.*
 !.env.example
 artifacts/
+android-update/
 playwright-report/
 test-results/
 .cache/
@@ -12,6 +13,7 @@ coverage/
 # Gradle
 .g/
 .gradle/
+.gradle-home/
 android/.gradle/
 android/.gradle-user/
 
@@ -29,10 +31,15 @@ app/build/
 android/build/
 android/app/build/
 
-# Generated Android web assets
-android/app/src/main/assets/*.json
-android/app/src/main/assets/*.html
-android/app/src/main/assets/resources/
+# Generated Android assets (templates, metadata, resource bundles)
+android/app/src/main/assets/
+
+# Local Android signing material
+*.keystore
+*.jks
+*.p12
+*.pfx
+key.properties
 
 # APK / App Bundle
 *.apk
@@ -47,3 +54,4 @@ captures/
 *.temp
 Thumbs.db
 desktop.ini
+.DS_Store

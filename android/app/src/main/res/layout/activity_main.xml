@@ -838,6 +838,16 @@
                             android:textColor="#748AA5"
                             android:textSize="14sp" />
 
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="10dp"
+                            android:background="#FFF7E6"
+                            android:padding="12dp"
+                            android:text="@string/login_portal_password_notice"
+                            android:textColor="#8A5A13"
+                            android:textSize="13sp" />
+
                         <com.google.android.material.textfield.TextInputLayout
                             android:id="@+id/usernameInput"
                             style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
@@ -909,6 +919,13 @@
                                 android:layout_width="match_parent"
                                 android:layout_height="wrap_content"
                                 android:text="@string/login_submit_label" />
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/identityLoginButton"
+                                style="@style/Widget.Material3.Button.OutlinedButton"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:text="@string/open_identity_login_label" />
 
                             <LinearLayout
                                 android:layout_width="match_parent"

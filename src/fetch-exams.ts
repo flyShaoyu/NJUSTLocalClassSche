@@ -7,6 +7,7 @@ import { launchBrowserSession } from "./browser.js";
 import { ensureArtifactsDirectory, writeTextFile } from "./fs-utils.js";
 import { logDivider, logStep } from "./logger.js";
 import { openExamPage, saveSession } from "./exam-page.js";
+import { withStep } from "./diagnostics.js";
 
 const run = async (): Promise<void> => {
   logDivider("START EXAM FETCH");
@@ -15,17 +16,17 @@ const run = async (): Promise<void> => {
   logStep("Loading .env configuration.");
   const config = loadConfig();
 
-  const { browser, context } = await launchBrowserSession(config, storageStatePath);
+  const { browser, context } = await withStep("启动浏览器并读取登录状态", () => launchBrowserSession(config, storageStatePath));
 
   try {
-    const page = await openExamPage(context, config);
+    const page = await withStep("打开考试安排页面", () => openExamPage(context, config));
 
     logStep("Saving authenticated session.");
-    await saveSession(context, storageStatePath);
+    await withStep("保存登录状态", () => saveSession(context, storageStatePath));
 
     logStep("Capturing exam page HTML.");
-    const html = await page.content();
-    await writeTextFile(examHtmlPath, html);
+    const html = await withStep("读取考试安排网页", () => page.content());
+    await withStep("保存考试安排原始网页", () => writeTextFile(examHtmlPath, html));
 
     logStep(`Done. Exam HTML saved to ${examHtmlPath}`);
   } finally {

@@ -243,11 +243,7 @@ object TimetableRenderer {
   }
 
   private fun readAssetText(context: Context, fileName: String): String? {
-    return try {
-      context.assets.open(fileName).bufferedReader(Charsets.UTF_8).use { it.readText() }
-    } catch (_: Exception) {
-      null
-    }
+    return ResourceUpdateStore.readText(context, fileName)
   }
 
   private fun fallbackHtml(message: String): String {

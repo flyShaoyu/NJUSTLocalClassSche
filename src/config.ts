@@ -1,6 +1,7 @@
 import path from "node:path";
 import dotenv from "dotenv";
 import { AppConfig } from "./types.js";
+import { DEFAULT_LOGIN_URL, TEACHING_ORIGIN, resolveEndpoint } from "./endpoints.js";
 
 dotenv.config({ override: true });
 
@@ -44,26 +45,21 @@ export const homeImageArtifactsDir = path.resolve("artifacts", "resources");
 export const homeImageSourceDir = path.resolve("resources");
 
 export const loadConfig = (): AppConfig => ({
-  baseUrl: process.env.BASE_URL?.trim() || "http://202.119.81.113:8080",
-  loginUrl: process.env.LOGIN_URL?.trim() || "http://202.119.81.113:8080",
+  baseUrl: resolveEndpoint(process.env.BASE_URL, TEACHING_ORIGIN),
+  loginUrl: resolveEndpoint(process.env.LOGIN_URL, DEFAULT_LOGIN_URL),
   timetableUrl:
-    process.env.TIMETABLE_URL?.trim() ||
-    "http://202.119.81.112:9080/njlgdx/xskb/xskb_list.do",
+    resolveEndpoint(process.env.TIMETABLE_URL, `${TEACHING_ORIGIN}/njlgdx/xskb/xskb_list.do`),
   examQueryUrl:
-    process.env.EXAM_QUERY_URL?.trim() ||
-    "http://202.119.81.112:9080/njlgdx/xsks/xsksap_query",
+    resolveEndpoint(process.env.EXAM_QUERY_URL, `${TEACHING_ORIGIN}/njlgdx/xsks/xsksap_query`),
   examListUrl:
-    process.env.EXAM_LIST_URL?.trim() ||
-    "http://202.119.81.112:9080/njlgdx/xsks/xsksap_list",
+    resolveEndpoint(process.env.EXAM_LIST_URL, `${TEACHING_ORIGIN}/njlgdx/xsks/xsksap_list`),
   scoreUrl:
-    process.env.SCORE_URL?.trim() ||
-    "http://202.119.81.112:9080/njlgdx/kscj/cjcx_list",
+    resolveEndpoint(process.env.SCORE_URL, `${TEACHING_ORIGIN}/njlgdx/kscj/cjcx_list`),
   levelExamUrl:
-    process.env.LEVEL_EXAM_URL?.trim() ||
-    "http://202.119.81.112:9080/njlgdx/kscj/djkscj_list",
+    resolveEndpoint(process.env.LEVEL_EXAM_URL, `${TEACHING_ORIGIN}/njlgdx/kscj/djkscj_list`),
   username: getOptionalEnv("USERNAME"),
   password: getOptionalEnv("PASSWORD"),
-  semester: process.env.SEMESTER?.trim() || "2025-2026-2",
+  semester: getOptionalEnv("SEMESTER"),
   headless: parseBoolean(process.env.HEADLESS, false),
   loginSuccessSelector: getOptionalEnv("LOGIN_SUCCESS_SELECTOR"),
   manualLoginTimeoutMs: parseNumber(process.env.MANUAL_LOGIN_TIMEOUT_MS, 300000)

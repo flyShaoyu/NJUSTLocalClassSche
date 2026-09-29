@@ -27,12 +27,9 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 
 object HeadlessScoreSyncManager {
-  private const val PREFS_NAME = "classsche_prefs"
-  private const val PREF_USERNAME = "username"
-  private const val PREF_PASSWORD = "password"
-  private const val LOGIN_URL = "http://202.119.81.113:8080"
-  private const val TIMETABLE_URL = "http://202.119.81.112:9080/njlgdx/xskb/xskb_list.do"
-  private const val SCORE_LIST_URL = "http://202.119.81.112:9080/njlgdx/kscj/cjcx_list"
+  private const val LOGIN_URL = UniversityEndpoints.LOGIN
+  private const val TIMETABLE_URL = UniversityEndpoints.TIMETABLE
+  private const val SCORE_LIST_URL = UniversityEndpoints.SCORES
   private const val SCORE_JSON_FILE = "score-list.json"
   private const val SCORE_UPDATE_META_FILE = "score-update-meta.json"
   private const val SCORE_UPDATE_CHANNEL_ID = "classsche_score_update_v1"
@@ -73,8 +70,9 @@ object HeadlessScoreSyncManager {
       val result = try {
         performSync(appContext, reason)
       } catch (error: Exception) {
-        log(appContext, "HEADLESS_SCORE_SYNC", "FAIL", error.message ?: "unknown")
-        SyncResult(Status.FAILED, message = error.message ?: "unknown")
+        val detail = FailureDetails.describe(error)
+        log(appContext, "HEADLESS_SCORE_SYNC", "FAIL", detail)
+        SyncResult(Status.FAILED, message = detail)
       } finally {
         synchronized(this) {
           syncInProgress = false
@@ -86,13 +84,12 @@ object HeadlessScoreSyncManager {
 
   private fun performSync(context: Context, reason: String): SyncResult {
     log(context, "HEADLESS_SCORE_SYNC", "START", "开始纯 HTTP 成绩同步 reason=$reason")
-    val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-    val username = prefs.getString(PREF_USERNAME, "").orEmpty().trim()
-    val password = prefs.getString(PREF_PASSWORD, "").orEmpty().trim()
-    if (username.isBlank() || password.isBlank()) {
+    val credentials = CredentialStore.credentials(context)
+    if (credentials == null) {
       log(context, "HEADLESS_SCORE_SYNC", "WARN", "缺少账号或密码，跳过本次同步")
       return SyncResult(Status.SKIPPED, message = "缺少账号或密码")
     }
+    val (username, password) = credentials
 
     val loginResult = HeadlessLoginClient(logger = { scope, status, message ->
       log(context, scope, status, message)
@@ -144,7 +141,7 @@ object HeadlessScoreSyncManager {
     try {
       connection.requestMethod = "GET"
       connection.useCaches = false
-      connection.instanceFollowRedirects = true
+      connection.instanceFollowRedirects = false
       connection.connectTimeout = 10000
       connection.readTimeout = 10000
       connection.setRequestProperty("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
@@ -161,6 +158,9 @@ object HeadlessScoreSyncManager {
         if (responseCode in 200..299) "INFO" else "WARN",
         "响应码=$responseCode contentType=${connection.contentType ?: "-"}"
       )
+      check(responseCode in 200..299) {
+        "成绩页面 HTTP $responseCode，地址 $SCORE_LIST_URL，跳转目标 ${connection.getHeaderField("Location") ?: "无"}"
+      }
       val bytes = (if (responseCode in 200..299) connection.inputStream else connection.errorStream ?: connection.inputStream)
         .use { it.readBytes() }
       val document = org.jsoup.Jsoup.parse(java.io.ByteArrayInputStream(bytes), null, SCORE_LIST_URL)

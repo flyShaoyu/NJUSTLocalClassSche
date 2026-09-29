@@ -64,6 +64,9 @@ export const parseExamArrangementHtml = (
   logStep("Parsing exam arrangement HTML.");
 
   const $ = cheerio.load(html);
+  if (!$("#dataList").length) {
+    throw new Error("考试安排解析错误：缺少 #dataList，网页可能跳回登录页或网站结构已改变。");
+  }
   const teacherIndex = buildTeacherIndex(courses);
   const exams: ExamArrangement[] = [];
 

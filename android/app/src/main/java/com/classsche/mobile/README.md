@@ -1,35 +1,27 @@
-# `com.classsche.mobile` 目录说明
+# `com.classsche.mobile` 源码说明
 
-这部分是安卓原生实现，负责读取导出的 `assets`、渲染原生首页、展示 WebView 页面，以及课表/考试通知。
+Android 原生代码负责 WebView 登录、应用私有缓存、首页和业务页面、通知、后台成绩同步以及版本/资源更新。更完整的流程见仓库根目录 [ANDROID.md](../../../../../../../../ANDROID.md) 与 [FILE-INDEX.md](../../../../../../../../FILE-INDEX.md)。
 
-## 核心入口
+## 登录、缓存与更新
 
-- `MainActivity.kt`：应用主界面和主要业务入口。负责首页原生 UI、WebView 切换、缓存读取、考试/课表入口、GitHub 更新检查等。
-- `NotificationSettingsActivity.kt`：通知设置页，管理上课提醒、考试提醒、精确闹钟和提醒提前量。
+- `MainActivity.kt`：界面和主要业务入口；处理统一认证 WebView、业务页捕获、原生首页、缓存及更新检查。
+- `UniversityEndpoints.kt`：统一认证、教务 SSO、课表、考试和成绩 URL。
+- `CredentialStore.kt`：Android Keystore AES-GCM 密码保存和旧明文迁移；使用智慧理工服务门户密码。
+- `HeadlessLoginClient.kt`：纯 HTTP 认证与教务会话获取；`HeadlessScoreSyncManager.kt`、`HeadlessScoreSyncScheduler.kt`、`HeadlessScoreSyncReceiver.kt`：后台成绩同步。
+- `ResourceUpdateStore.kt`：公共页面资源更新；`FailureDetails.kt`：超时、HTTP、跳转和解析错误提示；`AppDebugLog.kt`、`LogViewerActivity.kt`：运行日志。
 
-## 考试相关
+## 课表与考试
 
-- `ExamArrangement.kt`：考试安排数据模型。
-- `ExamParser.kt`：读取并解析 `assets/exam-list.json`。
-- `ExamRenderer.kt`：把考试数据渲染到原生考试列表和首页最近考试区域。
-- `ExamNotificationHelper.kt`：考试通知公用计算逻辑，负责时间解析、最近考试筛选等。
-- `ExamNotificationScheduler.kt`：考试提醒调度器，创建和取消考试通知闹钟。
-- `ExamOngoingNotificationScheduler.kt`：考试进行中常驻通知调度器。
-- `ExamNotificationReceiver.kt`：考试提醒广播接收器，接到闹钟后拉起通知服务。
-- `ExamNotificationService.kt`：考试提醒通知服务，负责展示考试提醒通知。
-- `ExamForegroundNotificationService.kt`：考试常驻通知前台服务。
+- `TimetableCourse.kt`、`TimetableParser.kt`、`TimetableRenderer.kt`、`TimetableScheduleHelper.kt`：课程模型、HTML 解析、页面和时间计算。
+- `TimetableSemesterStore.kt`、`TimetableSemesterSettingsActivity.kt`：多学期课表设置与存储。
+- `ExamArrangement.kt`、`ExamParser.kt`、`ExamRenderer.kt`：考试数据和展示。
+- `CourseNotification*`、`ExamNotification*`、`ExamOngoingNotificationScheduler.kt`、`ExamForegroundNotificationService.kt`：上课/考试提醒与常驻通知。
+- `NotificationSettingsActivity.kt`：提醒开关、提前量等设置。
 
-## 课表相关
+## 成绩与其他页面
 
-- `TimetableCourse.kt`：课表课程数据模型。
-- `TimetableParser.kt`：读取并解析 `assets/timetable.json`。
-- `TimetableRenderer.kt`：把课表数据渲染到原生最近课表区域。
-- `TimetableScheduleHelper.kt`：课表时间计算工具，负责筛选最近课程、计算上下课时间。
-- `CourseNotificationScheduler.kt`：上课提醒调度器，创建和取消课程通知闹钟。
-- `CourseNotificationAlarmReceiver.kt`：上课提醒广播接收器。
-- `CourseNotificationBootReceiver.kt`：开机后恢复上课提醒调度。
-- `CourseNotificationService.kt`：上课提醒通知服务。
+- `ScoreSyncSettings.kt`、`ScoreSyncSettingsActivity.kt`：后台成绩同步设置。
+- `ScoreEditorActivity.kt`、`LocalScoreEditorActivity.kt`：本地成绩条目编辑，不回写教务网站。
+- `HomeImagePagerAdapter.kt`：保留的轮播适配器占位文件；主要首页逻辑在 `MainActivity.kt`。
 
-## 主页图片
-
-- `HomeImagePagerAdapter.kt`：首页图片轮播适配器预留文件；当前逻辑已经主要并回 `MainActivity.kt`，这里只保留包声明占位。
+Android 个人数据写入应用私有目录；导入 APK 的 `assets` 只含空数据页面模板和公共资源。改网页模板须先在仓库根目录依次运行 `npm run render:ui`、`npm run export:android`，再构建 APK。

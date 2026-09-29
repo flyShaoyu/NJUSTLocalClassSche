@@ -1,123 +1,52 @@
 # Android 说明
 
-## 当前状态
+Android 工程位于 `android/`，桌面抓取工程位于 `src/`。应用提供原生首页、教务登录、课表/考试/成绩/等级考试页面、本地缓存、课程与考试通知、成绩后台同步，以及版本和资源更新检查。
 
-仓库已经包含完整 Android 工程，路径为 `android/`。
+## 登录与本地数据
 
-当前 Android 端能力：
+- 登录入口由 `UniversityEndpoints.kt` 统一定义。应用使用 WebView 完成统一身份认证，再通过教务 SSO 建立教务域名的会话；需要验证码或额外验证时可打开认证网页处理。
+- 登录页使用**智慧理工服务门户密码**。`CredentialStore.kt` 用 Android Keystore 中的不可导出密钥进行 AES-GCM 加密；旧版保存在偏好设置中的明文密码在首次读取时迁移并删除。后台同步需要在未打开界面时解密，因此密钥不要求每次生物识别。
+- `HeadlessLoginClient.kt` 和 `HeadlessScoreSyncManager.kt` 处理纯 HTTP 登录及成绩同步，并遵守 Cookie 的域名/路径范围；遇到额外认证时需要回到网页登录。
+- 个人课表、考试和成绩缓存写入应用私有目录，升级 APK 时保留。应用关闭系统备份；不要把密码、Cookie、票据或用户数据提交到仓库。
 
-- 本地登录页输入账号、密码、验证码
-- 隐藏 `WebView` 打开真实教务页
-- 显示验证码图片并提交真实表单
-- 登录成功后访问课表页
-- 抓取并解析课表
-- 显示本地课表缓存页
+## Android 资源与构建
 
-## Android 资源来源
+`npm run export:android` 把**空数据页面模板**、公共首页图片和 `cache-meta.json` 写入 `android/app/src/main/assets/`，并在 `artifacts/android-update/` 生成资源包和清单。导出时会移除 `assets/` 中旧的个人课表 HTML/JSON、考试与成绩 JSON；`artifacts/` 中抓取的个人数据不会被打入 APK。有关资源更新的代码见 `src/export-android.ts`、`ResourceUpdateStore.kt` 和 `MainActivity.kt`。
 
-以下文件会被导出到 Android `assets/`：
-
-- `artifacts/timetable-view.html`
-- `artifacts/home-view.html`
-- `artifacts/timetable.json`
-- `artifacts/timetable.html`
-- `artifacts/resources/*`
-
-导出目标目录：
-
-- `android/app/src/main/assets/`
-
-## 关键文件
-
-- `android/app/src/main/java/com/classsche/mobile/MainActivity.kt`
-  Android 主入口
-- `android/app/src/main/java/com/classsche/mobile/TimetableParser.kt`
-  Android 课表解析器
-- `android/app/src/main/java/com/classsche/mobile/TimetableRenderer.kt`
-  Android 本地课表 HTML 生成器
-- `android/app/src/main/res/layout/activity_main.xml`
-  主布局
-- `src/export-android.ts`
-  导出 Android 资源脚本
-
-## 正确构建顺序
-
-Android 资源导出必须串行执行，不要并行。
-
-正确顺序：
+如果修改网页模板，按顺序执行：
 
 ```bash
 npm run render:ui
 npm run export:android
 ```
 
-然后再构建：
+随后在 `android/` 目录，使用 JDK 17 和 Android SDK 构建：
 
 ```powershell
-cd D:\document\CLassSche\android
-$env:JAVA_HOME='C:\Users\43631\.jdks\jbr-17.0.14'
-$env:Path="$env:JAVA_HOME\bin;$env:Path"
 .\gradlew.bat :app:assembleDebug
 ```
 
-## APK 位置
+调试 APK 位于 `android/app/build/outputs/apk/debug/app-debug.apk`。`render:ui`、`export:android` 和 APK 构建必须串行；否则应用可能包含上一次生成的页面。
 
-- `android/app/build/outputs/apk/debug/app-debug.apk`
+## 主要源码
 
-## 安装到手机
+| 位置 | 作用 |
+| --- | --- |
+| `MainActivity.kt`、`activity_main.xml` | 主界面、WebView、缓存更新和页面导航。 |
+| `UniversityEndpoints.kt`、`HeadlessLoginClient.kt` | 站点入口和纯 HTTP 认证。 |
+| `CredentialStore.kt`、`FailureDetails.kt` | 本地密码加密、迁移和错误提示分类。 |
+| `Timetable*`、`Exam*` | 课表/考试解析、渲染、学期与提醒。 |
+| `HeadlessScoreSync*`、`ScoreSyncSettings*` | 成绩后台同步、调度和设置。 |
+| `NotificationSettingsActivity.kt`、`CourseNotification*`、`ExamNotification*` | 上课与考试通知。 |
+| `AppDebugLog.kt`、`LogViewerActivity.kt` | 运行日志。 |
 
-确保：
+以上 Kotlin 文件在 `android/app/src/main/java/com/classsche/mobile/`；完整索引见 [FILE-INDEX.md](FILE-INDEX.md)。
 
-- 已开启开发者选项
-- 已开启 USB 调试
-- 已接受当前电脑的 ADB 授权
+## 排错
 
-安装命令：
+- 登录 WebView 主页面失败会显示连接超时、WebView 错误码或 HTTP 状态码；异常跳转会显示目标地址。登录页出现但业务表格缺失时，不应把登录页写入缓存。
+- 课表更新后的考试、成绩、等级考试同步结果分别显示；解析或网络失败可在“运行日志”查看具体步骤和错误。原有缓存应保留。
+- 网页已更新但 APK 还是旧版：检查 `render:ui → export:android → assembleDebug` 的执行顺序，并确认安装的是新 APK。
+- ADB `unauthorized` 需要在手机上确认 USB 调试授权；`INSTALL_FAILED_ABORTED` 通常表示设备端取消了安装确认。
 
-```bash
-adb install -r android/app/build/outputs/apk/debug/app-debug.apk
-```
-
-## 缓存策略
-
-当前策略是：
-
-- 升级 APK 时保留 `timetable.json` 等本地缓存数据
-- 应用启动后再根据最新模板重绘本地页面
-- 不在 `onCreate` 最早阶段强行重绘，避免启动闪退和资源竞争
-
-## 常见问题
-
-### 1. 网页是新的，app 还是旧的
-
-优先检查：
-
-1. 是否按顺序执行了 `npm run render:ui`
-2. 是否紧接着执行了 `npm run export:android`
-3. 是否重新构建并安装了 APK
-
-### 2. ADB 提示 unauthorized
-
-需要在手机上重新确认 USB 调试授权。
-
-### 3. ADB 提示 INSTALL_FAILED_ABORTED
-
-通常是手机上的安装确认被拒绝。
-
-### 4. 首页启动闪退
-
-近期已修复一类问题：
-
-- 若 `thumb` 图缺失，自动回退到 `detail`
-- 若 `detail` 也缺失，再回退到原图
-
-因此资源不完整时不应再直接闪退。
-
-## 限制说明
-
-桌面端抓取依赖 Playwright，不能直接原样塞进 Android。
-
-因此本项目的移动端实现是：
-
-- 桌面端保留 Playwright 抓取链路
-- Android 端使用本地表单 + WebView + 本地缓存显示链路
+桌面端的 Playwright 登录态文件不能直接当作 Android Cookie 使用。站点迁移与已验证页面见 [LOGIN-MIGRATION.md](LOGIN-MIGRATION.md)。

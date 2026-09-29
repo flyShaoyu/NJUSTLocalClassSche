@@ -18,6 +18,9 @@ export const parseScoreHtml = (html: string): ScoreRecord[] => {
   logStep("Parsing score HTML.");
 
   const $ = cheerio.load(html);
+  if (!$("#dataList").length) {
+    throw new Error("成绩解析错误：缺少 #dataList，网页可能跳回登录页或网站结构已改变。");
+  }
   const scores: ScoreRecord[] = [];
 
   $("#dataList tr")

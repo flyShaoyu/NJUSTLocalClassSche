@@ -1,63 +1,37 @@
-# PROMPTS
+# 新对话任务提示
 
-下面是这个仓库里常用的一些任务提示词，方便后续继续让 AI 接手。
+这些示例用于新对话接手项目。先让助手读取 [FILE-INDEX.md](FILE-INDEX.md) 和 [AGENT.md](AGENT.md)，只展开当前任务涉及的文件。`.env`、`artifacts/storageState.json`、个人课表及成绩数据不要上传或贴入对话；如需排错，提供脱敏的错误文案和目标页面即可。
 
-## 抓最新课表
+## 抓取与登录
 
 ```text
-跑一遍登录流程，抓最新课表并更新 HTML、JSON、本地前端页面。
+先看 FILE-INDEX.md 和 AGENT.md。用本机现有配置检查统一认证、教务 SSO 及课表、考试、成绩、等级考试抓取；遇到验证码在浏览器内处理。记录每个页面的 HTTP 状态、跳转和解析结果，不输出密码或 Cookie。
 ```
 
-## 只重解析
-
 ```text
-不要重新登录，直接用 artifacts/timetable.html 重新生成 timetable.json 和 timetable-view.html。
+只用 artifacts/timetable.html 和已有考试/成绩 HTML 排查解析错误，不重新登录。核对 src/types.ts 与 Android 数据模型，保留旧缓存直到解析成功。
 ```
 
-## 只调 UI
+## 页面与 Android
 
 ```text
-只修改 src/timetable-ui.ts 和 src/timetable-ui-script.ts，继续优化课表页面，不要改解析逻辑。
+只调整课表页面的周切换、冲突课程或详情弹层。先看 src/timetable-ui.ts 与 src/timetable-ui-script.ts；完成后依次运行 render:ui、export:android，再按需要构建 APK。
 ```
 
-## 导出 Android
-
 ```text
-把当前本地课表导出到 Android assets，并重新构建 debug APK。注意 render:ui 和 export:android 要串行执行。
+排查 Android 登录或后台成绩同步。先看 UniversityEndpoints.kt、MainActivity.kt、CredentialStore.kt、HeadlessLoginClient.kt 和 HeadlessScoreSyncManager.kt。保留分步骤错误提示，不在日志中写密码或完整 Cookie。
 ```
 
-## 安装到手机
-
 ```text
-用 adb 把最新 APK 安装到已连接手机。
+检查考试/成绩/等级考试页或通知。根据 FILE-INDEX.md 只读取对应 parser、UI、Android 同步及通知文件；说明是抓取失败、网站跳转、HTTP 错误还是解析结构变化。
 ```
 
-## 抓真机截图
-
 ```text
-用 adb 抓当前手机屏幕截图，我要你根据截图继续调 UI。
+诊断“网页是新的，APK 仍是旧的”。核对 render:ui → export:android → assembleDebug 的串行执行、APK 时间戳和安装版本；确认 assets 中只有空数据模板和公共资源。
 ```
 
-## 修解析逻辑
+## 文档与历史
 
 ```text
-检查 timetable.html 和 parser，修正 timetable.json 的课程信息映射错误，再同步到 Android 解析器。
-```
-
-## 调整详情页
-
-```text
-只优化课表详情页弹层，不要改主课表布局。
-```
-
-## 调整主课表
-
-```text
-只优化主课表网格、课程卡片、今天高亮、时间线，不要动登录页和 Android 原生布局。
-```
-
-## 排查 Android 落后一版
-
-```text
-检查 render:ui、export:android、assembleDebug 的执行顺序，并确认 app 为什么没有吃到最新 HTML。
+对照 git log、当前工作区和源码更新 README、API、ANDROID、FILE-INDEX 与 CHANGELOG；把未提交改动和已有提交分开记录，不把测试通过写成真机验证通过。
 ```
