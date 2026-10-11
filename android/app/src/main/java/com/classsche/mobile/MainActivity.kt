@@ -28,6 +28,7 @@ import android.provider.Settings
 import android.text.method.LinkMovementMethod
 import android.text.util.Linkify
 import android.util.Log
+import android.util.Base64
 import android.util.LruCache
 import android.util.TypedValue
 import android.view.View
@@ -90,9 +91,17 @@ class MainActivity : AppCompatActivity() {
   private var lastStatusBarInsetTop = 0
 
   private var loginSubmitted = false
+  private var authLoginRequested = false
+  private var identityPasswordFormReady = false
   private var loginAttemptSequence = 0
   private var authPageLoading = false
   private var failedAuthPageUrl: String? = null
+  private var failedAuthHttpStatus: Int? = null
+  private var qrLoginActive = false
+  private var qrLoginController: IdentityQrLoginController? = null
+  private var captchaDataUrl: String? = null
+  private var captchaDocumentSequence = 0
+  private var pendingTimetableCaptcha = false
   private var isAutoUpdating = false
   private var homeRefreshLabel: TextView? = null
   private var cacheCaptureInProgress = false
@@ -177,6 +186,9 @@ class MainActivity : AppCompatActivity() {
   private val homeBitmapCache = object : LruCache<String, Bitmap>(12) {}
   private val homeViewerTransitionStates = mutableMapOf<String, HomeViewerTransformState>()
   private lateinit var homeViewerScaleDetector: ScaleGestureDetector
+  private val qrImageStoragePermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+    qrLoginController?.onGalleryPermissionResult(granted)
+  }
   private val notificationPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
     if (granted) {
       attemptEnableNotificationAfterPermission()
@@ -441,6 +453,7 @@ class MainActivity : AppCompatActivity() {
 
   override fun onDestroy() {
     loginAttemptSequence++
+    qrLoginController?.destroy()
     mainHandler.removeCallbacks(homeCarouselRunnable)
     mainHandler.removeCallbacks(updateDownloadPollRunnable)
     dismissUpdateDownloadDialog()
@@ -594,13 +607,40 @@ class MainActivity : AppCompatActivity() {
       allowContentAccess = true
       mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
     }
+    qrLoginController = IdentityQrLoginController(this, binding.authWebView, mainHandler, ioExecutor, ::updateStatus,
+      requestGalleryPermission = { qrImageStoragePermissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE) },
+      reloadPasswordLoginPage = ::loadLoginPageInWebView
+    ) { active ->
+      qrLoginActive = active
+      updateLoginActionState()
+    }
 
     binding.authWebView.webChromeClient = WebChromeClient()
     binding.authWebView.webViewClient = object : WebViewClient() {
+      override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+        if (request.isForMainFrame && !authLoginRequested && request.url.scheme in setOf("https", "http") && request.url.host != "ids.njust.edu.cn") {
+          authPageLoading = false
+          identityPasswordFormReady = false
+          updateLoginActionState()
+          if (request.url.host in setOf("ehall2.njust.edu.cn", "bkjw.njust.edu.cn")) {
+            updateStatus("认证页已加载，请点击“提交登录”或“微信扫码登录”继续")
+          } else {
+            updateStatus("目标网站跳转错误：认证页尝试进入 ${request.url.host.orEmpty()}${request.url.path.orEmpty()}")
+          }
+          return true
+        }
+        return false
+      }
+
       override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
         super.onPageStarted(view, url, favicon)
+        qrLoginController?.onPageStarted()
+        captchaDocumentSequence++
+        resetIdentityCaptcha()
         failedAuthPageUrl = null
+        failedAuthHttpStatus = null
         authPageLoading = true
+        identityPasswordFormReady = false
         updateLoginActionState()
       }
 
@@ -608,10 +648,12 @@ class MainActivity : AppCompatActivity() {
         super.onReceivedError(view, request, error)
         if (!request.isForMainFrame) return
         failedAuthPageUrl = request.url.toString()
+        failedAuthHttpStatus = null
         val reason = if (error.errorCode == ERROR_TIMEOUT) "网页连接超时" else "网页连接失败"
         val detail = "$reason：${request.url.host}${request.url.path}（WebView ${error.errorCode}：${error.description}）"
         appendDebugLog("AUTH_WEB", "FAIL", detail)
         updateStatus(detail)
+        qrLoginController?.onPageError(detail)
         loginSubmitted = false
         authPageLoading = false
         updateLoginActionState()
@@ -621,29 +663,41 @@ class MainActivity : AppCompatActivity() {
         super.onReceivedHttpError(view, request, response)
         if (!request.isForMainFrame) return
         failedAuthPageUrl = request.url.toString()
-        val detail = "网站返回错误：HTTP ${response.statusCode}，地址 ${request.url.host}${request.url.path}"
+        failedAuthHttpStatus = response.statusCode
+        val isIdentityLogin = request.url.host == "ids.njust.edu.cn" && request.url.path == "/authserver/login"
+        val detail = if (isIdentityLogin) {
+          "统一认证返回 HTTP ${response.statusCode}，正在读取网站提示…"
+        } else {
+          "网站返回错误：HTTP ${response.statusCode}，地址 ${request.url.host}${request.url.path}"
+        }
         appendDebugLog("AUTH_WEB", "FAIL", detail)
         updateStatus(detail)
-        loginSubmitted = false
+        qrLoginController?.onPageError(detail)
+        if (!isIdentityLogin) loginSubmitted = false
         authPageLoading = false
         updateLoginActionState()
       }
 
       override fun onPageFinished(view: WebView, url: String) {
         super.onPageFinished(view, url)
-        if (failedAuthPageUrl == url) return
+        val loadedUri = Uri.parse(url)
+        val identityLoginPage = loadedUri.host == "ids.njust.edu.cn" && loadedUri.path == "/authserver/login"
+        val authHttpStatus = if (failedAuthPageUrl == url) failedAuthHttpStatus else null
+        if (failedAuthPageUrl == url && (authHttpStatus == null || !identityLoginPage)) return
         authPageLoading = false
         updateLoginActionState()
-        val loadedUri = Uri.parse(url)
-        if (loginSubmitted && loadedUri.scheme != "file" && loadedUri.host !in setOf("ids.njust.edu.cn", "ehall2.njust.edu.cn", "bkjw.njust.edu.cn")) {
+        if ((loginSubmitted || qrLoginActive) && loadedUri.scheme != "file" && loadedUri.host !in setOf("ids.njust.edu.cn", "ehall2.njust.edu.cn", "bkjw.njust.edu.cn")) {
           val detail = "目标网站跳转错误：登录后进入了 ${loadedUri.host.orEmpty()}${loadedUri.path.orEmpty()}，请检查学校网站状态"
           appendDebugLog("AUTH_WEB", "FAIL", detail)
           updateStatus(detail)
+          qrLoginController?.onPageError(detail)
           loginSubmitted = false
           updateLoginActionState()
           return
         }
-        updateStatus(getString(R.string.status_page_loaded, "${loadedUri.host.orEmpty()}${loadedUri.path.orEmpty()}"))
+        if (authHttpStatus == null) {
+          updateStatus(getString(R.string.status_page_loaded, "${loadedUri.host.orEmpty()}${loadedUri.path.orEmpty()}"))
+        }
 
         view.evaluateJavascript("""
           (function() {
@@ -655,28 +709,47 @@ class MainActivity : AppCompatActivity() {
           if (view.url != url) return@evaluateJavascript
           when (decodeJsValue(raw)) {
             "login" -> {
+              identityPasswordFormReady = loadedUri.host == "ids.njust.edu.cn"
               val submitted = loginSubmitted
               loginSubmitted = false
               updateLoginActionState()
-              if (submitted) {
-                updateStatus("登录尚未完成，请检查统一认证密码，或打开认证网页完成验证")
+              if (identityLoginPage && (submitted || authHttpStatus != null)) {
+                readIdentityLoginError(view) { message ->
+                  if (view.url != url) return@readIdentityLoginError
+                  showIdentityLoginFailure(message, authHttpStatus)
+                }
               } else if (loadedUri.host == "ids.njust.edu.cn") {
-                updateStatus("统一认证已就绪，请输入账号和密码")
+                if (qrLoginActive) {
+                  qrLoginController?.onLoginPageReady()
+                } else {
+                  if (pendingTimetableCaptcha) {
+                    showTimetableRefreshCaptcha()
+                  } else {
+                    updateStatus("统一认证已就绪，请输入账号和密码")
+                    syncIdentityCaptcha()
+                  }
+                }
               } else if (looksLikeLoginUrl(url)) {
                 if (!legacyLoginRedirectAttempted) {
                   legacyLoginRedirectAttempted = true
                   updateStatus("教务站点返回旧版登录页，正在切换统一认证…")
-                  view.loadUrl(UniversityEndpoints.PORTAL_LOGIN)
+                  view.loadUrl(if (authLoginRequested) UniversityEndpoints.PORTAL_LOGIN else UniversityEndpoints.LOGIN_FORM)
                 } else {
                   updateStatus("未能进入统一认证，请点击“加载登录页”重试")
                 }
               } else {
                 // The teaching server serves its legacy login form at the timetable URL.
-                view.loadUrl(LOGIN_URL)
+                view.loadUrl(if (authLoginRequested) LOGIN_URL else UniversityEndpoints.LOGIN_FORM)
               }
             }
             "timetable" -> {
+              if (!authLoginRequested) {
+                updateStatus("已有教务会话，请点击“提交登录”后更新课表")
+                return@evaluateJavascript
+              }
+              pendingTimetableCaptcha = false
               legacyLoginRedirectAttempted = false
+              qrLoginController?.complete()
               CookieManager.getInstance().flush()
               if (loginSubmitted) saveCredentials()
               loginSubmitted = false
@@ -689,6 +762,10 @@ class MainActivity : AppCompatActivity() {
               prepareTimetablePage(view, showCachedAfterSuccess = authTimetableCaptureShouldShowCache)
             }
             else -> {
+              if (!authLoginRequested) {
+                updateStatus("认证页已加载，请点击“提交登录”或“微信扫码登录”继续")
+                return@evaluateJavascript
+              }
               val uri = Uri.parse(url)
               if (uri.host == "bkjw.njust.edu.cn" && uri.path == "/njlgdx/framework/main.jsp") {
                 view.loadUrl(TIMETABLE_URL)
@@ -700,6 +777,188 @@ class MainActivity : AppCompatActivity() {
         }
       }
     }
+  }
+
+  private fun readIdentityLoginError(view: WebView, onResult: (String) -> Unit) {
+    view.evaluateJavascript("""
+      (function() {
+        const form = Array.from(document.querySelectorAll('form')).find(el =>
+          el.getClientRects().length && el.querySelector('#login_submit'));
+        if (!form) return '';
+        for (const selector of ['#showErrorTip', '#showWarnTip', '#nameErrorTip', '#pwdErrorTip', '#captchaErrorTip', '#formErrorTip']) {
+          const element = form.querySelector(selector);
+          if (!element) continue;
+          const text = (element.textContent || '').trim();
+          const message = (text || element.getAttribute('title') || '').replace(/\s+/g, ' ').trim();
+          if (message) return message.slice(0, 180);
+        }
+        return '';
+      })();
+    """.trimIndent()) { raw ->
+      onResult(decodeJsValue(raw).replace(Regex("\\s+"), " ").trim().take(180))
+    }
+  }
+
+  private fun showIdentityLoginFailure(message: String, httpStatus: Int?) {
+    val imageCaptchaError = message.contains("图形动态码") || message.contains("图形验证码")
+    val detail = when {
+      imageCaptchaError -> "学校图形验证码校验失败：$message" + (httpStatus?.let { "（HTTP $it）" } ?: "") + "，请核对或刷新验证码后重新提交"
+      message.isNotBlank() -> "统一认证登录失败：$message" + (httpStatus?.let { "（HTTP $it）" } ?: "")
+      httpStatus != null -> "统一认证登录失败：HTTP $httpStatus，网站未提供具体原因，请检查账号和智慧理工服务门户密码"
+      else -> "登录尚未完成，学校网页未提供具体原因，请检查账号和智慧理工服务门户密码"
+    }
+    appendDebugLog("AUTH_WEB", "FAIL", detail)
+    updateStatus(detail)
+    qrLoginController?.onPageError(detail)
+    if (!qrLoginActive) syncIdentityCaptcha()
+  }
+
+  private fun resetIdentityCaptcha() {
+    captchaDataUrl = null
+    binding.captchaSection.visibility = View.GONE
+    binding.captchaImage.setImageDrawable(null)
+    binding.captchaInput.editText?.setText("")
+    binding.captchaInput.error = null
+  }
+
+  private fun syncIdentityCaptcha(retry: Int = 0) {
+    if (qrLoginActive || Uri.parse(binding.authWebView.url.orEmpty()).host != "ids.njust.edu.cn") return
+    val documentSequence = captchaDocumentSequence
+    binding.authWebView.evaluateJavascript("""
+      (function() {
+        const form = Array.from(document.querySelectorAll('form')).find(el => el.getClientRects().length && el.querySelector('#login_submit'));
+        const input = form && form.querySelector('#captcha, input[name="captcha"]');
+        if (!input || !input.getClientRects().length) return JSON.stringify({ state: 'hidden' });
+        const image = form.querySelector('#captchaImg');
+        if (!image || !image.complete || !image.naturalWidth) return JSON.stringify({ state: 'pending' });
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = image.naturalWidth;
+          canvas.height = image.naturalHeight;
+          canvas.getContext('2d').drawImage(image, 0, 0);
+          return JSON.stringify({ state: 'ready', dataUrl: canvas.toDataURL('image/png') });
+        } catch (_) { return JSON.stringify({ state: 'error' }); }
+      })();
+    """.trimIndent()) { raw ->
+      if (documentSequence != captchaDocumentSequence || qrLoginActive) return@evaluateJavascript
+      val data = runCatching { JSONObject(decodeJsValue(raw)) }.getOrNull() ?: return@evaluateJavascript
+      when (data.optString("state")) {
+        "hidden" -> if (captchaDataUrl != null) resetIdentityCaptcha()
+        "pending" -> {
+          binding.captchaSection.visibility = View.VISIBLE
+          binding.captchaStatusText.text = "正在加载学校验证码图片…"
+          if (retry < 8) mainHandler.postDelayed({
+            if (documentSequence == captchaDocumentSequence) syncIdentityCaptcha(retry + 1)
+          }, 300L) else {
+            binding.captchaStatusText.text = "学校验证码图片加载超时，请点击“刷新图片”重试"
+            updateStatus(binding.captchaStatusText.text.toString())
+          }
+        }
+        "ready" -> {
+          val imageData = data.optString("dataUrl")
+          if (imageData == captchaDataUrl) return@evaluateJavascript
+          val bitmap = runCatching {
+            val bytes = Base64.decode(imageData.substringAfter(','), Base64.DEFAULT)
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+          }.getOrNull()
+          if (bitmap == null) {
+            updateStatus("学校验证码图片解析错误，请重新加载认证页")
+            return@evaluateJavascript
+          }
+          resetIdentityCaptcha()
+          captchaDataUrl = imageData
+          binding.captchaSection.visibility = View.VISIBLE
+          binding.captchaImage.setImageBitmap(bitmap)
+          binding.captchaStatusText.text = "学校要求图形验证码，请填写图片中的字符"
+          updateLoginActionState()
+        }
+        "error" -> updateStatus("学校验证码图片读取失败，请在统一认证网页完成验证")
+      }
+    }
+  }
+
+  private fun refreshIdentityCaptcha() {
+    if (authPageLoading || loginSubmitted || qrLoginActive) return
+    resetIdentityCaptcha()
+    binding.authWebView.evaluateJavascript("""
+      (function() {
+        if (typeof reloadCaptcha !== 'function') return false;
+        reloadCaptcha(true);
+        return true;
+      })();
+    """.trimIndent()) { raw ->
+      if (raw == "true") mainHandler.postDelayed({ syncIdentityCaptcha() }, 350L)
+      else updateStatus("学校验证码刷新入口解析错误，请重新加载登录页")
+    }
+  }
+
+  private fun prepareIdentityLogin(username: String, attemptSequence: Int, onReady: () -> Unit) {
+    binding.authWebView.evaluateJavascript("""
+      (function() {
+        const input = Array.from(document.querySelectorAll('#username, input[name="username"]')).find(el => el.getClientRects().length);
+        window.classScheAuthPrepare = { id: $attemptSequence, state: 'waiting' };
+        if (!input) {
+          window.classScheAuthPrepare = { id: $attemptSequence, state: 'form' };
+          return;
+        }
+        input.value = ${toJsString(username)};
+        (async function() {
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 8000);
+          try {
+            let required;
+            if (window.badCredentialsCount && window.badCredentialsCount == 0) {
+              required = true;
+            } else {
+              const response = await fetch('/authserver/checkNeedCaptcha.htl?' + new URLSearchParams({ username: input.value }), { credentials: 'same-origin', signal: controller.signal });
+              if (!response.ok) {
+                window.classScheAuthPrepare = { id: $attemptSequence, state: 'http', code: response.status };
+                return;
+              }
+              const data = await response.json();
+              if (typeof data.isNeed !== 'boolean') throw new SyntaxError('captcha response');
+              required = window.classScheManualCaptchaRequired === true || data.isNeed;
+            }
+            const form = input.closest('form');
+            const captcha = form && form.querySelector('#captcha');
+            const shown = captcha && captcha.getClientRects().length;
+            // A second image request replaces the current challenge. Keep a displayed image.
+            if ((required && !shown) || (!required && shown)) reloadCaptcha(required);
+            window.needCaptcha = required;
+            window.classScheAuthPrepare = { id: $attemptSequence, state: 'ready' };
+          } catch (error) {
+            window.classScheAuthPrepare = { id: $attemptSequence, state: error.name === 'AbortError' ? 'timeout' : error.name === 'SyntaxError' ? 'parse' : 'network' };
+          } finally { clearTimeout(timeout); }
+        })();
+      })();
+    """.trimIndent(), null)
+    fun poll(retry: Int) {
+      if (!loginSubmitted || loginAttemptSequence != attemptSequence) return
+      binding.authWebView.evaluateJavascript("JSON.stringify(window.classScheAuthPrepare)") { raw ->
+        if (!loginSubmitted || loginAttemptSequence != attemptSequence) return@evaluateJavascript
+        val result = runCatching { JSONObject(decodeJsValue(raw)) }.getOrNull()
+        if (result?.optInt("id") == attemptSequence && result.optString("state") == "ready") {
+          onReady()
+          return@evaluateJavascript
+        }
+        val state = result?.optString("state")
+        if (state == "waiting" && retry < 25) {
+          mainHandler.postDelayed({ poll(retry + 1) }, 400L)
+          return@evaluateJavascript
+        }
+        loginSubmitted = false
+        updateLoginActionState()
+        val detail = when (state) {
+          "http" -> "学校验证码校验接口返回错误：HTTP ${result?.optInt("code")}"
+          "parse" -> "学校验证码要求解析错误：接口返回格式不正确"
+          "network" -> "学校验证码校验接口连接失败，请检查网络"
+          "form" -> "学校登录页账号输入框解析错误，请重新加载登录页"
+          else -> "学校验证码校验接口连接超时，请重试"
+        }
+        updateStatus(detail)
+      }
+    }
+    mainHandler.postDelayed({ poll(0) }, 150L)
   }
 
   @SuppressLint("SetJavaScriptEnabled")
@@ -820,10 +1079,22 @@ class MainActivity : AppCompatActivity() {
     binding.loginButton.setOnClickListener {
       submitLogin()
     }
+    binding.refreshCaptchaButton.setOnClickListener { refreshIdentityCaptcha() }
+    binding.qrLoginButton.setOnClickListener {
+      if (authPageLoading || loginSubmitted || cacheCaptureInProgress || isAutoUpdating || qrLoginActive) {
+        updateStatus("登录或课表更新正在进行，请等待结果")
+        return@setOnClickListener
+      }
+      loginSessionBootstrapped = true
+      authLoginRequested = true
+      pendingTimetableCaptcha = false
+      resetIdentityCaptcha()
+      qrLoginController?.start()
+    }
   }
 
   private fun updateLoginActionState() {
-    val busy = authPageLoading || loginSubmitted || cacheCaptureInProgress || isAutoUpdating
+    val busy = authPageLoading || loginSubmitted || cacheCaptureInProgress || isAutoUpdating || qrLoginActive
     binding.loginButton.isEnabled = !busy
     binding.loginButton.text = when {
       loginSubmitted -> "登录中…"
@@ -833,6 +1104,8 @@ class MainActivity : AppCompatActivity() {
       else -> getString(R.string.login_submit_label)
     }
     binding.openLoginButton.isEnabled = !busy
+    binding.qrLoginButton.isEnabled = !busy
+    binding.refreshCaptchaButton.isEnabled = !busy
   }
 
   private fun setTimetableRefreshInProgress(inProgress: Boolean) {
@@ -846,7 +1119,7 @@ class MainActivity : AppCompatActivity() {
   }
 
   private fun startSilentTimetableRefresh(showStartToast: Boolean = true) {
-    if (isAutoUpdating || loginSubmitted || authPageLoading || cacheCaptureInProgress) {
+    if (isAutoUpdating || loginSubmitted || authPageLoading || cacheCaptureInProgress || qrLoginActive) {
       Toast.makeText(this, "登录或课表更新正在进行，请等待结果", Toast.LENGTH_SHORT).show()
       return
     }
@@ -878,6 +1151,12 @@ class MainActivity : AppCompatActivity() {
           showCachedAfterSuccess = false,
           sessionCookies = result.cookies
         )
+      } catch (challenge: HeadlessLoginClient.CaptchaRequiredException) {
+        appendDebugLog("TIMETABLE_REFRESH", "INFO", "学校要求图形验证码，转交登录页手动填写")
+        mainHandler.post {
+          setTimetableRefreshInProgress(false)
+          openTimetableRefreshCaptcha(challenge)
+        }
       } catch (error: Throwable) {
         val detail = FailureDetails.describe(error)
         appendDebugLog("TIMETABLE_REFRESH", "FAIL", detail)
@@ -887,6 +1166,67 @@ class MainActivity : AppCompatActivity() {
           Toast.makeText(this, "课表更新失败：$detail", Toast.LENGTH_LONG).show()
           triggerPendingTimetableSemesterRefreshIfNeeded()
         }
+      }
+    }
+  }
+
+  private fun openTimetableRefreshCaptcha(challenge: HeadlessLoginClient.CaptchaRequiredException) {
+    if (isFinishing || isDestroyed) return
+    loginSessionBootstrapped = true
+    authLoginRequested = false
+    identityPasswordFormReady = false
+    pendingTimetableCaptcha = true
+    authTimetableCaptureShouldShowCache = true
+    legacyLoginRedirectAttempted = false
+    restoreSavedCredentials()
+    showLoginPage(reloadAuthenticationPage = false)
+    qrLoginController?.restoreMobileUserAgent()
+    authPageLoading = true
+    updateLoginActionState()
+    updateStatus("课表更新需要图形验证码，正在打开登录页…")
+    val manager = CookieManager.getInstance()
+    fun loadChallenge() {
+      if (isFinishing || isDestroyed) return
+      manager.flush()
+      binding.authWebView.loadUrl(Uri.parse(challenge.loginUrl).buildUpon().appendQueryParameter("renew", "true").build().toString())
+    }
+    if (challenge.sessionCookies.isEmpty()) {
+      loadChallenge()
+    } else {
+      var remaining = challenge.sessionCookies.size
+      challenge.sessionCookies.forEach { cookie ->
+        manager.setCookie(cookie.url, cookie.header) { accepted ->
+          if (!accepted) appendDebugLog("AUTH_WEB", "WARN", "认证会话 Cookie 未被 WebView 接受")
+          remaining--
+          if (remaining == 0) loadChallenge()
+        }
+      }
+    }
+  }
+
+  private fun showTimetableRefreshCaptcha() {
+    pendingTimetableCaptcha = false
+    val documentSequence = captchaDocumentSequence
+    val username = binding.usernameInput.editText?.text?.toString().orEmpty().trim()
+    binding.authWebView.evaluateJavascript("""
+      (function() {
+        const input = Array.from(document.querySelectorAll('#username, input[name="username"]')).find(el => el.getClientRects().length);
+        if (!input || typeof reloadCaptcha !== 'function') return false;
+        input.value = ${toJsString(username)};
+        window.classScheManualCaptchaRequired = true;
+        window.needCaptcha = true;
+        reloadCaptcha(true);
+        return true;
+      })();
+    """.trimIndent()) { raw ->
+      if (documentSequence != captchaDocumentSequence) return@evaluateJavascript
+      if (raw == "true") {
+        updateStatus("课表更新需要图形验证码，请填写后点击“提交登录”继续更新")
+        mainHandler.postDelayed({
+          if (documentSequence == captchaDocumentSequence) syncIdentityCaptcha()
+        }, 350L)
+      } else {
+        updateStatus("学校验证码输入入口解析错误，请重新加载登录页")
       }
     }
   }
@@ -2188,9 +2528,14 @@ class MainActivity : AppCompatActivity() {
     loadLoginPageInWebView()
   }
 
-  private fun showLoginPage() {
+  private fun showLoginPage(reloadAuthenticationPage: Boolean = true) {
     closeHomeImageViewer(resumeCarousel = false)
-    bootstrapLoginSession()
+    if (reloadAuthenticationPage && !authPageLoading && !loginSubmitted && !cacheCaptureInProgress && !isAutoUpdating && !qrLoginActive) {
+      loginSessionBootstrapped = true
+      legacyLoginRedirectAttempted = false
+      authTimetableCaptureShouldShowCache = true
+      loadLoginPageInWebView()
+    }
     clearInputFocus()
     currentWebScreen = WebScreen.LOGIN
     binding.loginPage.visibility = View.VISIBLE
@@ -2250,15 +2595,23 @@ class MainActivity : AppCompatActivity() {
       parent.addView(webView, index, originalParams)
       webView.visibility = View.INVISIBLE
       identityLoginDialog = null
+      updateLoginActionState()
     }
     dialog.show()
     dialog.window?.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, (resources.displayMetrics.heightPixels * 0.9).toInt())
-    if (webView.url.isNullOrBlank()) webView.loadUrl(LOGIN_URL)
+    if (webView.url.isNullOrBlank()) webView.loadUrl(if (authLoginRequested) UniversityEndpoints.PORTAL_LOGIN else UniversityEndpoints.LOGIN_FORM)
   }
 
   private fun loadLoginPageInWebView() {
+    authLoginRequested = false
+    identityPasswordFormReady = false
+    pendingTimetableCaptcha = false
+    qrLoginController?.restoreMobileUserAgent()
+    resetIdentityCaptcha()
+    authPageLoading = true
+    updateLoginActionState()
     updateStatus(getString(R.string.status_loading_login))
-    binding.authWebView.loadUrl(LOGIN_URL)
+    binding.authWebView.loadUrl(UniversityEndpoints.LOGIN_FORM)
   }
 
   private fun clearSessionCookies() {
@@ -4268,7 +4621,7 @@ class MainActivity : AppCompatActivity() {
   }
 
   private fun submitLogin() {
-    if (loginSubmitted || authPageLoading || cacheCaptureInProgress || isAutoUpdating) {
+    if (loginSubmitted || authPageLoading || cacheCaptureInProgress || isAutoUpdating || qrLoginActive) {
       updateStatus("登录正在进行，请等待当前操作完成")
       return
     }
@@ -4280,7 +4633,8 @@ class MainActivity : AppCompatActivity() {
       updateStatus(getString(R.string.status_missing_fields))
       return
     }
-    if (!identityLogin) {
+    authLoginRequested = true
+    if (!identityLogin || !identityPasswordFormReady) {
       legacyLoginRedirectAttempted = true
       authPageLoading = true
       updateLoginActionState()
@@ -4291,8 +4645,13 @@ class MainActivity : AppCompatActivity() {
 
     loginSubmitted = true
     val attemptSequence = ++loginAttemptSequence
+    failedAuthPageUrl = null
+    failedAuthHttpStatus = null
     updateLoginActionState()
-    updateStatus(getString(R.string.status_submitting_login))
+    updateStatus("正在检查学校是否要求图形验证码…")
+
+    val captchaValue = binding.captchaInput.editText?.text?.toString().orEmpty().trim()
+    val hasCaptchaImage = captchaDataUrl != null
 
     val script = """
       (function() {
@@ -4313,7 +4672,26 @@ class MainActivity : AppCompatActivity() {
         const passwordOk = setValue(${toJsArray(PASSWORD_SELECTORS)}, ${toJsString(password)});
         const identityButton = Array.from(document.querySelectorAll('#login_submit')).find(el => el.getClientRects().length);
         if (identityButton) {
-          if (userOk && passwordOk) identityButton.click();
+          if (userOk && passwordOk) {
+            const form = identityButton.closest('form');
+            const captcha = form && form.querySelector('#captcha, input[name="captcha"]');
+            if (captcha && captcha.getClientRects().length) {
+              if (!$hasCaptchaImage || !${toJsString(captchaValue)}) {
+                return JSON.stringify({ userOk, passwordOk, submitted: false, captchaRequired: true });
+              }
+              captcha.value = ${toJsString(captchaValue)};
+              captcha.dispatchEvent(new Event('input', { bubbles: true }));
+              captcha.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+            for (const selector of ['#showErrorTip', '#showWarnTip', '#nameErrorTip', '#pwdErrorTip', '#captchaErrorTip', '#formErrorTip']) {
+              const element = form && form.querySelector(selector);
+              if (element) {
+                if (selector !== '#formErrorTip') element.textContent = '';
+                element.removeAttribute('title');
+              }
+            }
+            identityButton.click();
+          }
           return JSON.stringify({ userOk, passwordOk, submitted: userOk && passwordOk });
         }
         const button = document.querySelector("input[type='submit'], button[type='submit'], #btnSubmit, .login_btn");
@@ -4333,24 +4711,55 @@ class MainActivity : AppCompatActivity() {
       })();
     """.trimIndent()
 
-    binding.authWebView.evaluateJavascript(script) { result ->
-      val submitted = runCatching { JSONObject(decodeJsValue(result)).optBoolean("submitted") }.getOrNull()
-      if (submitted == false) {
-        loginSubmitted = false
-        updateLoginActionState()
-        updateStatus("登录表单未提交，请重新加载登录页后重试")
-        return@evaluateJavascript
-      }
-      updateStatus(getString(R.string.status_submit_result, decodeJsValue(result)))
-      if (identityLogin) {
-        mainHandler.postDelayed({
-          if (loginSubmitted && loginAttemptSequence == attemptSequence && Uri.parse(binding.authWebView.url.orEmpty()).host == "ids.njust.edu.cn") {
-            loginSubmitted = false
-            updateLoginActionState()
-            updateStatus("请在统一认证网页检查登录结果或完成验证")
-            showIdentityLoginWebPage()
+    prepareIdentityLogin(username, attemptSequence) {
+      binding.authWebView.evaluateJavascript(script) { result ->
+        if (!loginSubmitted || loginAttemptSequence != attemptSequence) return@evaluateJavascript
+        val formResult = runCatching { JSONObject(decodeJsValue(result)) }.getOrNull()
+        val submitted = formResult?.optBoolean("submitted", false) == true
+        if (!submitted) {
+          loginSubmitted = false
+          updateLoginActionState()
+          val detail = when {
+            formResult?.optBoolean("captchaRequired") == true -> "学校要求图形验证码，请填写图片中的字符后再次提交登录"
+            formResult?.optBoolean("userOk") == false -> "学校登录页未找到账号输入框，请重新加载登录页"
+            formResult?.optBoolean("passwordOk") == false -> "学校登录页未找到密码输入框，请重新加载登录页"
+            else -> "登录表单未提交，请重新加载登录页后重试"
           }
-        }, 5000)
+          updateStatus(detail)
+          if (formResult?.optBoolean("captchaRequired") == true) syncIdentityCaptcha()
+          return@evaluateJavascript
+        }
+        updateStatus("已点击学校登录按钮，正在等待网站验证账号和密码…")
+        if (identityLogin) {
+          listOf(700L, 1800L).forEach { delay ->
+            mainHandler.postDelayed({
+              if (loginSubmitted && loginAttemptSequence == attemptSequence && Uri.parse(binding.authWebView.url.orEmpty()).host == "ids.njust.edu.cn") {
+                readIdentityLoginError(binding.authWebView) { message ->
+                  if (message.isNotBlank() && loginSubmitted && loginAttemptSequence == attemptSequence) {
+                    loginSubmitted = false
+                    updateLoginActionState()
+                    showIdentityLoginFailure(message, failedAuthHttpStatus)
+                  }
+                }
+              }
+            }, delay)
+          }
+          mainHandler.postDelayed({
+            if (loginSubmitted && loginAttemptSequence == attemptSequence && Uri.parse(binding.authWebView.url.orEmpty()).host == "ids.njust.edu.cn") {
+              readIdentityLoginError(binding.authWebView) { message ->
+                if (!loginSubmitted || loginAttemptSequence != attemptSequence) return@readIdentityLoginError
+                loginSubmitted = false
+                updateLoginActionState()
+                if (message.isNotBlank() || failedAuthHttpStatus != null) {
+                  showIdentityLoginFailure(message, failedAuthHttpStatus)
+                } else {
+                  updateStatus("请在统一认证网页检查登录结果或完成验证")
+                  showIdentityLoginWebPage()
+                }
+              }
+            }
+          }, 5000)
+        }
       }
     }
     mainHandler.postDelayed({

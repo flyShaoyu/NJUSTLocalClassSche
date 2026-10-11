@@ -3,6 +3,7 @@ package com.classsche.mobile
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
+import org.json.JSONObject
 import java.io.ByteArrayInputStream
 import java.net.HttpURLConnection
 import java.net.URL
@@ -27,6 +28,13 @@ internal class HeadlessLoginClient(
     val timetableHtml: String
   )
 
+  class SessionCookie(val url: String, val header: String)
+
+  class CaptchaRequiredException(
+    val loginUrl: String,
+    val sessionCookies: List<SessionCookie>
+  ) : IllegalStateException("学校要求图形验证码，请在登录页手动填写")
+
   fun login(
     loginUrl: String,
     timetableUrl: String,
@@ -40,6 +48,7 @@ internal class HeadlessLoginClient(
         val parts = raw.trim().split('=', limit = 2)
         if (parts.size == 2) {
           val cookie = HttpCookie(parts[0], parts[1]).apply {
+            domain = URI(origin).host
             path = if (origin.contains("ids.njust.edu.cn")) "/authserver" else "/njlgdx"
             secure = true
             version = 0
@@ -79,19 +88,57 @@ internal class HeadlessLoginClient(
     }
     val loginUrl = document.location()
     val form = document.selectFirst("form#pwdFromId") ?: throw IllegalStateException("未找到统一认证表单")
+    // Check before submitting: repeated attempts would only invalidate the image challenge.
+    val captchaUrl = URL(URL(loginUrl), "/authserver/checkNeedCaptcha.htl?username=${URLEncoder.encode(username, "UTF-8")}").toString()
+    val captchaResponse = executeRequest(captchaUrl, "GET", loginUrl)
+    val captchaRequirement = runCatching { JSONObject(captchaResponse.body.toString(Charsets.UTF_8)) }.getOrNull()
+      ?: throw IllegalStateException("学校验证码要求解析错误：接口返回格式不正确")
+    val required = captchaRequirement.opt("isNeed") as? Boolean
+      ?: throw IllegalStateException("学校验证码要求解析错误：接口缺少 isNeed 字段")
+    val alwaysRequired = Regex("""\b(?:var\s+)?badCredentialsCount\s*=\s*["']?0["']?\s*;""")
+      .containsMatchIn(document.select("script:not([src])").joinToString("\n") { it.data() })
+    if (required || alwaysRequired) throw captchaRequired(loginUrl)
     val salt = form.selectFirst("#pwdEncryptSalt")?.attr("value").orEmpty()
     val parameters = extractFormParameters(form).apply {
       remove("passwordText")
       this["username"] = username
       this["password"] = encryptIdentityPassword(password, salt)
     }
-    val result = executeRequest(resolveActionUrl(loginUrl, form), "POST", loginUrl, encodeFormBody(parameters))
-    if (looksLikeLoginDocument(parseHtml(result.body, result.url))) {
-      throw IllegalStateException("统一认证未完成，请检查统一认证密码或在认证网页完成验证")
+    val result = executeRequest(resolveActionUrl(loginUrl, form), "POST", loginUrl, encodeFormBody(parameters), allowIdentityFailure = true)
+    val resultDocument = parseHtml(result.body, result.url)
+    if (looksLikeLoginDocument(resultDocument)) {
+      val siteMessage = resultDocument.select("#showErrorTip, #showWarnTip, #formErrorTip")
+        .map { it.text().trim() }.filter { it.isNotBlank() }.distinct().joinToString("；")
+      if (siteMessage.contains("图形动态码") || siteMessage.contains("图形验证码")) {
+        throw captchaRequired(result.url)
+      }
+      val detail = siteMessage.ifBlank { "请检查统一认证密码或在认证网页完成验证" }
+      throw IllegalStateException("统一认证未完成：$detail" + if (result.code >= 400) "（HTTP ${result.code}）" else "")
     }
+    if (result.code !in 200..299) throw IllegalStateException("统一认证网站返回错误：HTTP ${result.code}")
     val timetable = fetchDocument(timetableUrl, loginUrl)
     if (!looksLikeTimetableDocument(timetable)) throw IllegalStateException("统一认证后未取得教务会话，请重新登录")
     return timetableResult(timetable, timetableUrl, desiredSemester)
+  }
+
+  private fun captchaRequired(loginUrl: String): CaptchaRequiredException {
+    // Preserve domain/path scope while handing the HTTP session to WebView.
+    // CookieStore normalizes its URI list to HTTP, which would hide Secure cookies
+    // when querying by those URIs. Read the full store and retain the original scope.
+    val cookies = cookieJar.cookieStore.cookies.filter { !it.hasExpired() }.mapNotNull { cookie ->
+      val host = cookie.domain?.trimStart('.')?.lowercase()
+      if (host !in setOf("ids.njust.edu.cn", "ehall2.njust.edu.cn", "bkjw.njust.edu.cn", "njust.edu.cn")) return@mapNotNull null
+      val path = cookie.path?.takeIf { it.startsWith('/') } ?: "/"
+      val targetHost = if (host == "njust.edu.cn") "ids.njust.edu.cn" else host
+      SessionCookie("https://$targetHost$path", buildString {
+        append("${cookie.name}=${cookie.value}; Path=$path")
+        cookie.domain?.takeIf { it.isNotBlank() }?.let { append("; Domain=$it") }
+        if (cookie.secure) append("; Secure")
+        if (cookie.isHttpOnly) append("; HttpOnly")
+        if (cookie.maxAge >= 0) append("; Max-Age=${cookie.maxAge}")
+      })
+    }.distinctBy { it.url to it.header }
+    return CaptchaRequiredException(loginUrl, cookies)
   }
 
   private fun timetableResult(document: Document, timetableUrl: String, desiredSemester: String): LoginResult {
@@ -211,7 +258,8 @@ internal class HeadlessLoginClient(
     url: String,
     method: String,
     referer: String?,
-    formBody: String? = null
+    formBody: String? = null,
+    allowIdentityFailure: Boolean = false
   ): HttpResponse {
     var currentUrl = url
     var currentMethod = method.uppercase()
@@ -264,7 +312,9 @@ internal class HeadlessLoginClient(
       if (code in 300..399) {
         throw IllegalStateException("登录步骤目标网站跳转错误：HTTP $code，${URL(currentUrl).host}${URL(currentUrl).path} 未提供 Location")
       }
-      if (code !in 200..299) {
+      val identityFailure = allowIdentityFailure && code == 401 &&
+        URL(currentUrl).host == "ids.njust.edu.cn" && URL(currentUrl).path == "/authserver/login"
+      if (code !in 200..299 && !identityFailure) {
         throw IllegalStateException("登录步骤网站返回错误：HTTP $code，地址 ${URL(currentUrl).host}${URL(currentUrl).path}")
       }
 

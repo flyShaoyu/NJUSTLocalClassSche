@@ -3,6 +3,8 @@ package com.classsche.mobile
 internal object UniversityEndpoints {
   const val ORIGIN = "https://bkjw.njust.edu.cn"
   const val PORTAL_LOGIN = "https://ids.njust.edu.cn/authserver/login?service=https%3A%2F%2Fehall2.njust.edu.cn%2Flogin"
+  // Opening settings must show the form, even when a CAS SSO session exists.
+  const val LOGIN_FORM = "$PORTAL_LOGIN&renew=true"
   // Same identity provider, with the teaching service as the CAS callback.
   const val LOGIN = "$ORIGIN/njlgdx/indexsso.jsp"
   const val TIMETABLE = "$ORIGIN/njlgdx/xskb/xskb_list.do"

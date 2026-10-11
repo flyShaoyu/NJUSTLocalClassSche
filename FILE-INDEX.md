@@ -21,6 +21,7 @@
 | --- | --- |
 | 登录入口、SSO、登录态复用 | [`src/endpoints.ts`](src/endpoints.ts)、[`src/login.ts`](src/login.ts)、[`src/authenticated-page.ts`](src/authenticated-page.ts)、[`src/browser.ts`](src/browser.ts) |
 | Android 登录、密码保存 | [`MainActivity.kt`](android/app/src/main/java/com/classsche/mobile/MainActivity.kt)、[`CredentialStore.kt`](android/app/src/main/java/com/classsche/mobile/CredentialStore.kt)、[`HeadlessLoginClient.kt`](android/app/src/main/java/com/classsche/mobile/HeadlessLoginClient.kt) |
+| 微信扫码、二维码保存、手动图形验证码 | [`IdentityQrLoginController.kt`](android/app/src/main/java/com/classsche/mobile/IdentityQrLoginController.kt) 的电脑端 User-Agent 与二维码图片请求；[`QrImageGalleryStore.kt`](android/app/src/main/java/com/classsche/mobile/QrImageGalleryStore.kt) 的 MediaStore 相册写入；`MainActivity.kt` 的 `showLoginPage` 只重载表单、`authLoginRequested` 手动认证状态、`syncIdentityCaptcha`、`prepareIdentityLogin`、`openTimetableRefreshCaptcha` |
 | Android 静默更新课表、切换学期 | [`MainActivity.kt`](android/app/src/main/java/com/classsche/mobile/MainActivity.kt) 的 `startSilentTimetableRefresh`、[`HeadlessLoginClient.kt`](android/app/src/main/java/com/classsche/mobile/HeadlessLoginClient.kt) 的学期表单提交、[`TimetableSemesterStore.kt`](android/app/src/main/java/com/classsche/mobile/TimetableSemesterStore.kt) |
 | 错误分类与提示 | [`src/diagnostics.ts`](src/diagnostics.ts)、[`src/authenticated-page.ts`](src/authenticated-page.ts)、[`src/raw-page.ts`](src/raw-page.ts)、[`FailureDetails.kt`](android/app/src/main/java/com/classsche/mobile/FailureDetails.kt)、`MainActivity.kt` |
 | 登录提示和页面布局 | [`strings_login.xml`](android/app/src/main/res/values/strings_login.xml)、[`activity_main.xml`](android/app/src/main/res/layout/activity_main.xml)、[`themes.xml`](android/app/src/main/res/values/themes.xml)、[`colors.xml`](android/app/src/main/res/values/colors.xml) |
@@ -73,6 +74,8 @@ Kotlin 源码位于 [`android/app/src/main/java/com/classsche/mobile/`](android/
 | --- | --- |
 | `MainActivity.kt`、`UniversityEndpoints.kt`、`ResourceUpdateStore.kt` | 主界面、站点地址和资源版本记录。 |
 | `CredentialStore.kt`、`HeadlessLoginClient.kt` | Android Keystore 密码加密、旧明文迁移和后台认证请求。 |
+| `IdentityQrLoginController.kt` | 电脑端认证页面、校方二维码图片弹窗、扫码状态轮询及同会话跳转。图形验证码在 `MainActivity.kt` 手动填写，无 OCR 依赖。 |
+| `QrImageGalleryStore.kt` | 把用户点击保存的当前二维码 PNG 写入相册“周三课表”，兼容 Android 8/9 写入权限与 Android 10+ MediaStore，失败清理残留图片。 |
 | `FailureDetails.kt` | Android 超时、域名、安全连接、HTTP、跳转及解析错误的提示分类。 |
 | `HeadlessScoreSyncManager.kt`、`HeadlessScoreSyncScheduler.kt`、`HeadlessScoreSyncReceiver.kt` | 成绩后台同步及定时触发。 |
 | `ScoreSyncSettings.kt`、`ScoreSyncSettingsActivity.kt`、`ScoreEditorActivity.kt`、`LocalScoreEditorActivity.kt` | 成绩同步设置与本地成绩编辑。 |
@@ -96,6 +99,6 @@ Android 工程配置在 [`android/app/build.gradle.kts`](android/app/build.gradl
 
 ## 错误定位
 
-抓取链路的报错会带具体步骤和目标地址。`网页连接超时` / `无法解析域名` 查网络与站点可用性；`HTTP 状态码` 查目标网站响应；`目标网站跳转错误` 查 SSO 与业务页入口；`页面解析错误` 查页面表格/选择器是否变化。Android 登录 WebView 对主页面网络错误和 HTTP 错误显示代码；课表更新后考试、成绩、等级考试的失败原因分别显示，已有缓存不会因为网页结构错误而被空数据覆盖。详细日志可在 Android 的“运行日志”查看。
+抓取链路的报错会带具体步骤和目标地址。`网页连接超时` / `无法解析域名` 查网络与站点可用性；`HTTP 状态码` 查目标网站响应；`目标网站跳转错误` 查 SSO 与业务页入口；`页面解析错误` 查页面表格/选择器是否变化。Android 登录 WebView 对主页面网络错误和 HTTP 错误显示代码；统一认证的登录失败页还会读取表单错误原文，不能把“表单已点击”视为认证成功。微信扫码使用电脑端 User-Agent 获取校方二维码图片，仍沿用同一 WebView 会话。图形验证码从网页当前图片读取，用户手动填写或刷新；静默课表更新需要验证码时自动进入登录页，并保留后台认证 Cookie，提交后继续更新。课表更新后考试、成绩、等级考试的失败原因分别显示，已有缓存不会因为网页结构错误而被空数据覆盖。详细日志可在 Android 的“运行日志”查看。
 
 常用检查：`npm run check`、`node --test tests/*.test.mjs`；改网页后依次运行 `npm run render:ui` 和 `npm run export:android`；改 Android 后在 `android/` 下运行 `.\gradlew.bat :app:assembleDebug`。

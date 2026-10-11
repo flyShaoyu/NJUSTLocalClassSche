@@ -7,7 +7,11 @@ Android 原生代码负责 WebView 登录、应用私有缓存、首页和业务
 - `MainActivity.kt`：界面和主要业务入口；处理统一认证 WebView、业务页捕获、原生首页、缓存及更新检查。
 - `UniversityEndpoints.kt`：统一认证、教务 SSO、课表、考试和成绩 URL。
 - `CredentialStore.kt`：Android Keystore AES-GCM 密码保存和旧明文迁移；使用智慧理工服务门户密码。
-- `HeadlessLoginClient.kt`：纯 HTTP 认证与教务会话获取；`HeadlessScoreSyncManager.kt`、`HeadlessScoreSyncScheduler.kt`、`HeadlessScoreSyncReceiver.kt`：后台成绩同步。
+- `IdentityQrLoginController.kt`：用电脑端 User-Agent 获取校方二维码图片并显示弹窗，复用认证 WebView 会话等待微信扫码确认；保存按钮使用当前图片，不中断轮询。
+- `QrImageGalleryStore.kt`：将二维码 PNG 保存到相册“周三课表”，使用 MediaStore 并清理保存失败时的残留；Android 8/9 的写入权限回调由 `MainActivity.kt` 管理。
+- `MainActivity.kt` 的 `showLoginPage`：进入登录界面时只重载 `UniversityEndpoints.LOGIN_FORM`，保留 Cookie，禁止自动 SSO 跳转和课表捕获；`authLoginRequested` 由提交登录或扫码按钮开启。验证码交接在恢复后台会话后准备表单，等待用户填写并提交。
+- `MainActivity.kt` 的 `syncIdentityCaptcha`：读取当前认证会话的验证码图片，手动填写或刷新，不使用 OCR；`openTimetableRefreshCaptcha`：静默更新遇到验证码时转登录页，保留后台 Cookie，提交后继续课表更新。
+- `HeadlessLoginClient.kt`：纯 HTTP 认证与教务会话获取，提交前检查验证码要求，必要时通过 `CaptchaRequiredException` 交接会话；`HeadlessScoreSyncManager.kt`、`HeadlessScoreSyncScheduler.kt`、`HeadlessScoreSyncReceiver.kt`：后台成绩同步。
 - `ResourceUpdateStore.kt`：公共页面资源更新；`FailureDetails.kt`：超时、HTTP、跳转和解析错误提示；`AppDebugLog.kt`、`LogViewerActivity.kt`：运行日志。
 
 ## 课表与考试

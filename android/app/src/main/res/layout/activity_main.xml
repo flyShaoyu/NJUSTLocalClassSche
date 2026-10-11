@@ -887,6 +887,54 @@
                         </com.google.android.material.textfield.TextInputLayout>
 
                         <LinearLayout
+                            android:id="@+id/captchaSection"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="12dp"
+                            android:orientation="vertical"
+                            android:visibility="gone">
+
+                            <ImageView
+                                android:id="@+id/captchaImage"
+                                android:layout_width="match_parent"
+                                android:layout_height="64dp"
+                                android:background="@color/login_blue_light"
+                                android:contentDescription="@string/captcha_image_description"
+                                android:scaleType="fitCenter" />
+
+                            <com.google.android.material.textfield.TextInputLayout
+                                android:id="@+id/captchaInput"
+                                style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="8dp"
+                                android:hint="@string/captcha_label"
+                                app:boxStrokeColor="@color/login_blue"
+                                app:hintTextColor="@color/login_blue_dark">
+
+                                <com.google.android.material.textfield.TextInputEditText
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:inputType="textVisiblePassword"
+                                    android:maxLength="10" />
+                            </com.google.android.material.textfield.TextInputLayout>
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/refreshCaptchaButton"
+                                style="@style/Widget.Material3.Button.TonalButton"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:text="@string/captcha_refresh_label" />
+
+                            <TextView
+                                android:id="@+id/captchaStatusText"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:textColor="#617894"
+                                android:textSize="12sp" />
+                        </LinearLayout>
+
+                        <LinearLayout
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="14dp"
@@ -905,6 +953,14 @@
                                 android:layout_height="wrap_content"
                                 android:layout_marginTop="10dp"
                                 android:text="@string/init_login_label" />
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/qrLoginButton"
+                                style="@style/Widget.Material3.Button.TonalButton"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="10dp"
+                                android:text="@string/qr_login_label" />
 
                         </LinearLayout>
 
