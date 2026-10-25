@@ -12,6 +12,9 @@ Android 原生代码负责 WebView 登录、应用私有缓存、首页和业务
 - `MainActivity.kt` 的 `showLoginPage`：进入登录界面时只重载 `UniversityEndpoints.LOGIN_FORM`，保留 Cookie，禁止自动 SSO 跳转和课表捕获；`authLoginRequested` 由提交登录或扫码按钮开启。验证码交接在恢复后台会话后准备表单，等待用户填写并提交。
 - `MainActivity.kt` 的 `syncIdentityCaptcha`：读取当前认证会话的验证码图片，手动填写或刷新，不使用 OCR；`openTimetableRefreshCaptcha`：静默更新遇到验证码时转登录页，保留后台 Cookie，提交后继续课表更新。
 - `HeadlessLoginClient.kt`：纯 HTTP 认证与教务会话获取，提交前检查验证码要求，必要时通过 `CaptchaRequiredException` 交接会话；`HeadlessScoreSyncManager.kt`、`HeadlessScoreSyncScheduler.kt`、`HeadlessScoreSyncReceiver.kt`：后台成绩同步。
+- `LoginCookieStore.kt`：后台原始 `Set-Cookie` 写回 WebView，等待异步完成并落盘；后续先复用教务 Cookie，再尝试 CAS Cookie，均失效时才提交一次密码。网络/解析失败不转为密码登录，认证段串行避免并发重登。
+- `ScoreSyncTriggerPolicy.kt`：每个进程首次打开主界面尝试同步一次，忽略后台定时间隔；进程仍存活时切回前台、重新进入或重建界面不重复，后台闹钟仍按间隔运行。关闭同步、仅 Wi-Fi、认证暂停和进行中的同步继续生效。
+- `ScoreSyncSettings.kt`、`ScoreSyncTiming.kt`：持久记录最近自动同步尝试时间，计算后台闹钟剩余间隔；启动同步也重新起算定时间隔，默认 2h。认证被拒或要求验证码后暂停自动认证，手动认证成功解除。
 - `ResourceUpdateStore.kt`：公共页面资源更新；`FailureDetails.kt`：超时、HTTP、跳转和解析错误提示；`AppDebugLog.kt`、`LogViewerActivity.kt`：运行日志。
 
 ## 课表与考试
@@ -29,3 +32,5 @@ Android 原生代码负责 WebView 登录、应用私有缓存、首页和业务
 - `HomeImagePagerAdapter.kt`：保留的轮播适配器占位文件；主要首页逻辑在 `MainActivity.kt`。
 
 Android 个人数据写入应用私有目录；导入 APK 的 `assets` 只含空数据页面模板和公共资源。改网页模板须先在仓库根目录依次运行 `npm run render:ui`、`npm run export:android`，再构建 APK。
+
+登录回归：先构建 `:app:assembleDebug`，再从仓库根目录运行 `node --test tests/android-login.test.mjs`。测试只访问本机模拟响应，不提交真实账号密码。

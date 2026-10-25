@@ -37,7 +37,7 @@ const MENU_ITEMS = [
   { key: "schedule", label: "课表查询", enabled: true },
   { key: "room", label: "空闲教室", enabled: false },
   { key: "site", label: "常用网站", enabled: false },
-  { key: "refresh", label: "更新课表", enabled: false },
+  { key: "refresh", label: "更新数据", enabled: false },
   { key: "library", label: "图书搜索", enabled: false },
   { key: "borrow", label: "借阅信息", enabled: false }
 ] as const;

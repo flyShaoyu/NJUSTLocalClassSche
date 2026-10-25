@@ -11,6 +11,8 @@
 
 ## 发布下载
 
+维护者本机的发布工具集中在 `release-tools/`，整个目录被 Git 忽略，不随仓库分发。本机可编辑 `release-tools/release-notes.md` 后运行 `npm run release`，一次发布到 GitHub 与 Gitee；配置、凭据和使用说明均在该目录，支持 `--version`、`--dry-run` 和 `--resume`。
+
 <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;">
   <a href="https://github.com/flyShaoyu/NJUSTLocalClassSche/releases" style="display:inline-block;padding:10px 16px;border-radius:10px;background:#24292f;color:#ffffff;text-decoration:none;font-weight:600;line-height:1;box-shadow:0 6px 16px rgba(36,41,47,0.18);">
     GitHub Releases
@@ -160,11 +162,13 @@ Android 端：
 2. 隐藏 `WebView` 通过教务 SSO 入口打开真实认证页，点击校方按钮完成加密提交；微信扫码模式使用电脑端 User-Agent 请求校方二维码图片，并沿用同一会话等待确认和后续跳转
 3. 登录失败时优先显示校方网页的错误提示（例如 HTTP 401 页面中的账号密码提示），不再将找到输入框和点击按钮的结果当作验证成功
 4. 校方要求图形验证码时，登录页显示当前认证会话的验证码图片，用户手动填写，也可以刷新图片；不包含 OCR 库或识别模型
-5. 继续使用 `CookieManager` 将教务域名自己的 Cookie 带入 HTTP 抓取，不混合不同域名的同名 Cookie
-6. 更新课表优先静默复用会话或完成 CAS 认证；需要图形验证码时，把后台认证 Cookie 按域名和路径交给登录 WebView，跳转到登录页填写，提交后继续更新；失败保留原缓存
+5. 后台成绩同步和课表更新优先读取 WebView 保存的 Cookie。教务 Cookie 有效时直接抓取；教务会话失效后先用统一认证 Cookie 恢复 SSO，两者均失效后才提交一次账号密码。HTTP 返回的原始 `Set-Cookie`（含更新和删除）按原站点、路径、有效期及安全属性写回 WebView 并落盘，供下一次同步复用，不混合不同域名的同名 Cookie
+6. 更新课表需要图形验证码时，跳转到登录页手动填写，提交后继续更新；超时、HTTP 5xx 或网页解析错误不会当成会话失效去提交密码，失败保留原缓存
 7. 仅在确认 `#kbtable` 等业务内容存在后更新本地缓存
 
 Android 本地保存密码时使用 Android Keystore 中的不可导出密钥进行 AES-GCM 加密。已有安装中旧版保存的明文密码会在首次读取时迁移到加密字段并删除原字段；应用已关闭系统备份，避免凭据随备份文件离开设备。
+
+每个进程首次打开主界面时自动检查一次成绩，不受后台定时间隔限制；进程仍在后台存活时切回或重建主界面不重复触发，结束进程后重新打开再检查一次。后台定时检查仍使用设置中的间隔，默认 2 小时；最近一次尝试时间持久保存，启动同步也会重置下次定时检查的起算点。关闭同步、仅 Wi-Fi 和认证失败暂停同样生效；学校拒绝认证或要求验证码时暂停自动认证，手动登录成功后恢复。首页“更新数据”沿用原刷新图标，手动同步课表及相关缓存。日志中的 `HEADLESS_SESSION` 可区分 Cookie 复用与会话失效，`HEADLESS_LOGIN` 会注明实际密码提交。
 
 “我的”中的“检查更新”会缓存 24 小时内的检查结果，包括发现新版本时的下载地址和更新简介；再次点击可查看结果，并在弹窗中选择“重新获取更新”立即重新联网检查。
 安装包交由 Android 系统下载管理器处理；应用切到后台后仍会继续下载，返回时重新显示下载进度。下载弹窗右上角的叉叉可取消任务并清理未完成的安装包。

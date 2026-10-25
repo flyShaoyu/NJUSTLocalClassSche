@@ -20,8 +20,13 @@ import java.util.Base64
 
 internal class HeadlessLoginClient(
   private val logger: (scope: String, status: String, message: String) -> Unit,
-  private val userAgent: String = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome Mobile Safari/537.36"
+  private val userAgent: String = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome Mobile Safari/537.36",
+  private val sharedCookies: LoginCookieStore = WebViewLoginCookieStore
 ) {
+  companion object {
+    // Timetable refresh and score sync have different executors. Share one auth attempt.
+    private val loginLock = Any()
+  }
   private val cookieJar = CookieManager(null, CookiePolicy.ACCEPT_ORIGINAL_SERVER)
   data class LoginResult(
     val cookies: Map<String, String>,
@@ -29,6 +34,8 @@ internal class HeadlessLoginClient(
   )
 
   class SessionCookie(val url: String, val header: String)
+
+  class AuthenticationRejectedException(message: String) : IllegalStateException(message)
 
   class CaptchaRequiredException(
     val loginUrl: String,
@@ -41,10 +48,22 @@ internal class HeadlessLoginClient(
     username: String,
     password: String,
     desiredSemester: String = ""
+  ): LoginResult = synchronized(loginLock) {
+    try {
+      loginWithSession(loginUrl, timetableUrl, username, password, desiredSemester)
+    } finally {
+      sharedCookies.flush()
+    }
+  }
+
+  private fun loginWithSession(
+    loginUrl: String, timetableUrl: String, username: String, password: String, desiredSemester: String
   ): LoginResult {
+    cookieJar.cookieStore.removeAll()
+    logger("HEADLESS_SESSION", "INFO", "优先复用已保存的教务 Cookie")
     // Reuse WebView cookies within their original domain/path boundaries.
     for (origin in listOf(timetableUrl, "https://ids.njust.edu.cn/authserver/")) {
-      android.webkit.CookieManager.getInstance().getCookie(origin).orEmpty().split(';').forEach { raw ->
+      sharedCookies.read(origin).split(';').forEach { raw ->
         val parts = raw.trim().split('=', limit = 2)
         if (parts.size == 2) {
           val cookie = HttpCookie(parts[0], parts[1]).apply {
@@ -57,8 +76,15 @@ internal class HeadlessLoginClient(
         }
       }
     }
-    val existing = fetchDocument(timetableUrl, null)
-    if (looksLikeTimetableDocument(existing)) return timetableResult(existing, timetableUrl, desiredSemester)
+    val existing = fetchDocument(timetableUrl, null, allowSessionExpired = true)
+    if (looksLikeTimetableDocument(existing)) {
+      logger("HEADLESS_SESSION", "SUCCESS", "教务 Cookie 有效，跳过统一认证和密码提交")
+      return timetableResult(existing, timetableUrl, desiredSemester)
+    }
+    if (!looksLikeLoginDocument(existing) && existing.selectFirst("[data-classsche-session-expired]") == null) {
+      throw IllegalStateException("页面解析错误：教务会话检查未返回课表或登录页，保留原缓存且不提交密码")
+    }
+    logger("HEADLESS_SESSION", "INFO", "教务会话已失效，尝试复用统一认证会话恢复 SSO")
     val loginDocument = fetchDocument(loginUrl, referer = null)
     if (loginDocument.selectFirst("#pwdEncryptSalt") != null) {
       return loginIdentity(loginDocument, timetableUrl, username, password, desiredSemester)
@@ -66,7 +92,11 @@ internal class HeadlessLoginClient(
     // A still-valid identity session can complete the SSO redirect without a form.
     if (!looksLikeLoginDocument(loginDocument)) {
       val timetable = fetchDocument(timetableUrl, loginUrl)
-      if (looksLikeTimetableDocument(timetable)) return timetableResult(timetable, timetableUrl, desiredSemester)
+      if (looksLikeTimetableDocument(timetable)) {
+        logger("HEADLESS_SESSION", "SUCCESS", "统一认证 Cookie 有效，已恢复教务会话，未提交密码")
+        return timetableResult(timetable, timetableUrl, desiredSemester)
+      }
+      if (!looksLikeLoginDocument(timetable)) throw IllegalStateException("页面解析错误：SSO 后未返回有效课表，不提交密码")
     }
     logger("HEADLESS_LOGIN", "WARN", "教务入口返回旧版登录页，改走统一认证")
     val identityDocument = fetchDocument(UniversityEndpoints.PORTAL_LOGIN, referer = loginUrl)
@@ -75,7 +105,10 @@ internal class HeadlessLoginClient(
     }
     if (!looksLikeLoginDocument(identityDocument)) {
       val timetable = fetchDocument(timetableUrl, identityDocument.location())
-      if (looksLikeTimetableDocument(timetable)) return timetableResult(timetable, timetableUrl, desiredSemester)
+      if (looksLikeTimetableDocument(timetable)) {
+        logger("HEADLESS_SESSION", "SUCCESS", "统一认证 Cookie 有效，已恢复教务会话，未提交密码")
+        return timetableResult(timetable, timetableUrl, desiredSemester)
+      }
     }
     throw IllegalStateException("统一认证未能恢复教务会话，请检查认证状态后再试")
   }
@@ -98,6 +131,7 @@ internal class HeadlessLoginClient(
     val alwaysRequired = Regex("""\b(?:var\s+)?badCredentialsCount\s*=\s*["']?0["']?\s*;""")
       .containsMatchIn(document.select("script:not([src])").joinToString("\n") { it.data() })
     if (required || alwaysRequired) throw captchaRequired(loginUrl)
+    logger("HEADLESS_LOGIN", "INFO", "现有会话已失效，验证码检查通过，本次提交一次账号密码")
     val salt = form.selectFirst("#pwdEncryptSalt")?.attr("value").orEmpty()
     val parameters = extractFormParameters(form).apply {
       remove("passwordText")
@@ -113,8 +147,9 @@ internal class HeadlessLoginClient(
         throw captchaRequired(result.url)
       }
       val detail = siteMessage.ifBlank { "请检查统一认证密码或在认证网页完成验证" }
-      throw IllegalStateException("统一认证未完成：$detail" + if (result.code >= 400) "（HTTP ${result.code}）" else "")
+      throw AuthenticationRejectedException("统一认证未完成：$detail" + if (result.code >= 400) "（HTTP ${result.code}）" else "")
     }
+    if (result.code == 401) throw AuthenticationRejectedException("统一认证被拒绝：HTTP 401，网站未提供具体原因，请手动检查登录状态")
     if (result.code !in 200..299) throw IllegalStateException("统一认证网站返回错误：HTTP ${result.code}")
     val timetable = fetchDocument(timetableUrl, loginUrl)
     if (!looksLikeTimetableDocument(timetable)) throw IllegalStateException("统一认证后未取得教务会话，请重新登录")
@@ -208,8 +243,12 @@ internal class HeadlessLoginClient(
   private fun fetchDocument(
     url: String,
     referer: String?,
+    allowSessionExpired: Boolean = false,
   ): Document {
-    val response = executeRequest(url = url, method = "GET", referer = referer)
+    val response = executeRequest(url = url, method = "GET", referer = referer, allowSessionExpired = allowSessionExpired)
+    if (response.code == 401 && allowSessionExpired) {
+      return Jsoup.parse("<div data-classsche-session-expired></div>", response.url)
+    }
     return parseHtml(response.body, response.url)
   }
 
@@ -259,7 +298,8 @@ internal class HeadlessLoginClient(
     method: String,
     referer: String?,
     formBody: String? = null,
-    allowIdentityFailure: Boolean = false
+    allowIdentityFailure: Boolean = false,
+    allowSessionExpired: Boolean = false
   ): HttpResponse {
     var currentUrl = url
     var currentMethod = method.uppercase()
@@ -267,6 +307,10 @@ internal class HeadlessLoginClient(
     var currentBody = formBody
 
     repeat(8) {
+      val target = URL(currentUrl)
+      if (target.protocol != "https" || target.host !in setOf("ids.njust.edu.cn", "ehall2.njust.edu.cn", "bkjw.njust.edu.cn")) {
+        throw IllegalStateException("目标网站跳转错误：登录请求进入非预期站点 ${target.host}${target.path}")
+      }
       val connection = (URL(currentUrl).openConnection() as HttpURLConnection).apply {
         requestMethod = currentMethod
         useCaches = false
@@ -290,12 +334,16 @@ internal class HeadlessLoginClient(
       }
 
       val code = connection.responseCode
-      cookieJar.put(URI(currentUrl), connection.headerFields.filterKeys { it != null })
-      val body = (if (code >= 400) connection.errorStream ?: connection.inputStream else connection.inputStream)
+      val responseHeaders = connection.headerFields.filterKeys { it != null }
+      cookieJar.put(URI(currentUrl), responseHeaders)
+      val body = (if (code >= 400) connection.errorStream else connection.inputStream)
         ?.use { it.readBytes() }
         ?: ByteArray(0)
       val location = connection.getHeaderField("Location")
       connection.disconnect()
+      // Keep each original Set-Cookie, rather than copying a flat name/value map
+      // across hosts. This also propagates expired cookies and rotating sessions.
+      sharedCookies.receive(currentUrl, responseHeaders)
 
       if (code in 300..399 && !location.isNullOrBlank()) {
         currentReferer = currentUrl
@@ -314,7 +362,8 @@ internal class HeadlessLoginClient(
       }
       val identityFailure = allowIdentityFailure && code == 401 &&
         URL(currentUrl).host == "ids.njust.edu.cn" && URL(currentUrl).path == "/authserver/login"
-      if (code !in 200..299 && !identityFailure) {
+      val expiredSession = allowSessionExpired && code == 401 && URL(currentUrl).host == "bkjw.njust.edu.cn"
+      if (code !in 200..299 && !identityFailure && !expiredSession) {
         throw IllegalStateException("登录步骤网站返回错误：HTTP $code，地址 ${URL(currentUrl).host}${URL(currentUrl).path}")
       }
 

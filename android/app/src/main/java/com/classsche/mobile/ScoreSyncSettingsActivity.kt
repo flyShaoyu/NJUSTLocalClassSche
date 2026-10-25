@@ -68,7 +68,7 @@ class ScoreSyncSettingsActivity : AppCompatActivity() {
         append("）")
       }
     }
-    binding.scoreSyncIntervalSummary.text = "当前：每 ${formatIntervalLabel(settings.intervalHours)} 自动检查一次"
+    binding.scoreSyncIntervalSummary.text = "当前：后台每 ${formatIntervalLabel(settings.intervalHours)} 自动检查一次"
     binding.scoreSyncIntervalRow.alpha = if (settings.mode == ScoreSyncSettings.Mode.DISABLED) 0.45f else 1f
   }
 

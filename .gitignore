@@ -3,6 +3,8 @@ dist/
 .env
 .env.*
 !.env.example
+# Local-only release automation, credentials, notes, tests and output
+/release-tools/
 artifacts/
 android-update/
 playwright-report/

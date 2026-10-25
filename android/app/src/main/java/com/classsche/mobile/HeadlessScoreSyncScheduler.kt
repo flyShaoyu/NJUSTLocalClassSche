@@ -9,7 +9,6 @@ import android.os.Build
 
 object HeadlessScoreSyncScheduler {
   private const val REQUEST_CODE_SYNC = 3301
-  private const val INTERVAL_MILLIS = 2L * 60L * 60L * 1000L
   const val ACTION_SYNC = "com.classsche.mobile.action.HEADLESS_SCORE_SYNC"
 
   fun scheduleNext(context: Context, requestedDelayMillis: Long? = null) {
@@ -20,7 +19,8 @@ object HeadlessScoreSyncScheduler {
       AppDebugLog.append(appContext, "HEADLESS_SCORE_SCHEDULE", "INFO", "后台成绩拉取已关闭，取消定时任务")
       return
     }
-    val delayMillis = (requestedDelayMillis ?: settings.intervalMillis).coerceAtLeast(60_000L)
+    val remaining = ScoreSyncSettings.remainingDelayMillis(appContext)
+    val delayMillis = (requestedDelayMillis ?: remaining.takeIf { it > 0L } ?: settings.intervalMillis).coerceAtLeast(60_000L)
     val triggerAtMillis = System.currentTimeMillis() + delayMillis
     val alarmManager = appContext.getSystemService(AlarmManager::class.java)
     val pendingIntent = buildPendingIntent(appContext)

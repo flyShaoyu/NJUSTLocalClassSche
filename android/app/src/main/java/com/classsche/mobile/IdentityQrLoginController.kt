@@ -160,6 +160,7 @@ internal class IdentityQrLoginController(
     pageReady = false
     imageUrl = null
     currentBitmap = null
+    pageState = "waiting"
     imageView?.setImageDrawable(null)
     updateSaveButton()
     showStatus("正在获取登录二维码…")
@@ -202,7 +203,7 @@ internal class IdentityQrLoginController(
   private fun fetchImage(source: String, requestGeneration: Int) {
     val uri = Uri.parse(source)
     if (uri.scheme != "https" || uri.host != "ids.njust.edu.cn" || uri.path != "/authserver/qrCode/getCode") {
-      showStatus("二维码地址解析错误：学校返回了非预期的图片地址")
+      showStatus("二维码地址解析错误：返回了非预期的图片地址")
       return
     }
     imageUrl = source
@@ -231,7 +232,7 @@ internal class IdentityQrLoginController(
             currentBitmap = bitmap
             imageView?.setImageBitmap(bitmap)
             updateSaveButton()
-            if (pageState == "waiting") showStatus("请用另一台设备的微信扫码，并在微信中确认登录")
+            if (pageState == "waiting") showStatus("请用微信扫码，并确认登录")
           } else bitmap.recycle()
         }
       } catch (error: Exception) {
@@ -274,7 +275,7 @@ internal class IdentityQrLoginController(
     savingImage = true
     val savedGeneration = generation
     updateSaveButton()
-    // Save the displayed bitmap, rather than requesting a different login token.
+    // Save the displayed bitmap; fetching another image could change the login token.
     executor.execute {
       val message = try {
         QrImageGalleryStore.save(activity.applicationContext, bitmap)

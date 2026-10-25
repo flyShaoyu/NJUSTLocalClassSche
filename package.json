@@ -12,7 +12,8 @@
     "check": "tsc --noEmit -p tsconfig.json",
     "parse": "tsx src/parse-html.ts",
     "render:ui": "tsx src/render-ui.ts",
-    "export:android": "tsx src/export-android.ts"
+    "export:android": "tsx src/export-android.ts",
+    "release": "node release-tools/release.mjs"
   },
   "dependencies": {
     "cheerio": "^1.0.0",

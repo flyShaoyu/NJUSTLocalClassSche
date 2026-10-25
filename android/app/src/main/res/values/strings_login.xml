@@ -102,7 +102,7 @@
     <string name="profile_timetable_semester_settings_hint">切换本地课表使用的学期；可选项来自最近一次打开的教务课表页。</string>
     <string name="profile_score_sync_settings_hint">单独设置后台成绩拉取的开关、Wi-Fi 限制和定时频率。</string>
     <string name="profile_score_sync_mode_hint">控制后台定时拉取和应用打开时的自动成绩检查。</string>
-    <string name="profile_score_sync_interval_hint">可选 1h、2h、5h、12h、24h，后台闹钟会按这里的频率重新安排。</string>
+    <string name="profile_score_sync_interval_hint">可选 1h、2h、5h、12h、24h，仅控制后台定时检查。每次进程启动后首次打开应用时额外检查一次，进程仍在后台时切回不重复；认证失败后暂停自动登录。</string>
     <string name="profile_update_hint">优先检查 Gitee，失败后切换 GitHub；无更新结果缓存 24 小时，可在弹窗中重新获取。</string>
     <string name="profile_logs_hint">查看最近的抓取、解析、更新和错误日志，便于排查问题。</string>
     <string name="profile_preset_score_test_hint">一键制造成绩更新提示，方便测试主页红点、通知和成绩页高亮。</string>

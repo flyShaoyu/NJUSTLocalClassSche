@@ -8,6 +8,8 @@ object ScoreSyncSettings {
   private const val PREFS_NAME = "classsche_prefs"
   private const val PREF_MODE = "score_sync_mode"
   private const val PREF_INTERVAL_HOURS = "score_sync_interval_hours"
+  private const val PREF_LAST_ATTEMPT = "score_sync_last_attempt"
+  private const val PREF_AUTH_FAILURE = "score_sync_auth_failure"
   private val ALLOWED_INTERVAL_HOURS = intArrayOf(1, 2, 5, 12, 24)
 
   enum class Mode(val storageValue: String) {
@@ -58,6 +60,29 @@ object ScoreSyncSettings {
   }
 
   fun shouldRunNow(context: Context): Boolean = skipReason(context) == null
+
+  fun remainingDelayMillis(context: Context): Long {
+    val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    return ScoreSyncTiming.remainingDelayMillis(prefs.getLong(PREF_LAST_ATTEMPT, 0L), System.currentTimeMillis(), read(context).intervalMillis)
+  }
+
+  fun recordAttempt(context: Context) {
+    context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+      .putLong(PREF_LAST_ATTEMPT, System.currentTimeMillis()).commit()
+  }
+
+  fun authenticationFailure(context: Context): String? = context.applicationContext
+    .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getString(PREF_AUTH_FAILURE, null)
+
+  fun pauseAfterAuthenticationFailure(context: Context, reason: String) {
+    context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+      .putString(PREF_AUTH_FAILURE, reason).commit()
+  }
+
+  fun clearAuthenticationFailure(context: Context) {
+    context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+      .remove(PREF_AUTH_FAILURE).apply()
+  }
 
   fun skipReason(context: Context): String? {
     return when (read(context).mode) {

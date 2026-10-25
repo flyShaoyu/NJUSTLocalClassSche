@@ -20,12 +20,14 @@
 | 需求 | 优先查看 |
 | --- | --- |
 | 登录入口、SSO、登录态复用 | [`src/endpoints.ts`](src/endpoints.ts)、[`src/login.ts`](src/login.ts)、[`src/authenticated-page.ts`](src/authenticated-page.ts)、[`src/browser.ts`](src/browser.ts) |
-| Android 登录、密码保存 | [`MainActivity.kt`](android/app/src/main/java/com/classsche/mobile/MainActivity.kt)、[`CredentialStore.kt`](android/app/src/main/java/com/classsche/mobile/CredentialStore.kt)、[`HeadlessLoginClient.kt`](android/app/src/main/java/com/classsche/mobile/HeadlessLoginClient.kt) |
+| Android 登录、Cookie 复用、密码保存 | [`MainActivity.kt`](android/app/src/main/java/com/classsche/mobile/MainActivity.kt)、[`CredentialStore.kt`](android/app/src/main/java/com/classsche/mobile/CredentialStore.kt)、[`HeadlessLoginClient.kt`](android/app/src/main/java/com/classsche/mobile/HeadlessLoginClient.kt)、[`LoginCookieStore.kt`](android/app/src/main/java/com/classsche/mobile/LoginCookieStore.kt) |
+| 自动成绩同步过于频繁、认证失败后重试 | [`HeadlessScoreSyncManager.kt`](android/app/src/main/java/com/classsche/mobile/HeadlessScoreSyncManager.kt) 和 [`ScoreSyncTriggerPolicy.kt`](android/app/src/main/java/com/classsche/mobile/ScoreSyncTriggerPolicy.kt)：每个进程首次打开主界面同步一次，返回前台不重复；[`ScoreSyncSettings.kt`](android/app/src/main/java/com/classsche/mobile/ScoreSyncSettings.kt) 和 [`ScoreSyncTiming.kt`](android/app/src/main/java/com/classsche/mobile/ScoreSyncTiming.kt)：后台闹钟的持久间隔及认证暂停 |
 | 微信扫码、二维码保存、手动图形验证码 | [`IdentityQrLoginController.kt`](android/app/src/main/java/com/classsche/mobile/IdentityQrLoginController.kt) 的电脑端 User-Agent 与二维码图片请求；[`QrImageGalleryStore.kt`](android/app/src/main/java/com/classsche/mobile/QrImageGalleryStore.kt) 的 MediaStore 相册写入；`MainActivity.kt` 的 `showLoginPage` 只重载表单、`authLoginRequested` 手动认证状态、`syncIdentityCaptcha`、`prepareIdentityLogin`、`openTimetableRefreshCaptcha` |
 | Android 静默更新课表、切换学期 | [`MainActivity.kt`](android/app/src/main/java/com/classsche/mobile/MainActivity.kt) 的 `startSilentTimetableRefresh`、[`HeadlessLoginClient.kt`](android/app/src/main/java/com/classsche/mobile/HeadlessLoginClient.kt) 的学期表单提交、[`TimetableSemesterStore.kt`](android/app/src/main/java/com/classsche/mobile/TimetableSemesterStore.kt) |
 | 错误分类与提示 | [`src/diagnostics.ts`](src/diagnostics.ts)、[`src/authenticated-page.ts`](src/authenticated-page.ts)、[`src/raw-page.ts`](src/raw-page.ts)、[`FailureDetails.kt`](android/app/src/main/java/com/classsche/mobile/FailureDetails.kt)、`MainActivity.kt` |
 | 登录提示和页面布局 | [`strings_login.xml`](android/app/src/main/res/values/strings_login.xml)、[`activity_main.xml`](android/app/src/main/res/layout/activity_main.xml)、[`themes.xml`](android/app/src/main/res/values/themes.xml)、[`colors.xml`](android/app/src/main/res/values/colors.xml) |
 | Android 应用版本检查与结果缓存 | [`MainActivity.kt`](android/app/src/main/java/com/classsche/mobile/MainActivity.kt) 的 `checkForAppUpdate`、`showLatestVersionDialog` 与 `PREF_UPDATE_*` |
+| 本机自动发布 GitHub/Gitee Release | `release-tools/`（整个目录被 Git 忽略，不随仓库分发）：`release.mjs`、`release-lib.mjs`、`release.config.json`、`.env.release`、`release-notes.md` 和 `README.md`；输出及续传记录在 `output/` |
 | Android 设置二级页视觉样式 | [`themes.xml`](android/app/src/main/res/values/themes.xml)、[`AndroidManifest.xml`](android/app/src/main/AndroidManifest.xml)、[`res/layout/`](android/app/src/main/res/layout/) 中的 `activity_*settings.xml`、`activity_log_viewer.xml` 和 `activity_score_editor.xml` |
 | 课表抓取、解析和网页 | [`src/timetable-page.ts`](src/timetable-page.ts)、[`src/html-parser.ts`](src/html-parser.ts)、[`src/timetable-ui.ts`](src/timetable-ui.ts)、[`src/timetable-ui-script.ts`](src/timetable-ui-script.ts) |
 | 考试、成绩、等级考试 | `src/` 中对应的 `*-page.ts`、`*-parser.ts`、`*-ui.ts` 和 `fetch-*.ts` |
@@ -40,11 +42,13 @@
 | [`CHANGELOG.md`](CHANGELOG.md) | 未发布改动的简要记录。 |
 | [`LOGIN-MIGRATION.md`](LOGIN-MIGRATION.md) | 新统一认证入口、页面实测结果和登录态迁移记录。 |
 | [`ANDROID.md`](ANDROID.md)、[`API.md`](API.md) | Android 和接口相关说明。 |
+| `release-tools/` | 本机可选发布工具的独立目录，包含脚本、配置、Token、简介、说明、测试和发布产物；整个目录被忽略。根目录 `npm run release` 指向这里，克隆仓库本身不会获得本机工具。 |
 | [`AGENT.md`](AGENT.md) | 维护约定，尤其是渲染后再导出 Android 资源的执行顺序。 |
 | [`package.json`](package.json)、[`package-lock.json`](package-lock.json) | Node 依赖和 npm 脚本。 |
 | [`tsconfig.json`](tsconfig.json) | TypeScript 编译配置；排除旧版 `home-ui*`。 |
 | [`.env.example`](.env.example) | 环境变量模板；本地 `.env` 含凭据，不要提交。 |
 | [`tests/`](tests/) | `auth.test.mjs` 测登录/跳转，`diagnostics.test.mjs` 测错误分类，`cet-statistics.test.mjs` 测等级考试统计。 |
+| [`tests/android-login.test.mjs`](tests/android-login.test.mjs)、[`tests/android/`](tests/android/) | 用编译后的 Kotlin 类离线模拟 Cookie 复用、SSO、过期后单次密码提交、错误不重登、并发及同步间隔；先构建 Android，需 JDK 与本机 Gradle 依赖缓存。 |
 | [`resources/`](resources/)、[`icon/`](icon/) | 校园地图、校历、图标等原始素材。 |
 
 ## `src/`：抓取、解析、网页生成
@@ -74,6 +78,8 @@ Kotlin 源码位于 [`android/app/src/main/java/com/classsche/mobile/`](android/
 | --- | --- |
 | `MainActivity.kt`、`UniversityEndpoints.kt`、`ResourceUpdateStore.kt` | 主界面、站点地址和资源版本记录。 |
 | `CredentialStore.kt`、`HeadlessLoginClient.kt` | Android Keystore 密码加密、旧明文迁移和后台认证请求。 |
+| `LoginCookieStore.kt` | 后台响应 Cookie 按原域名/路径写回 WebView，等待异步完成并持久保存；允许后续同步复用和同步删除过期 Cookie。 |
+| `ScoreSyncTiming.kt`、`ScoreSyncTriggerPolicy.kt` | 后台定时间隔计算与进程级启动同步门控：首次打开主界面忽略定时间隔，切回或重建界面不重复；时间戳和认证暂停由 `ScoreSyncSettings.kt` 持久保存。 |
 | `IdentityQrLoginController.kt` | 电脑端认证页面、校方二维码图片弹窗、扫码状态轮询及同会话跳转。图形验证码在 `MainActivity.kt` 手动填写，无 OCR 依赖。 |
 | `QrImageGalleryStore.kt` | 把用户点击保存的当前二维码 PNG 写入相册“周三课表”，兼容 Android 8/9 写入权限与 Android 10+ MediaStore，失败清理残留图片。 |
 | `FailureDetails.kt` | Android 超时、域名、安全连接、HTTP、跳转及解析错误的提示分类。 |
@@ -102,3 +108,5 @@ Android 工程配置在 [`android/app/build.gradle.kts`](android/app/build.gradl
 抓取链路的报错会带具体步骤和目标地址。`网页连接超时` / `无法解析域名` 查网络与站点可用性；`HTTP 状态码` 查目标网站响应；`目标网站跳转错误` 查 SSO 与业务页入口；`页面解析错误` 查页面表格/选择器是否变化。Android 登录 WebView 对主页面网络错误和 HTTP 错误显示代码；统一认证的登录失败页还会读取表单错误原文，不能把“表单已点击”视为认证成功。微信扫码使用电脑端 User-Agent 获取校方二维码图片，仍沿用同一 WebView 会话。图形验证码从网页当前图片读取，用户手动填写或刷新；静默课表更新需要验证码时自动进入登录页，并保留后台认证 Cookie，提交后继续更新。课表更新后考试、成绩、等级考试的失败原因分别显示，已有缓存不会因为网页结构错误而被空数据覆盖。详细日志可在 Android 的“运行日志”查看。
 
 常用检查：`npm run check`、`node --test tests/*.test.mjs`；改网页后依次运行 `npm run render:ui` 和 `npm run export:android`；改 Android 后在 `android/` 下运行 `.\gradlew.bat :app:assembleDebug`。
+
+Android 登录改动还应在构建后运行 `node --test tests/android-login.test.mjs`。该测试只使用本机模拟响应；没有 JDK 或 Android 编译产物时会跳过，不影响纯桌面端检查。

@@ -41,6 +41,7 @@ object HeadlessScoreSyncManager {
   )
 
   private val executor = Executors.newSingleThreadExecutor()
+  private val triggerPolicy = ScoreSyncTriggerPolicy()
   @Volatile private var syncInProgress = false
 
   fun runSync(
@@ -50,11 +51,19 @@ object HeadlessScoreSyncManager {
   ) {
     val appContext = context.applicationContext
     synchronized(this) {
-      if (syncInProgress) {
-        log(appContext, "HEADLESS_SCORE_SYNC", "INFO", "已有同步在进行中，跳过本次触发 reason=$reason")
-        onComplete?.invoke(SyncResult(Status.SKIPPED, message = "已有同步在进行中"))
+      val skipReason = triggerPolicy.skipReason(
+        isAppOpen = reason == "APP_OPEN",
+        syncInProgress = syncInProgress,
+        settingsSkipReason = ScoreSyncSettings.skipReason(appContext),
+        authenticationFailure = ScoreSyncSettings.authenticationFailure(appContext),
+        remainingDelayMillis = ScoreSyncSettings.remainingDelayMillis(appContext)
+      )
+      if (skipReason != null) {
+        log(appContext, "HEADLESS_SCORE_SYNC", "SKIP", "$skipReason reason=$reason")
+        onComplete?.invoke(SyncResult(Status.SKIPPED, message = skipReason))
         return
       }
+      ScoreSyncSettings.recordAttempt(appContext)
       syncInProgress = true
     }
 
@@ -63,6 +72,10 @@ object HeadlessScoreSyncManager {
         performSync(appContext, reason)
       } catch (error: Exception) {
         val detail = FailureDetails.describe(error)
+        if (error is HeadlessLoginClient.AuthenticationRejectedException || error is HeadlessLoginClient.CaptchaRequiredException) {
+          ScoreSyncSettings.pauseAfterAuthenticationFailure(appContext, detail)
+          log(appContext, "HEADLESS_SCORE_SYNC", "WARN", "已暂停自动认证，等待用户手动登录成功")
+        }
         log(appContext, "HEADLESS_SCORE_SYNC", "FAIL", detail)
         SyncResult(Status.FAILED, message = detail)
       } finally {
@@ -77,11 +90,13 @@ object HeadlessScoreSyncManager {
   private fun performSync(context: Context, reason: String): SyncResult {
     log(context, "HEADLESS_SCORE_SYNC", "START", "开始纯 HTTP 成绩同步 reason=$reason")
     val credentials = CredentialStore.credentials(context)
-    if (credentials == null) {
+    if (credentials == null && WebViewLoginCookieStore.read(TIMETABLE_URL).isBlank() &&
+      WebViewLoginCookieStore.read("https://ids.njust.edu.cn/authserver/").isBlank()) {
       log(context, "HEADLESS_SCORE_SYNC", "WARN", "缺少账号或密码，跳过本次同步")
       return SyncResult(Status.SKIPPED, message = "缺少账号或密码")
     }
-    val (username, password) = credentials
+    val username = credentials?.username ?: CredentialStore.username(context)
+    val password = credentials?.password.orEmpty()
 
     val loginResult = HeadlessLoginClient(logger = { scope, status, message ->
       log(context, scope, status, message)
@@ -95,7 +110,7 @@ object HeadlessScoreSyncManager {
       context,
       "HEADLESS_SCORE_SYNC",
       "INFO",
-      "纯 HTTP 登录完成，cookieCount=${loginResult.cookies.size}"
+      "教务会话已就绪，cookieCount=${loginResult.cookies.size}"
     )
 
     val latestScores = fetchScoreRecordsWithCookies(context, loginResult.cookies)
@@ -143,6 +158,8 @@ object HeadlessScoreSyncManager {
         connection.setRequestProperty("Cookie", cookies.entries.joinToString("; ") { (name, value) -> "$name=$value" })
       }
       val responseCode = connection.responseCode
+      WebViewLoginCookieStore.receive(SCORE_LIST_URL, connection.headerFields.filterKeys { it != null })
+      WebViewLoginCookieStore.flush()
       log(
         context,
         "HEADLESS_SCORE_FETCH",

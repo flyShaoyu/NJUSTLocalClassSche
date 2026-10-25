@@ -113,7 +113,6 @@ class MainActivity : AppCompatActivity() {
   private var loginSessionBootstrapped = false
   private var legacyLoginRedirectAttempted = false
   private var headlessLoginInProgress = false
-  private var lastAutoScoreSyncElapsed = 0L
   private var pendingNotificationToggleTarget: NotificationToggleTarget? = null
   private var updateCheckInProgress = false
   private var pendingManualUpdateResult = false
@@ -362,7 +361,7 @@ class MainActivity : AppCompatActivity() {
       HomeMenuEntry("schedule", "课表查询", R.drawable.ic_home_schedule, true),
       HomeMenuEntry("room", "空闲教室", R.drawable.ic_home_room, false),
       HomeMenuEntry("site", "常用网站", R.drawable.ic_home_site, false),
-      HomeMenuEntry("refresh", "更新课表", R.drawable.ic_home_refresh, true),
+      HomeMenuEntry("refresh", "更新数据", R.drawable.ic_home_refresh, true),
       HomeMenuEntry("library", "图书搜索", R.drawable.ic_home_library, false),
       HomeMenuEntry("borrow", "借阅信息", R.drawable.ic_home_borrow, false)
     )
@@ -518,22 +517,12 @@ class MainActivity : AppCompatActivity() {
   }
 
   private fun triggerScoreSyncOnAppOpenIfNeeded() {
-    val now = SystemClock.elapsedRealtime()
-    if (now - lastAutoScoreSyncElapsed < 15_000L) {
-      return
-    }
-    lastAutoScoreSyncElapsed = now
-    val skipReason = ScoreSyncSettings.skipReason(this)
-    HeadlessScoreSyncScheduler.scheduleNext(this)
-    if (skipReason != null) {
-      appendDebugLog("HEADLESS_SCORE_SYNC", "SKIP", "应用打开时跳过自动成绩检查：$skipReason")
-      return
-    }
     HeadlessScoreSyncManager.runSync(this, reason = "APP_OPEN") { result ->
       if (result.status != HeadlessScoreSyncManager.Status.SUCCESS) {
         return@runSync
       }
       mainHandler.post {
+        if (isFinishing || isDestroyed) return@post
         when (currentWebScreen) {
           WebScreen.HOME -> if (result.updatedCount > 0) {
             renderedHomeSignature = null
@@ -545,6 +534,8 @@ class MainActivity : AppCompatActivity() {
         }
       }
     }
+    // runSync records a startup attempt before returning; base the next alarm on that time.
+    HeadlessScoreSyncScheduler.scheduleNext(this)
   }
 
   override fun onBackPressed() {
@@ -749,6 +740,7 @@ class MainActivity : AppCompatActivity() {
               }
               pendingTimetableCaptcha = false
               legacyLoginRedirectAttempted = false
+              ScoreSyncSettings.clearAuthenticationFailure(this@MainActivity)
               qrLoginController?.complete()
               CookieManager.getInstance().flush()
               if (loginSubmitted) saveCredentials()
@@ -1115,7 +1107,7 @@ class MainActivity : AppCompatActivity() {
   }
 
   private fun updateHomeRefreshActionState() {
-    homeRefreshLabel?.text = if (isAutoUpdating || cacheCaptureInProgress) "更新中…" else "更新课表"
+    homeRefreshLabel?.text = if (isAutoUpdating || cacheCaptureInProgress) "更新中…" else "更新数据"
   }
 
   private fun startSilentTimetableRefresh(showStartToast: Boolean = true) {
@@ -1126,8 +1118,8 @@ class MainActivity : AppCompatActivity() {
     val credentials = CredentialStore.credentials(this)
 
     setTimetableRefreshInProgress(true)
-    updateStatus("正在后台登录并获取课表…")
-    if (showStartToast) Toast.makeText(this, "正在后台更新课表…", Toast.LENGTH_SHORT).show()
+    updateStatus("正在复用登录状态获取课表，会话失效时才重新登录…")
+    if (showStartToast) Toast.makeText(this, "正在后台更新数据…", Toast.LENGTH_SHORT).show()
     val desiredSemester = TimetableSemesterStore.readSelectedSemester(this)
     ioExecutor.execute {
       try {
@@ -1138,6 +1130,7 @@ class MainActivity : AppCompatActivity() {
           password = credentials?.password.orEmpty(),
           desiredSemester = desiredSemester
         )
+        ScoreSyncSettings.clearAuthenticationFailure(this)
         if (TimetableSemesterStore.readSelectedSemester(this) != desiredSemester) {
           appendDebugLog("TIMETABLE_REFRESH", "INFO", "刷新期间学期选择变化，跳过旧学期结果")
           mainHandler.post {
@@ -2523,7 +2516,6 @@ class MainActivity : AppCompatActivity() {
     loginSessionBootstrapped = true
     if (forceReload) {
       legacyLoginRedirectAttempted = false
-      clearSessionCookies()
     }
     loadLoginPageInWebView()
   }
@@ -2612,11 +2604,6 @@ class MainActivity : AppCompatActivity() {
     updateLoginActionState()
     updateStatus(getString(R.string.status_loading_login))
     binding.authWebView.loadUrl(UniversityEndpoints.LOGIN_FORM)
-  }
-
-  private fun clearSessionCookies() {
-    CookieManager.getInstance().removeSessionCookies(null)
-    CookieManager.getInstance().flush()
   }
 
   private fun resolveCurrentCredentials(): Pair<String, String>? {
