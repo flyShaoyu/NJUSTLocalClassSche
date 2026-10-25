@@ -9,8 +9,9 @@ import android.graphics.Color
 import android.net.Uri
 import android.os.Handler
 import android.os.Build
+import android.os.SystemClock
+import android.util.Base64
 import android.view.ViewGroup
-import android.webkit.CookieManager
 import android.webkit.WebView
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -20,9 +21,6 @@ import androidx.appcompat.app.AlertDialog
 import androidx.core.content.ContextCompat
 import org.json.JSONArray
 import org.json.JSONObject
-import java.io.IOException
-import java.net.HttpURLConnection
-import java.net.URL
 import java.util.concurrent.ExecutorService
 
 /** Keeps the desktop QR page polling in the existing authentication WebView. */
@@ -34,6 +32,8 @@ internal class IdentityQrLoginController(
   private val onStatus: (String) -> Unit,
   private val requestGalleryPermission: () -> Unit,
   private val reloadPasswordLoginPage: () -> Unit,
+  private val onPasswordFormReady: () -> Unit,
+  private val onDiagnostic: (String, String) -> Unit,
   private val onActiveChanged: (Boolean) -> Unit
 ) {
   private val mobileUserAgent = webView.settings.userAgentString
@@ -51,11 +51,36 @@ internal class IdentityQrLoginController(
   private var lastStatus = ""
   private var pageReady = false
   private var pageState = "waiting"
+  private var pageActivated = false
+  private var inspecting = false
+  private var inspectionSequence = 0L
+  private var refreshPending = false
+  private var waitingSince = 0L
+  private var terminalError = false
+  private var resourceFailure: String? = null
+  private var pageReloadAttempted = false
+  private var hostResumed = true
+  private var resumePending = false
+  private var authenticationStarted = false
+  private var authenticationStartedAt = 0L
+  private var authenticationProgressAt = 0L
+  private var pausedAt = 0L
+  private var authenticationStep = "提交二维码认证"
+  private var lastServerStatus = ""
+  private val authenticationWatchdog = object : Runnable {
+    override fun run() {
+      if (!active || !authenticationStarted || terminalError || !hostResumed) return
+      val now = SystemClock.elapsedRealtime()
+      if (now - authenticationProgressAt > 20_000L || now - authenticationStartedAt > 60_000L) {
+        fail("微信已确认，但$authenticationStep 超时；请关闭弹窗后重试，已保存的登录状态会保留")
+      } else handler.postDelayed(this, 1000L)
+    }
+  }
   private val poll = object : Runnable {
     override fun run() {
-      if (!active) return
+      if (!hostResumed || authenticationStarted || (!active && pageReady) || terminalError) return
       inspectPage()
-      handler.postDelayed(this, 1000L)
+      if ((active || !pageReady) && !terminalError) handler.postDelayed(this, 500L)
     }
   }
 
@@ -92,20 +117,108 @@ internal class IdentityQrLoginController(
         popup.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener { saveCurrentImage() }
         updateSaveButton()
       }
-    webView.settings.userAgentString = desktopUserAgent
-    refresh()
-    handler.postDelayed(poll, 1000L)
+    generation++
+    inspecting = false
+    refreshPending = false
+    waitingSince = SystemClock.elapsedRealtime()
+    terminalError = false
+    pageReloadAttempted = false
+    pageActivated = false
+    pageState = "waiting"
+    authenticationStarted = false
+    lastServerStatus = ""
+    showStatus("正在读取当前登录页的二维码…")
+    if (!isIdentityLoginPage() || webView.settings.userAgentString != desktopUserAgent) {
+      reloadQrPage()
+    } else {
+      inspectPage()
+    }
+    handler.removeCallbacks(poll)
+    handler.postDelayed(poll, 500L)
   }
 
   fun onLoginPageReady() {
-    pageReady = true
-    if (active) inspectPage()
+    if (!isIdentityLoginPage() || terminalError || authenticationStarted) return
+    inspectPage()
+    handler.removeCallbacks(poll)
+    if (!pageReady || active) handler.postDelayed(poll, 500L)
   }
 
-  fun onPageStarted() { pageReady = false }
+  fun onPageStarted(url: String) {
+    handler.removeCallbacks(poll)
+    generation++
+    pageReady = false
+    pageActivated = false
+    refreshPending = false
+    inspecting = false
+    terminalError = false
+    resourceFailure = null
+    waitingSince = SystemClock.elapsedRealtime()
+    clearImage()
+    if (active && authenticationStarted) {
+      authenticationProgressAt = SystemClock.elapsedRealtime()
+      val uri = Uri.parse(url)
+      authenticationStep = when (uri.host) {
+        "ehall2.njust.edu.cn" -> "进入智慧理工服务门户"
+        "bkjw.njust.edu.cn" -> if (uri.path.orEmpty().contains("xskb")) "加载教务课表" else "建立教务系统会话"
+        else -> "完成统一身份认证"
+      }
+      showStatus("微信已确认，正在$authenticationStep…")
+      onDiagnostic("INFO", "二维码认证跳转：${uri.host.orEmpty()}${uri.path.orEmpty()}")
+      restartAuthenticationWatchdog()
+    }
+  }
+
+  fun isAuthenticationSubmitted(): Boolean = active && authenticationStarted
+
+  fun onHostPaused() {
+    hostResumed = false
+    pausedAt = SystemClock.elapsedRealtime()
+    handler.removeCallbacks(poll)
+    handler.removeCallbacks(authenticationWatchdog)
+  }
+
+  fun onHostResumed() {
+    hostResumed = true
+    if (authenticationStarted && pausedAt > 0L) {
+      val pausedDuration = SystemClock.elapsedRealtime() - pausedAt
+      authenticationStartedAt += pausedDuration
+      authenticationProgressAt += pausedDuration
+    }
+    pausedAt = 0L
+    if (!active || terminalError) return
+    if (authenticationStarted) {
+      restartAuthenticationWatchdog()
+      return
+    }
+    // Recheck the same QR/cookie session immediately; never issue another token/password.
+    inspectionSequence++
+    inspecting = false
+    resumePending = true
+    handler.removeCallbacks(poll)
+    inspectPage()
+    handler.postDelayed(poll, 500L)
+  }
 
   fun onPageError(message: String) {
-    if (active) showStatus(message)
+    if (active) fail(message)
+  }
+
+  fun onResourceFailure(url: String, detail: String) {
+    val uri = Uri.parse(url)
+    if (uri.host != "ids.njust.edu.cn") return
+    if (uri.path == "/authserver/qrCode/getStatus.htl" && (!hostResumed || authenticationStarted)) {
+      if (!hostResumed) onDiagnostic("INFO", "后台扫码状态检查未完成，返回前台时重新检查原二维码")
+      return
+    }
+    val step = when (uri.path) {
+      "/authserver/qrCode/getToken" -> "申请二维码"
+      "/authserver/qrCode/getCode" -> "加载二维码图片"
+      "/authserver/qrCode/getStatus.htl" -> "检查扫码状态"
+      else -> return
+    }
+    resourceFailure = "$step 失败：$detail，请点击“重新获取”"
+    if (active) fail(resourceFailure!!)
   }
 
   fun onGalleryPermissionResult(granted: Boolean) {
@@ -124,9 +237,9 @@ internal class IdentityQrLoginController(
 
   fun destroy() = finish(reloadLoginPage = false)
 
-  fun restoreMobileUserAgent() {
-    if (!active && webView.settings.userAgentString != mobileUserAgent) {
-      webView.settings.userAgentString = mobileUserAgent
+  fun useDesktopUserAgent() {
+    if (webView.settings.userAgentString != desktopUserAgent) {
+      webView.settings.userAgentString = desktopUserAgent
     }
   }
 
@@ -139,6 +252,7 @@ internal class IdentityQrLoginController(
     active = false
     generation++
     handler.removeCallbacks(poll)
+    handler.removeCallbacks(authenticationWatchdog)
     dialog?.setOnDismissListener(null)
     dialog?.dismiss()
     dialog = null
@@ -147,119 +261,209 @@ internal class IdentityQrLoginController(
     imageUrl = null
     currentBitmap = null
     pendingSaveGeneration = null
+    inspecting = false
+    pageActivated = false
+    refreshPending = false
+    authenticationStarted = false
+    resumePending = false
     onActiveChanged(false)
     if (reloadLoginPage) {
       webView.stopLoading()
-      restoreMobileUserAgent()
       reloadPasswordLoginPage()
     }
   }
 
   private fun refresh() {
+    if (authenticationStarted) return
+    if (!terminalError && (refreshPending || pageState in setOf("pending_token", "pending_image", "loading"))) return
     generation++
-    pageReady = false
-    imageUrl = null
-    currentBitmap = null
-    pageState = "waiting"
-    imageView?.setImageDrawable(null)
-    updateSaveButton()
-    showStatus("正在获取登录二维码…")
-    webView.loadUrl(UniversityEndpoints.PORTAL_LOGIN)
+    inspecting = false
+    terminalError = false
+    resourceFailure = null
+    lastServerStatus = ""
+    refreshPending = true
+    pageReloadAttempted = false
+    waitingSince = SystemClock.elapsedRealtime()
+    clearImage()
+    showStatus("正在通过学校网页重新获取二维码…")
+    if (isIdentityLoginPage()) inspectPage() else reloadQrPage()
+    handler.removeCallbacks(poll)
+    handler.postDelayed(poll, 500L)
   }
 
   private fun inspectPage() {
-    if (!pageReady || Uri.parse(webView.url.orEmpty()).host != "ids.njust.edu.cn") return
+    if (!hostResumed || inspecting || terminalError || authenticationStarted || !isIdentityLoginPage()) return
+    inspecting = true
     val requestGeneration = generation
-    webView.evaluateJavascript("""
-      (function() {
-        const form = Array.from(document.querySelectorAll('#qrLoginForm')).find(el => el.querySelector('#qr_img')?.getAttribute('src'));
-        if (!form) return JSON.stringify({ state: 'missing' });
-        const visible = selector => {
-          const el = form.querySelector(selector);
-          return el && getComputedStyle(el).display !== 'none';
-        };
-        return JSON.stringify({
-          imageUrl: form.querySelector('#qr_img').src,
-          state: visible('#qr_invalid') ? 'expired' : visible('#qr_success') ? 'scanned' : 'waiting'
-        });
-      })();
-    """.trimIndent()) { raw ->
-      if (!active || requestGeneration != generation) return@evaluateJavascript
-      val data = runCatching { JSONObject(JSONArray("[$raw]").getString(0)) }.getOrNull() ?: return@evaluateJavascript
+    val requestInspection = ++inspectionSequence
+    val action = when {
+      !active -> "prepare"
+      refreshPending -> "refresh"
+      resumePending -> "resume"
+      !pageActivated -> "start"
+      else -> "inspect"
+    }
+    webView.evaluateJavascript(IdentityQrPageScript.command(action, imageUrl.orEmpty())) { raw ->
+      if (requestGeneration != generation || requestInspection != inspectionSequence) return@evaluateJavascript
+      inspecting = false
+      if (!hostResumed) return@evaluateJavascript
+      val data = runCatching { JSONObject(JSONArray("[$raw]").getString(0)) }.getOrNull()
+      if (data == null) {
+        if (active) fail("二维码页面解析错误：未读到学校网页状态，请点击“重新获取”")
+        else pageReady = true
+        return@evaluateJavascript
+      }
+      if (data.optString("state") == "prepared") {
+        pageReady = true
+        if (data.optBoolean("passwordReady")) onPasswordFormReady()
+        return@evaluateJavascript
+      }
+      if (!active) {
+        if (data.optString("state") != "loading") pageReady = true
+        return@evaluateJavascript
+      }
+      resumePending = false
+      val serverStatus = data.optString("statusCode")
+      if (serverStatus in setOf("0", "1", "2", "3") && serverStatus != lastServerStatus) {
+        lastServerStatus = serverStatus
+        onDiagnostic("INFO", "校方二维码状态=$serverStatus（" + when (serverStatus) {
+          "1" -> "微信已确认"
+          "2" -> "已扫码，等待确认"
+          "3" -> "二维码已失效"
+          else -> "等待扫码"
+        } + "）")
+      }
       pageState = data.optString("state")
+      if (pageState !in setOf("loading", "wrong_page", "missing_script")) {
+        pageReady = true
+        pageActivated = true
+      }
+      if (data.optBoolean("refreshAccepted")) refreshPending = false
+      resourceFailure?.let { fail(it); return@evaluateJavascript }
       updateSaveButton()
       when (pageState) {
-        "missing" -> showStatus("电脑端认证页未返回二维码，请点击“重新获取”")
-        "expired" -> showStatus("二维码已失效，请点击“重新获取”")
+        "expired" -> { clearImage(); fail("二维码已失效，请点击“重新获取”刷新当前二维码") }
         "scanned" -> showStatus("扫码成功，请在微信中确认登录")
+        "confirmed" -> submitConfirmedLogin()
+        "submitting" -> Unit
+        "submit_error" -> fail("微信已确认，但二维码认证表单解析或提交失败，请关闭后重新获取二维码")
         "waiting" -> {
-          val source = data.optString("imageUrl")
-          if (source.isNotBlank() && source != imageUrl) fetchImage(source, requestGeneration)
+          if (data.has("dataUrl")) showImage(data)
+          if (!terminalError) showStatus("请用微信扫码，并确认登录")
         }
+        "loading", "pending_token", "pending_image", "missing_image" -> {
+          val elapsed = SystemClock.elapsedRealtime() - waitingSince
+          if (elapsed > 15_000L) {
+            val step = when (pageState) {
+              "pending_token", "missing_image" -> "学校二维码申请"
+              "pending_image" -> "学校二维码图片加载"
+              else -> "学校二维码脚本加载"
+            }
+            fail("$step 超时，请点击“重新获取”")
+          }
+        }
+        "request_error" -> {
+          val error = data.optJSONObject("error")
+          val step = if (error?.optString("phase") == "status") "扫码状态检查" else "二维码申请"
+          val detail = when (error?.optString("kind")) {
+            "timeout" -> "连接超时"
+            "http" -> "网站返回 HTTP ${error.optInt("code")}"
+            "empty" -> "网站返回了空内容"
+            "unexpected" -> "网站返回了无法识别的扫码状态"
+            else -> "网络连接失败"
+          }
+          fail("学校$step 失败：$detail，请点击“重新获取”")
+        }
+        "missing_form", "missing_script", "missing_refresh", "wrong_page" -> {
+          if (!pageReloadAttempted) reloadQrPage()
+          else fail("二维码页面解析错误：电脑端认证页缺少扫码表单或刷新入口，请点击“重新获取”")
+        }
+        "wrong_image" -> fail("二维码地址解析错误：学校返回了非预期的图片地址")
+        "image_error" -> fail(resourceFailure ?: "二维码图片加载失败，请点击“重新获取”")
+        "read_error" -> fail("二维码图片读取失败：无法读取网页当前图片，请点击“重新获取”")
       }
+      updateSaveButton()
     }
   }
 
-  private fun fetchImage(source: String, requestGeneration: Int) {
-    val uri = Uri.parse(source)
-    if (uri.scheme != "https" || uri.host != "ids.njust.edu.cn" || uri.path != "/authserver/qrCode/getCode") {
-      showStatus("二维码地址解析错误：返回了非预期的图片地址")
-      return
+  private fun reloadQrPage() {
+    pageReloadAttempted = true
+    refreshPending = false
+    useDesktopUserAgent()
+    webView.loadUrl(UniversityEndpoints.LOGIN_FORM)
+  }
+
+  private fun submitConfirmedLogin() {
+    if (authenticationStarted) return
+    authenticationStarted = true
+    authenticationStartedAt = SystemClock.elapsedRealtime()
+    authenticationProgressAt = authenticationStartedAt
+    authenticationStep = "提交二维码认证"
+    handler.removeCallbacks(poll)
+    clearImage()
+    showStatus("微信已确认，正在提交二维码认证…")
+    restartAuthenticationWatchdog()
+    val requestGeneration = generation
+    webView.evaluateJavascript(IdentityQrPageScript.command("submit", "")) { raw ->
+      if (!active || requestGeneration != generation) return@evaluateJavascript
+      val state = runCatching { JSONObject(JSONArray("[$raw]").getString(0)).optString("state") }.getOrNull()
+      if (state != "submitting") fail("微信已确认，但二维码认证表单提交失败，请关闭弹窗后重试")
     }
-    imageUrl = source
-    val cookies = CookieManager.getInstance().getCookie(source).orEmpty()
-    executor.execute {
-      try {
-        val connection = (URL(source).openConnection() as HttpURLConnection).apply {
-          connectTimeout = 10_000
-          readTimeout = 10_000
-          instanceFollowRedirects = false
-          useCaches = false
-          setRequestProperty("User-Agent", desktopUserAgent)
-          setRequestProperty("Referer", UniversityEndpoints.PORTAL_LOGIN)
-          setRequestProperty("Accept", "image/*")
-          if (cookies.isNotBlank()) setRequestProperty("Cookie", cookies)
-        }
-        val bitmap = try {
-          val code = connection.responseCode
-          if (code in 300..399) throw IOException("二维码图片跳转错误（HTTP $code）")
-          if (code != 200) throw IOException("二维码图片下载失败（HTTP $code）")
-          connection.inputStream.use { BitmapFactory.decodeStream(it) }
-            ?: throw IOException("二维码图片解析错误")
-        } finally { connection.disconnect() }
-        handler.post {
-          if (active && generation == requestGeneration && imageUrl == source) {
-            currentBitmap = bitmap
-            imageView?.setImageBitmap(bitmap)
-            updateSaveButton()
-            if (pageState == "waiting") showStatus("请用微信扫码，并确认登录")
-          } else bitmap.recycle()
-        }
-      } catch (error: Exception) {
-        handler.post {
-          if (active && generation == requestGeneration) {
-            // The source contains a login token; never include it or cookies in diagnostics.
-            val detail = when (error) {
-              is java.net.SocketTimeoutException -> "二维码图片连接超时，请点击“重新获取”"
-              is java.net.UnknownHostException -> "二维码图片下载失败：无法解析学校域名"
-              else -> error.message?.takeIf { it.startsWith("二维码") } ?: "二维码图片连接失败，请点击“重新获取”"
-            }
-            showStatus(detail)
-          }
-        }
-      }
-    }
+  }
+
+  private fun restartAuthenticationWatchdog() {
+    handler.removeCallbacks(authenticationWatchdog)
+    if (hostResumed) handler.postDelayed(authenticationWatchdog, 1000L)
+  }
+
+  private fun isIdentityLoginPage(): Boolean {
+    val uri = Uri.parse(webView.url.orEmpty())
+    return uri.scheme == "https" && uri.host == "ids.njust.edu.cn" && uri.path == "/authserver/login"
+  }
+
+  private fun showImage(data: JSONObject) {
+    val dataUrl = data.optString("dataUrl")
+    val bitmap = runCatching {
+      require(dataUrl.startsWith("data:image/png;base64,") && dataUrl.length < 2_000_000)
+      val bytes = Base64.decode(dataUrl.substringAfter(','), Base64.DEFAULT)
+      BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+    }.getOrNull()
+    if (bitmap == null) { fail("二维码图片解析错误，请点击“重新获取”"); return }
+    imageUrl = data.optString("imageUrl")
+    currentBitmap = bitmap
+    imageView?.setImageBitmap(bitmap)
+    updateSaveButton()
+  }
+
+  private fun clearImage() {
+    imageUrl = null
+    currentBitmap = null
+    imageView?.setImageDrawable(null)
+    updateSaveButton()
+  }
+
+  private fun fail(message: String) {
+    terminalError = true
+    refreshPending = false
+    handler.removeCallbacks(poll)
+    handler.removeCallbacks(authenticationWatchdog)
+    if (isIdentityLoginPage()) webView.evaluateJavascript(IdentityQrPageScript.command("pause", ""), null)
+    showStatus(message)
+    updateSaveButton()
   }
 
   private fun updateSaveButton() {
+    dialog?.getButton(AlertDialog.BUTTON_POSITIVE)?.isEnabled = active &&
+      !authenticationStarted &&
+      (terminalError || (!refreshPending && pageState !in setOf("loading", "pending_token", "pending_image")))
     dialog?.getButton(AlertDialog.BUTTON_NEUTRAL)?.apply {
-      isEnabled = active && currentBitmap != null && pageState != "expired" && !savingImage && pendingSaveGeneration == null
+      isEnabled = active && !authenticationStarted && currentBitmap != null && !terminalError && !refreshPending && pageState != "expired" && !savingImage && pendingSaveGeneration == null
       text = if (savingImage) "保存中…" else "保存到相册"
     }
   }
 
   private fun saveCurrentImage() {
-    if (!active || savingImage || pendingSaveGeneration != null) return
+    if (!active || terminalError || refreshPending || savingImage || pendingSaveGeneration != null) return
     val bitmap = currentBitmap ?: return
     if (pageState == "expired") {
       showStatus("二维码已失效，请重新获取后保存")
@@ -290,7 +494,7 @@ internal class IdentityQrLoginController(
       handler.post {
         savingImage = false
         updateSaveButton()
-        if (active && generation == savedGeneration) showStatus(message)
+        if (active && generation == savedGeneration && !terminalError) showStatus(message)
         Toast.makeText(activity.applicationContext, message, Toast.LENGTH_LONG).show()
       }
     }
@@ -301,6 +505,7 @@ internal class IdentityQrLoginController(
     if (lastStatus != message) {
       lastStatus = message
       onStatus(message)
+      onDiagnostic(if (terminalError) "FAIL" else "INFO", message)
     }
   }
 

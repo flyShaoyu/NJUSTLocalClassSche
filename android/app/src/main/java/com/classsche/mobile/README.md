@@ -7,7 +7,8 @@ Android 原生代码负责 WebView 登录、应用私有缓存、首页和业务
 - `MainActivity.kt`：界面和主要业务入口；处理统一认证 WebView、业务页捕获、原生首页、缓存及更新检查。
 - `UniversityEndpoints.kt`：统一认证、教务 SSO、课表、考试和成绩 URL。
 - `CredentialStore.kt`：Android Keystore AES-GCM 密码保存和旧明文迁移；使用智慧理工服务门户密码。
-- `IdentityQrLoginController.kt`：用电脑端 User-Agent 获取校方二维码图片并显示弹窗，复用认证 WebView 会话等待微信扫码确认；保存按钮使用当前图片，不中断轮询。
+- `IdentityQrLoginController.kt`、`IdentityQrPageScript.kt`：首次加载认证表单就使用电脑端 User-Agent；弹窗直接读取网页当前二维码，不重载整页或再次下载图片。过期后“重新获取”复用校方 `refresh()`，刷新期间禁止重复申请及保存旧码；申请、图片加载和状态轮询分别显示超时、HTTP 或解析错误。准备密码表单暂停扫码，用户点击扫码后才恢复；保存按钮使用当前图片，不中断轮询。
+- 校方状态 `0/2/1/3` 分别表示等待扫码/已扫码待确认/微信已确认/失效。`IdentityQrLoginController.onHostResumed` 返回前台立即查原二维码，原生 Handler 每秒驱动同会话 `isUsed()` 并限制一个在途请求，不依赖隐藏 WebView 的定时器。收到 `1` 后单次提交当前二维码表单，保留 Cookie、service 和隐藏字段；`MainActivity.continueQrLoginNavigation` 在门户/教务主页可用后继续 SSO，不等门户资源全部加载。弹窗与 `QR_AUTH` 日志显示确认、提交、教务会话和课表加载步骤，单步 20 秒或总流程 60 秒超时明确报错，排除用户切后台的时间。
 - `QrImageGalleryStore.kt`：将二维码 PNG 保存到相册“周三课表”，使用 MediaStore 并清理保存失败时的残留；Android 8/9 的写入权限回调由 `MainActivity.kt` 管理。
 - `MainActivity.kt` 的 `showLoginPage`：进入登录界面时只重载 `UniversityEndpoints.LOGIN_FORM`，保留 Cookie，禁止自动 SSO 跳转和课表捕获；`authLoginRequested` 由提交登录或扫码按钮开启。验证码交接在恢复后台会话后准备表单，等待用户填写并提交。
 - `MainActivity.kt` 的 `syncIdentityCaptcha`：读取当前认证会话的验证码图片，手动填写或刷新，不使用 OCR；`openTimetableRefreshCaptcha`：静默更新遇到验证码时转登录页，保留后台 Cookie，提交后继续课表更新。
@@ -34,3 +35,5 @@ Android 原生代码负责 WebView 登录、应用私有缓存、首页和业务
 Android 个人数据写入应用私有目录；导入 APK 的 `assets` 只含空数据页面模板和公共资源。改网页模板须先在仓库根目录依次运行 `npm run render:ui`、`npm run export:android`，再构建 APK。
 
 登录回归：先构建 `:app:assembleDebug`，再从仓库根目录运行 `node --test tests/android-login.test.mjs`。测试只访问本机模拟响应，不提交真实账号密码。
+
+二维码回归：`node --test tests/identity-qr.test.mjs`，执行实际 Android 页面脚本，使用离线页面检查图片复用、过期刷新、重复表单、错误及恢复，不截屏。

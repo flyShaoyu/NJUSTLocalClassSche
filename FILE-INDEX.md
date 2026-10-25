@@ -22,7 +22,7 @@
 | 登录入口、SSO、登录态复用 | [`src/endpoints.ts`](src/endpoints.ts)、[`src/login.ts`](src/login.ts)、[`src/authenticated-page.ts`](src/authenticated-page.ts)、[`src/browser.ts`](src/browser.ts) |
 | Android 登录、Cookie 复用、密码保存 | [`MainActivity.kt`](android/app/src/main/java/com/classsche/mobile/MainActivity.kt)、[`CredentialStore.kt`](android/app/src/main/java/com/classsche/mobile/CredentialStore.kt)、[`HeadlessLoginClient.kt`](android/app/src/main/java/com/classsche/mobile/HeadlessLoginClient.kt)、[`LoginCookieStore.kt`](android/app/src/main/java/com/classsche/mobile/LoginCookieStore.kt) |
 | 自动成绩同步过于频繁、认证失败后重试 | [`HeadlessScoreSyncManager.kt`](android/app/src/main/java/com/classsche/mobile/HeadlessScoreSyncManager.kt) 和 [`ScoreSyncTriggerPolicy.kt`](android/app/src/main/java/com/classsche/mobile/ScoreSyncTriggerPolicy.kt)：每个进程首次打开主界面同步一次，返回前台不重复；[`ScoreSyncSettings.kt`](android/app/src/main/java/com/classsche/mobile/ScoreSyncSettings.kt) 和 [`ScoreSyncTiming.kt`](android/app/src/main/java/com/classsche/mobile/ScoreSyncTiming.kt)：后台闹钟的持久间隔及认证暂停 |
-| 微信扫码、二维码保存、手动图形验证码 | [`IdentityQrLoginController.kt`](android/app/src/main/java/com/classsche/mobile/IdentityQrLoginController.kt) 的电脑端 User-Agent 与二维码图片请求；[`QrImageGalleryStore.kt`](android/app/src/main/java/com/classsche/mobile/QrImageGalleryStore.kt) 的 MediaStore 相册写入；`MainActivity.kt` 的 `showLoginPage` 只重载表单、`authLoginRequested` 手动认证状态、`syncIdentityCaptcha`、`prepareIdentityLogin`、`openTimetableRefreshCaptcha` |
+| 微信扫码、二维码保存、手动图形验证码 | [`IdentityQrLoginController.kt`](android/app/src/main/java/com/classsche/mobile/IdentityQrLoginController.kt) 和 [`IdentityQrPageScript.kt`](android/app/src/main/java/com/classsche/mobile/IdentityQrPageScript.kt)：首次加载即电脑端 UA、读取网页现有二维码、复用校方 `refresh()` 与分步骤诊断；[`QrImageGalleryStore.kt`](android/app/src/main/java/com/classsche/mobile/QrImageGalleryStore.kt) 的 MediaStore 相册写入；`MainActivity.kt` 的 `showLoginPage` 只重载表单、`authLoginRequested` 手动认证状态、`syncIdentityCaptcha`、`prepareIdentityLogin`、`openTimetableRefreshCaptcha` |
 | Android 静默更新课表、切换学期 | [`MainActivity.kt`](android/app/src/main/java/com/classsche/mobile/MainActivity.kt) 的 `startSilentTimetableRefresh`、[`HeadlessLoginClient.kt`](android/app/src/main/java/com/classsche/mobile/HeadlessLoginClient.kt) 的学期表单提交、[`TimetableSemesterStore.kt`](android/app/src/main/java/com/classsche/mobile/TimetableSemesterStore.kt) |
 | 错误分类与提示 | [`src/diagnostics.ts`](src/diagnostics.ts)、[`src/authenticated-page.ts`](src/authenticated-page.ts)、[`src/raw-page.ts`](src/raw-page.ts)、[`FailureDetails.kt`](android/app/src/main/java/com/classsche/mobile/FailureDetails.kt)、`MainActivity.kt` |
 | 登录提示和页面布局 | [`strings_login.xml`](android/app/src/main/res/values/strings_login.xml)、[`activity_main.xml`](android/app/src/main/res/layout/activity_main.xml)、[`themes.xml`](android/app/src/main/res/values/themes.xml)、[`colors.xml`](android/app/src/main/res/values/colors.xml) |
@@ -49,6 +49,7 @@
 | [`.env.example`](.env.example) | 环境变量模板；本地 `.env` 含凭据，不要提交。 |
 | [`tests/`](tests/) | `auth.test.mjs` 测登录/跳转，`diagnostics.test.mjs` 测错误分类，`cet-statistics.test.mjs` 测等级考试统计。 |
 | [`tests/android-login.test.mjs`](tests/android-login.test.mjs)、[`tests/android/`](tests/android/) | 用编译后的 Kotlin 类离线模拟 Cookie 复用、SSO、过期后单次密码提交、错误不重登、并发及同步间隔；先构建 Android，需 JDK 与本机 Gradle 依赖缓存。 |
+| [`tests/identity-qr.test.mjs`](tests/identity-qr.test.mjs) | 在离线模拟页面执行 Android 实际二维码脚本，验证现有图片复用、过期刷新、前台恢复状态检查、确认后单次 POST 与 Cookie/隐藏字段保留、错误及恢复；不访问学校，不截屏。 |
 | [`resources/`](resources/)、[`icon/`](icon/) | 校园地图、校历、图标等原始素材。 |
 
 ## `src/`：抓取、解析、网页生成
@@ -80,7 +81,7 @@ Kotlin 源码位于 [`android/app/src/main/java/com/classsche/mobile/`](android/
 | `CredentialStore.kt`、`HeadlessLoginClient.kt` | Android Keystore 密码加密、旧明文迁移和后台认证请求。 |
 | `LoginCookieStore.kt` | 后台响应 Cookie 按原域名/路径写回 WebView，等待异步完成并持久保存；允许后续同步复用和同步删除过期 Cookie。 |
 | `ScoreSyncTiming.kt`、`ScoreSyncTriggerPolicy.kt` | 后台定时间隔计算与进程级启动同步门控：首次打开主界面忽略定时间隔，切回或重建界面不重复；时间戳和认证暂停由 `ScoreSyncSettings.kt` 持久保存。 |
-| `IdentityQrLoginController.kt` | 电脑端认证页面、校方二维码图片弹窗、扫码状态轮询及同会话跳转。图形验证码在 `MainActivity.kt` 手动填写，无 OCR 依赖。 |
+| `IdentityQrLoginController.kt`、`IdentityQrPageScript.kt` | 电脑端认证页、读取网页现有二维码、复用校方刷新入口；原生驱动状态检查及从微信返回后的立即检查；区分状态 `0/2/1/3`，确认后单次提交真实表单、进度和超时。`MainActivity.continueQrLoginNavigation` 继续门户到教务的跳转。图形验证码在 `MainActivity.kt` 手动填写，无 OCR 依赖。 |
 | `QrImageGalleryStore.kt` | 把用户点击保存的当前二维码 PNG 写入相册“周三课表”，兼容 Android 8/9 写入权限与 Android 10+ MediaStore，失败清理残留图片。 |
 | `FailureDetails.kt` | Android 超时、域名、安全连接、HTTP、跳转及解析错误的提示分类。 |
 | `HeadlessScoreSyncManager.kt`、`HeadlessScoreSyncScheduler.kt`、`HeadlessScoreSyncReceiver.kt` | 成绩后台同步及定时触发。 |

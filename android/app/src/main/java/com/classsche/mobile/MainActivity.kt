@@ -467,6 +467,7 @@ class MainActivity : AppCompatActivity() {
   }
 
   override fun onPause() {
+    qrLoginController?.onHostPaused()
     updateDownloadUiVisible = false
     mainHandler.removeCallbacks(updateDownloadPollRunnable)
     super.onPause()
@@ -474,6 +475,7 @@ class MainActivity : AppCompatActivity() {
 
   override fun onResume() {
     super.onResume()
+    qrLoginController?.onHostResumed()
     updateDownloadUiVisible = true
     restoreNotificationSettings()
     updateNotificationLeadTimeSummary()
@@ -600,7 +602,15 @@ class MainActivity : AppCompatActivity() {
     }
     qrLoginController = IdentityQrLoginController(this, binding.authWebView, mainHandler, ioExecutor, ::updateStatus,
       requestGalleryPermission = { qrImageStoragePermissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE) },
-      reloadPasswordLoginPage = ::loadLoginPageInWebView
+      reloadPasswordLoginPage = ::loadLoginPageInWebView,
+      onPasswordFormReady = {
+        if (!loginSubmitted && !qrLoginActive && failedAuthPageUrl == null) {
+          authPageLoading = false
+          identityPasswordFormReady = true
+          updateLoginActionState()
+        }
+      },
+      onDiagnostic = { status, message -> appendDebugLog("QR_AUTH", status, message) }
     ) { active ->
       qrLoginActive = active
       updateLoginActionState()
@@ -625,7 +635,7 @@ class MainActivity : AppCompatActivity() {
 
       override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
         super.onPageStarted(view, url, favicon)
-        qrLoginController?.onPageStarted()
+        qrLoginController?.onPageStarted(url)
         captchaDocumentSequence++
         resetIdentityCaptcha()
         failedAuthPageUrl = null
@@ -637,6 +647,12 @@ class MainActivity : AppCompatActivity() {
 
       override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
         super.onReceivedError(view, request, error)
+        qrLoginController?.onResourceFailure(request.url.toString(), when (error.errorCode) {
+          ERROR_TIMEOUT -> "连接超时（WebView ${error.errorCode}）"
+          ERROR_HOST_LOOKUP -> "无法解析学校域名（WebView ${error.errorCode}）"
+          ERROR_FAILED_SSL_HANDSHAKE -> "安全连接失败（WebView ${error.errorCode}）"
+          else -> "网页连接失败（WebView ${error.errorCode}）"
+        })
         if (!request.isForMainFrame) return
         failedAuthPageUrl = request.url.toString()
         failedAuthHttpStatus = null
@@ -652,6 +668,7 @@ class MainActivity : AppCompatActivity() {
 
       override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, response: WebResourceResponse) {
         super.onReceivedHttpError(view, request, response)
+        qrLoginController?.onResourceFailure(request.url.toString(), "网站返回 HTTP ${response.statusCode}")
         if (!request.isForMainFrame) return
         failedAuthPageUrl = request.url.toString()
         failedAuthHttpStatus = response.statusCode
@@ -669,12 +686,21 @@ class MainActivity : AppCompatActivity() {
         updateLoginActionState()
       }
 
+      override fun onPageCommitVisible(view: WebView, url: String) {
+        super.onPageCommitVisible(view, url)
+        if (failedAuthPageUrl == null && continueQrLoginNavigation(view, url)) return
+        // The form and QR can be usable before unrelated banner images finish loading.
+        if (failedAuthPageUrl == null) qrLoginController?.onLoginPageReady()
+      }
+
       override fun onPageFinished(view: WebView, url: String) {
         super.onPageFinished(view, url)
         val loadedUri = Uri.parse(url)
         val identityLoginPage = loadedUri.host == "ids.njust.edu.cn" && loadedUri.path == "/authserver/login"
         val authHttpStatus = if (failedAuthPageUrl == url) failedAuthHttpStatus else null
         if (failedAuthPageUrl == url && (authHttpStatus == null || !identityLoginPage)) return
+        if (authHttpStatus == null && continueQrLoginNavigation(view, url)) return
+        if (identityLoginPage && authHttpStatus == null) qrLoginController?.onLoginPageReady()
         authPageLoading = false
         updateLoginActionState()
         if ((loginSubmitted || qrLoginActive) && loadedUri.scheme != "file" && loadedUri.host !in setOf("ids.njust.edu.cn", "ehall2.njust.edu.cn", "bkjw.njust.edu.cn")) {
@@ -704,15 +730,20 @@ class MainActivity : AppCompatActivity() {
               val submitted = loginSubmitted
               loginSubmitted = false
               updateLoginActionState()
-              if (identityLoginPage && (submitted || authHttpStatus != null)) {
+              if (identityLoginPage && qrLoginController?.isAuthenticationSubmitted() == true) {
+                readIdentityLoginError(view) { message ->
+                  if (view.url != url) return@readIdentityLoginError
+                  val detail = "微信已确认，但校方二维码认证返回登录页：" +
+                    message.ifBlank { "网站未提供具体原因" } + (authHttpStatus?.let { "（HTTP $it）" } ?: "")
+                  qrLoginController?.onPageError(detail)
+                }
+              } else if (identityLoginPage && (submitted || authHttpStatus != null)) {
                 readIdentityLoginError(view) { message ->
                   if (view.url != url) return@readIdentityLoginError
                   showIdentityLoginFailure(message, authHttpStatus)
                 }
               } else if (loadedUri.host == "ids.njust.edu.cn") {
-                if (qrLoginActive) {
-                  qrLoginController?.onLoginPageReady()
-                } else {
+                if (!qrLoginActive) {
                   if (pendingTimetableCaptcha) {
                     showTimetableRefreshCaptcha()
                   } else {
@@ -769,6 +800,21 @@ class MainActivity : AppCompatActivity() {
         }
       }
     }
+  }
+
+  private fun continueQrLoginNavigation(view: WebView, url: String): Boolean {
+    if (!authLoginRequested || qrLoginController?.isAuthenticationSubmitted() != true || view.url != url) return false
+    val uri = Uri.parse(url)
+    val nextUrl = when {
+      uri.scheme == "https" && uri.host == "ehall2.njust.edu.cn" -> LOGIN_URL
+      uri.scheme == "https" && uri.host == "bkjw.njust.edu.cn" && uri.path == "/njlgdx/framework/main.jsp" -> TIMETABLE_URL
+      else -> return false
+    }
+    // CAS confirmation is already complete; do not wait for the portal's SPA/banner assets.
+    CookieManager.getInstance().flush()
+    appendDebugLog("QR_AUTH", "INFO", "继续教务登录：${Uri.parse(nextUrl).host}${Uri.parse(nextUrl).path}")
+    view.loadUrl(nextUrl)
+    return true
   }
 
   private fun readIdentityLoginError(view: WebView, onResult: (String) -> Unit) {
@@ -1173,7 +1219,7 @@ class MainActivity : AppCompatActivity() {
     legacyLoginRedirectAttempted = false
     restoreSavedCredentials()
     showLoginPage(reloadAuthenticationPage = false)
-    qrLoginController?.restoreMobileUserAgent()
+    qrLoginController?.useDesktopUserAgent()
     authPageLoading = true
     updateLoginActionState()
     updateStatus("课表更新需要图形验证码，正在打开登录页…")
@@ -2598,7 +2644,7 @@ class MainActivity : AppCompatActivity() {
     authLoginRequested = false
     identityPasswordFormReady = false
     pendingTimetableCaptcha = false
-    qrLoginController?.restoreMobileUserAgent()
+    qrLoginController?.useDesktopUserAgent()
     resetIdentityCaptcha()
     authPageLoading = true
     updateLoginActionState()
