@@ -11,8 +11,8 @@ android {
     applicationId = "com.classsche.mobile"
     minSdk = 26
     targetSdk = 35
-    versionCode = 11
-    versionName = "1.0.14"
+    versionCode = 12
+    versionName = "1.0.15"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
