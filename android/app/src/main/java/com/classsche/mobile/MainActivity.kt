@@ -92,6 +92,7 @@ class MainActivity : AppCompatActivity() {
 
   private var loginSubmitted = false
   private var authLoginRequested = false
+  private val loginNavigationPolicy = LoginNavigationPolicy()
   private var identityPasswordFormReady = false
   private var loginAttemptSequence = 0
   private var authPageLoading = false
@@ -688,7 +689,7 @@ class MainActivity : AppCompatActivity() {
 
       override fun onPageCommitVisible(view: WebView, url: String) {
         super.onPageCommitVisible(view, url)
-        if (failedAuthPageUrl == null && continueQrLoginNavigation(view, url)) return
+        if (failedAuthPageUrl == null && continueLoginNavigation(view, url)) return
         // The form and QR can be usable before unrelated banner images finish loading.
         if (failedAuthPageUrl == null) qrLoginController?.onLoginPageReady()
       }
@@ -699,7 +700,7 @@ class MainActivity : AppCompatActivity() {
         val identityLoginPage = loadedUri.host == "ids.njust.edu.cn" && loadedUri.path == "/authserver/login"
         val authHttpStatus = if (failedAuthPageUrl == url) failedAuthHttpStatus else null
         if (failedAuthPageUrl == url && (authHttpStatus == null || !identityLoginPage)) return
-        if (authHttpStatus == null && continueQrLoginNavigation(view, url)) return
+        if (authHttpStatus == null && continueLoginNavigation(view, url)) return
         if (identityLoginPage && authHttpStatus == null) qrLoginController?.onLoginPageReady()
         authPageLoading = false
         updateLoginActionState()
@@ -789,12 +790,6 @@ class MainActivity : AppCompatActivity() {
                 updateStatus("认证页已加载，请点击“提交登录”或“微信扫码登录”继续")
                 return@evaluateJavascript
               }
-              val uri = Uri.parse(url)
-              if (uri.host == "bkjw.njust.edu.cn" && uri.path == "/njlgdx/framework/main.jsp") {
-                view.loadUrl(TIMETABLE_URL)
-              } else if (uri.host == "ehall2.njust.edu.cn" && uri.path == "/index.html") {
-                view.loadUrl(LOGIN_URL)
-              }
             }
           }
         }
@@ -802,18 +797,24 @@ class MainActivity : AppCompatActivity() {
     }
   }
 
-  private fun continueQrLoginNavigation(view: WebView, url: String): Boolean {
-    if (!authLoginRequested || qrLoginController?.isAuthenticationSubmitted() != true || view.url != url) return false
+  private fun continueLoginNavigation(view: WebView, url: String): Boolean {
+    if (view.url != url) return false
+    val step = loginNavigationPolicy.nextStep(url, authLoginRequested) ?: return false
+    if (!step.shouldLoad) return true
     val uri = Uri.parse(url)
-    val nextUrl = when {
-      uri.scheme == "https" && uri.host == "ehall2.njust.edu.cn" -> LOGIN_URL
-      uri.scheme == "https" && uri.host == "bkjw.njust.edu.cn" && uri.path == "/njlgdx/framework/main.jsp" -> TIMETABLE_URL
-      else -> return false
-    }
-    // CAS confirmation is already complete; do not wait for the portal's SPA/banner assets.
+    // Portal landing routes vary with the site's theme/device. Both login methods use
+    // the same WebView and cookie jar to establish the separate teaching session.
     CookieManager.getInstance().flush()
-    appendDebugLog("QR_AUTH", "INFO", "继续教务登录：${Uri.parse(nextUrl).host}${Uri.parse(nextUrl).path}")
-    view.loadUrl(nextUrl)
+    authPageLoading = true
+    updateLoginActionState()
+    updateStatus(if (uri.host == "ehall2.njust.edu.cn") {
+      "已到达智慧理工服务门户，正在复用登录状态进入教务系统…"
+    } else {
+      "已到达教务主页，正在加载课表…"
+    })
+    val target = Uri.parse(step.targetUrl)
+    appendDebugLog("AUTH_FLOW", "INFO", "继续登录：${uri.host}${uri.path} → ${target.host}${target.path}，沿用现有 Cookie")
+    view.loadUrl(step.targetUrl)
     return true
   }
 
@@ -1124,6 +1125,7 @@ class MainActivity : AppCompatActivity() {
         return@setOnClickListener
       }
       loginSessionBootstrapped = true
+      loginNavigationPolicy.reset()
       authLoginRequested = true
       pendingTimetableCaptcha = false
       resetIdentityCaptcha()
@@ -2642,6 +2644,7 @@ class MainActivity : AppCompatActivity() {
 
   private fun loadLoginPageInWebView() {
     authLoginRequested = false
+    loginNavigationPolicy.reset()
     identityPasswordFormReady = false
     pendingTimetableCaptcha = false
     qrLoginController?.useDesktopUserAgent()
@@ -4666,6 +4669,7 @@ class MainActivity : AppCompatActivity() {
       updateStatus(getString(R.string.status_missing_fields))
       return
     }
+    loginNavigationPolicy.reset()
     authLoginRequested = true
     if (!identityLogin || !identityPasswordFormReady) {
       legacyLoginRedirectAttempted = true

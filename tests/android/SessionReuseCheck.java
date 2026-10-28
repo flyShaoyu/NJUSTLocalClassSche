@@ -2,6 +2,7 @@ import com.classsche.mobile.HeadlessLoginClient;
 import com.classsche.mobile.LoginCookieStore;
 import com.classsche.mobile.ScoreSyncTiming;
 import com.classsche.mobile.ScoreSyncTriggerPolicy;
+import com.classsche.mobile.LoginNavigationPolicy;
 import kotlin.Unit;
 import java.io.*;
 import java.net.*;
@@ -219,5 +220,26 @@ public final class SessionReuseCheck {
       check(allowed==1, "concurrent foreground triggers repeated startup sync");
     } finally { startupWorkers.shutdownNow(); }
     System.out.println("PASS startup sync once per process: resume/recreation, restart, settings/auth pause, alarms, concurrency");
+
+    reset("portal-navigation");
+    for (String path : List.of("/index.html", "/default/index.html", "/default/index")) {
+      LoginNavigationPolicy flow = new LoginNavigationPolicy();
+      String portal = "https://ehall2.njust.edu.cn" + path + "?ticket=fixture#route";
+      check(flow.nextStep(portal, false)==null, "opening settings must not trigger SSO");
+      LoginNavigationPolicy.Step teaching = flow.nextStep(portal, true);
+      check(teaching!=null && teaching.getShouldLoad() && teaching.getTargetUrl().equals(LOGIN), "password/QR landing did not continue to teaching SSO: " + path);
+      check(!flow.nextStep(portal, true).getShouldLoad(), "commit-visible/page-finished repeated SSO");
+      LoginNavigationPolicy.Step table = flow.nextStep("https://bkjw.njust.edu.cn/njlgdx/framework/main.jsp", true);
+      check(table!=null && table.getShouldLoad() && table.getTargetUrl().equals(TABLE), "teaching home did not continue to timetable");
+      check(!flow.nextStep("https://bkjw.njust.edu.cn/njlgdx/framework/main.jsp", true).getShouldLoad(), "teaching callback duplicated timetable request");
+      check(flow.nextStep(TABLE, true)==null, "timetable must be parsed/validated before login succeeds");
+      flow.reset();
+      check(flow.nextStep(portal, true).getShouldLoad(), "a new explicit login attempt cannot reuse stale navigation flags");
+    }
+    LoginNavigationPolicy restrictedFlow = new LoginNavigationPolicy();
+    for (String url : List.of("https://ids.njust.edu.cn/authserver/login", "https://ehall2.njust.edu.cn/login", "https://ehall2.njust.edu.cn/error", "https://unexpected.example/default/index.html", "https://ehall2.njust.edu.cn.unexpected.example/default/index.html", "http://ehall2.njust.edu.cn/default/index.html", "https://ehall2.njust.edu.cn:8443/default/index.html", "https://user@ehall2.njust.edu.cn/default/index.html", "file:///default/index.html", "not a URL")) {
+      check(restrictedFlow.nextStep(url, true)==null, "unrecognized/untrusted page was treated as a portal: " + url);
+    }
+    System.out.println("PASS password and QR portal landing routes: default/index.html, legacy route, manual gate, deduplication and trusted destinations");
   }
 }

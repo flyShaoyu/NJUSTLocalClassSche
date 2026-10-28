@@ -4,6 +4,7 @@ Android 工程位于 `android/`，桌面抓取工程位于 `src/`。应用提供
 
 ## 登录与本地数据
 
+- 账号密码和微信扫码在认证后共用 `LoginNavigationPolicy.kt` 与 `MainActivity.continueLoginNavigation`：门户正常落点包括 `/index.html`、`/default/index.html` 和 `/default/index`，随后沿用当前 WebView/Cookie 访问教务 `indexsso.jsp`，再从教务主页进入课表。仅用户提交登录或启动扫码后继续，每个阶段去重，避免 `onPageCommitVisible` 与 `onPageFinished` 重复请求；不能把门户落点直接视为课表同步成功，仍须验证 `#kbtable` 后才更新缓存。`AUTH_FLOW` 日志记录不含票据的中转地址及后续步骤。
 - 登录入口由 `UniversityEndpoints.kt` 统一定义。应用使用 WebView 完成统一身份认证，再通过教务 SSO 建立教务域名的会话。登录页有提交登录、加载登录页和微信扫码登录入口；认证页从首次加载就使用电脑端 User-Agent，避免点击扫码后再切换 UA 重载整页。`IdentityQrLoginController.kt` 和 `IdentityQrPageScript.kt` 直接通过 canvas 读取当前网页已加载的二维码，在原生弹窗展示，不再次 HTTP 下载图片，也不等待其他后台请求队列。表单可用后即可操作，不必等轮播图等资源加载结束。学校要求图形验证码时，登录页显示当前网页已加载的图片，用户手动填写或刷新；不引入 OCR 库或模型。页面使用与主页相同的背景和卡片宽度、蓝色控件，以及黄色的校方限制提示。
 - 登录页使用**智慧理工服务门户密码**。`CredentialStore.kt` 用 Android Keystore 中的不可导出密钥进行 AES-GCM 加密；旧版保存在偏好设置中的明文密码在首次读取时迁移并删除。后台同步需要在未打开界面时解密，因此密钥不要求每次生物识别。
 - 每次进入登录界面只重新加载认证表单，保留现有 Cookie，不自动登录或抓取课表。`UniversityEndpoints.LOGIN_FORM` 直接访问统一认证并携带 `renew=true`；`MainActivity.authLoginRequested` 仅由提交登录或扫码按钮开启，在此之前拦截跨站 SSO 跳转并禁止业务页面捕获。二维码弹窗关闭后也回到准备表单的状态。已有登录或同步正在执行时复用当前操作，避免重复触发；课表验证码交接先恢复后台 Cookie，再准备表单，填写并提交后才继续认证和同步。

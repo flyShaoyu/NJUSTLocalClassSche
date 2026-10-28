@@ -24,7 +24,7 @@ async function findJar(directory) {
 test('Android session reuse, expired-session fallback and automatic sync timing', { timeout: 30000 }, async (t) => {
   const classes = path.join(root, 'android/app/build/tmp/kotlin-classes/debug');
   try {
-    for (const type of ['HeadlessLoginClient', 'LoginCookieStore', 'ScoreSyncTiming', 'ScoreSyncTriggerPolicy']) {
+    for (const type of ['HeadlessLoginClient', 'LoginCookieStore', 'ScoreSyncTiming', 'ScoreSyncTriggerPolicy', 'LoginNavigationPolicy']) {
       await fs.access(path.join(classes, `com/classsche/mobile/${type}.class`));
     }
     await run('javac', ['-version']);
@@ -52,6 +52,7 @@ test('Android session reuse, expired-session fallback and automatic sync timing'
     const { stdout } = await run('java', ['-cp', classpath, 'SessionReuseCheck']);
     assert.match(stdout, /PASS simultaneous refresh\/sync/);
     assert.match(stdout, /PASS startup sync once per process/);
+    assert.match(stdout, /PASS password and QR portal landing routes/);
     process.stdout.write(stdout);
   } finally {
     assert.equal(path.dirname(temporary), artifacts);
