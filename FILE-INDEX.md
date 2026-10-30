@@ -167,3 +167,6 @@ Android 登录改动还应在构建后运行 `node --test tests/android-login.te
 
 
 本轮跟进：`LibraryCredentialStore.kt`负责图书馆账号/密码/类型的独立Keystore密文与原子保存；`LibraryLoginActivity`只在本轮提交认证成功后保存并在重开时填入。设备阶段`libraryCredentials`为隔离的模拟认证闭环。`general-education-pages.ts`的`resetDefaults`重置分类草稿；课表详情正文与圆点布局在`timetable-ui.ts`，滚轮正文优先在`timetable-ui-script.ts`。专项测试位于`campus-ui.test.mjs`与`general-education-drag.test.mjs`，证据目录`artifacts/ui-polish-followup-20261030/`。
+
+
+预览发布：本机`release-tools/release-lib.mjs`管理语义版本及预发布API属性，`release.mjs`负责--prerelease计划与续传；测试`release-tools/tests/*.test.mjs`完全模拟外部写入。`ReleaseVersion.kt`用于Android更新后缀提取与比较，回归在`CampusParserCheck.java`。

@@ -235,3 +235,6 @@ Android 本地保存密码时使用 Android Keystore 中的不可导出密钥进
 
 
 分类编辑新增“恢复默认”：仅重置当前草稿，保存后回到校方目录/课程原始信息的自动分类；返回可放弃。课表日程编辑改为小号无背景入口，详情可滚动，底部圆点保持可见。
+
+
+预览版发布：`npm run release -- --version 1.1.0 --prerelease`（生成alpha.N）。现有本机发布工具说明及预览/续传操作见`release-tools/README.md`；发布工具与凭据目录保持Git忽略。

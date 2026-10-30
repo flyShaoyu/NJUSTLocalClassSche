@@ -179,3 +179,6 @@ npm run export:android
 
 ### 图书馆成功登录后的本地账密保存（2026-10-30，替代此前仅内存策略）
 `LibraryCredentialStore.kt`使用独立Android Keystore AES-256-GCM密钥，将账号、密码、登录类型整条加密并通过AtomicFile写入noBackupFilesDir，隔离于教务CredentialStore。只有原生提交后官网出现认证标记才保存；失败/取消/仅复用既有会话不保存，保存失败明确提示。重开原生框自动填入保存的账密和类型，不自动提交或代答验证码。数据不进入网页模板、日志、Git或Android备份。Instrumentation阶段`libraryCredentials`只用隔离test命名空间和虚构账密验证加密、失败不覆盖、成功保存、重开及已有会话不覆盖；收尾删除测试文件和密钥。
+
+
+ReleaseVersion.kt支持alpha.N/beta.N/rc.N，更新页面保留完整版本后缀并按数值序号比较，正式版本高于同核心预览版本。预览APK同样递增versionCode，使用现有签名。

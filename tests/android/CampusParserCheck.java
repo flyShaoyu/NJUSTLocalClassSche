@@ -7,6 +7,12 @@ public class CampusParserCheck {
   static void check(boolean value, String message) { if (!value) throw new AssertionError(message); }
   static void rejected(Runnable action) { try { action.run(); throw new AssertionError("Malformed input accepted"); } catch (IllegalArgumentException | IllegalStateException expected) {} }
   public static void main(String[] args) throws Exception {
+    var version=ReleaseVersion.INSTANCE;
+    check(version.extract("周三课表 v1.1.0-alpha.1").equals("1.1.0-alpha.1"),"Keep preview suffix");
+    check(version.compare("1.1.0-alpha.2","1.1.0-alpha.10")<0,"Numeric alpha counter");
+    check(version.compare("1.1.0-alpha.10","1.1.0-beta.1")<0,"Alpha before beta");
+    check(version.compare("1.1.0-rc.1","1.1.0")<0,"Preview upgrades to stable");
+    check(version.compare("1.0.15","1.1.0-alpha.1")<0,"Core version wins");
     var parser = CampusDataParser.INSTANCE;
     check(LocalScheduleStore.INSTANCE.parseWeeks("1，3,5-8周").equals(List.of(1,3,5,6,7,8)), "Schedule weeks");
     check(LocalScheduleStore.INSTANCE.formatWeeks(List.of(1,2,3,5,7,8)).equals("1-3,5,7-8"), "Compact consecutive weeks");

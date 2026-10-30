@@ -2536,28 +2536,9 @@ class MainActivity : AppCompatActivity() {
     return "$GITEE_RELEASES_URL/tag/v$versionName"
   }
 
-  private fun extractVersionName(raw: String?): String? {
-    val text = raw?.trim().orEmpty()
-    if (text.isBlank()) return null
-    return Regex("""(?i)v?(\d+(?:\.\d+){1,3})""")
-      .find(text)
-      ?.groupValues
-      ?.getOrNull(1)
-  }
+  private fun extractVersionName(raw: String?): String? = ReleaseVersion.extract(raw)
 
-  private fun compareVersionNames(left: String, right: String): Int {
-    val leftParts = Regex("""\d+""").findAll(left).map { it.value.toIntOrNull() ?: 0 }.toList()
-    val rightParts = Regex("""\d+""").findAll(right).map { it.value.toIntOrNull() ?: 0 }.toList()
-    val maxSize = max(leftParts.size, rightParts.size)
-    for (index in 0 until maxSize) {
-      val leftValue = leftParts.getOrElse(index) { 0 }
-      val rightValue = rightParts.getOrElse(index) { 0 }
-      if (leftValue != rightValue) {
-        return leftValue.compareTo(rightValue)
-      }
-    }
-    return 0
-  }
+  private fun compareVersionNames(left: String, right: String): Int = ReleaseVersion.compare(left,right)
 
   private fun currentAppVersionName(): String {
     val packageInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {

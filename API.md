@@ -155,3 +155,6 @@ Android 登录与后台成绩同步只尝试统一认证，不再处理旧教务
 
 
 本轮分类操作：`generalResetDefaults`在修改分类模式将draft置为空，不立即更改LocalStorage；“保存修改”写入默认映射，返回可放弃。图书馆账密保存仅为原生`LibraryCredentialStore`，不经CampusBridge暴露；提交成功才写密文，四栏状态仍只在内存中。
+
+
+发布接口：GitHub预览版最终使用draft=false、prerelease=true、make_latest=false；Gitee最终保留prerelease=true。校验接口返回属性后才确认完成，--resume保留原渠道。依据GitHub Releases官方文档及Gitee API v5。
