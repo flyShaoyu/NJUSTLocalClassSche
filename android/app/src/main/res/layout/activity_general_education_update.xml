@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="vertical" android:background="@color/surface">
+    <com.google.android.material.appbar.MaterialToolbar android:id="@+id/toolbar"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:minHeight="0dp" android:paddingTop="4dp" android:paddingBottom="4dp" android:background="@color/sky_top"
+        android:theme="@style/ThemeOverlay.Material3.Dark.ActionBar" app:titleCentered="true" app:subtitleCentered="true" />
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="vertical" android:padding="16dp" android:background="@android:color/white">
+        <TextView android:id="@+id/status" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="正在打开教务处分类表…" android:textColor="@color/login_blue_dark"
+            android:textSize="13sp" android:lineSpacingExtra="5dp" />
+        <com.google.android.material.progressindicator.LinearProgressIndicator android:id="@+id/progress"
+            android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp"
+            android:indeterminate="true" app:indicatorColor="@color/login_blue" />
+        <com.google.android.material.button.MaterialButton android:id="@+id/retry" android:layout_width="wrap_content"
+            android:layout_height="wrap_content" android:text="重新获取" android:visibility="gone"
+            android:layout_marginTop="10dp" />
+    </LinearLayout>
+    <WebView android:id="@+id/browser" android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" />
+</LinearLayout>

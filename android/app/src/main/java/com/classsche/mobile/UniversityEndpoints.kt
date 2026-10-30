@@ -12,4 +12,5 @@ internal object UniversityEndpoints {
   const val EXAM_LIST = "$ORIGIN/njlgdx/xsks/xsksap_list"
   const val SCORES = "$ORIGIN/njlgdx/kscj/cjcx_list"
   const val LEVEL_EXAMS = "$ORIGIN/njlgdx/kscj/djkscj_list"
+  const val COURSE_ENROLLMENT = "$ORIGIN/njlgdx/xk/AccessToXk"
 }

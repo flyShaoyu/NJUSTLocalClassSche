@@ -714,6 +714,7 @@ export const renderTimetablePage = (courses: TimetableCourse[]): string => {
       transform: translateY(-50%);
     }
 
+    [hidden] { display: none !important; }
     .sheet-meta {
       display: grid;
       gap: 10px;
@@ -887,10 +888,13 @@ export const renderTimetablePage = (courses: TimetableCourse[]): string => {
       <div id="sheetWatermark" class="sheet-watermark">35</div>
       <div id="sheetTag" class="sheet-tag">必修</div>
       <div class="sheet-meta">
-        <div class="sheet-row"><span id="sheetTeacher" class="sheet-main">-</span><span class="sheet-note">（任课教师）</span></div>
-        <div class="sheet-row"><span id="sheetRoom" class="sheet-main">-</span><span class="sheet-note">（上课地点）</span></div>
-        <div class="sheet-row"><span id="sheetWeeks" class="sheet-main">-</span><span class="sheet-note">（课程周数）</span></div>
-        <div class="sheet-row"><span id="sheetCode" class="sheet-main">-</span><span class="sheet-note">（课程序号）</span></div>
+        <div class="sheet-row" id="teacherRow"><span id="sheetTeacher" class="sheet-main">-</span><span class="sheet-note">（任课教师）</span></div>
+        <div class="sheet-row"><span id="sheetRoom" class="sheet-main">-</span><span class="sheet-note">（地点）</span></div>
+        <div class="sheet-row" id="seatNumberRow" hidden><span id="sheetSeatNumber" class="sheet-main">-</span><span class="sheet-note">（座位号）</span></div>
+        <div class="sheet-row"><span id="sheetWeeks" class="sheet-main">-</span><span id="sheetWeeksLabel" class="sheet-note">（课程周数）</span></div>
+        <div class="sheet-row" id="codeRow"><span id="sheetCode" class="sheet-main">-</span><span class="sheet-note">（课程序号）</span></div>
+        <div class="sheet-row" id="scheduleNotesRow" hidden><span id="sheetScheduleNotes" class="sheet-main" style="white-space:pre-wrap;overflow-wrap:anywhere"></span><span class="sheet-note">（备注）</span></div>
+        <a id="local-schedule-edit" hidden style="display:inline-block;margin:10px 0;color:#507da9;font-family:var(--font-cn);font-size:18px;padding:10px 0">编辑日程</a>
       </div>
     </div>
     <div id="sheetDots" class="sheet-dots" hidden></div>

@@ -12,6 +12,7 @@ interface TimetableScriptParams {
 export const buildTimetablePageScript = (params: TimetableScriptParams): string => `
   <script>
     const courses = ${params.coursesJson};
+    const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     const timetableConfig = {
       semester: ${params.semesterJson ?? "null"},
       anchorMonday: ${params.anchorMondayJson}
@@ -39,6 +40,16 @@ export const buildTimetablePageScript = (params: TimetableScriptParams): string 
       return [...new Set(weeks.filter((week) => Number.isFinite(week)))].sort((a, b) => a - b);
     };
 
+    const formatWeekRanges = (weeks) => {
+      const values = [...new Set(weeks)].sort((a,b)=>a-b), parts = [];
+      for (let i=0;i<values.length;i++) {
+        const start=values[i];let end=start;
+        while(i+1<values.length&&values[i+1]===end+1)end=values[++i];
+        parts.push(start===end?String(start):start+'-'+end);
+      }
+      return parts.join(',');
+    };
+
     const parsedWeeksByCourse = courses.map((course) => parseCourseWeeks(course.weeks));
     const knownWeeks = [...new Set(parsedWeeksByCourse.flat())].sort((a, b) => a - b);
     const fallbackLastWeek = knownWeeks[knownWeeks.length - 1] || 20;
@@ -59,7 +70,7 @@ export const buildTimetablePageScript = (params: TimetableScriptParams): string 
         endPeriod,
         duration: endPeriod - startPeriod + 1,
         weeks,
-        weeksText: course.weeks,
+        weeksText: String(course.courseCode||'').startsWith('local:') ? formatWeekRanges(weeks)+'周' : course.weeks,
         credits: course.credits || '',
         paletteKey: course.courseName,
         courseKind: course.courseType || '未分类',
@@ -212,8 +223,8 @@ export const buildTimetablePageScript = (params: TimetableScriptParams): string 
     };
 
     const getCourseTimeRange = (course) => {
-      const start = periodSlots[course.startPeriod]?.start || '';
-      const end = periodSlots[course.endPeriod]?.end || '';
+      const start = course.startTime || periodSlots[course.startPeriod]?.start || '';
+      const end = course.endTime || periodSlots[course.endPeriod]?.end || '';
       return start + '-' + end;
     };
 
@@ -413,7 +424,7 @@ export const buildTimetablePageScript = (params: TimetableScriptParams): string 
       const names = [...new Set(visibleCourses.map((course) => course.courseName))];
       legend.innerHTML = names.map((name) => {
         const [from, to] = colorMap.get(name);
-        return '<div class="legend-item"><span class="legend-dot" style="background:linear-gradient(180deg,' + from + ',' + to + ')"></span>' + name + '</div>';
+        return '<div class="legend-item"><span class="legend-dot" style="background:linear-gradient(180deg,' + from + ',' + to + ')"></span>' + escapeHtml(name) + '</div>';
       }).join('');
     };
 
@@ -670,15 +681,29 @@ export const buildTimetablePageScript = (params: TimetableScriptParams): string 
     };
 
     const updateSheetContent = (course, group) => {
+      const local = String(course.courseCode || '').startsWith('local:');
+      const exam = course.courseType === '考试';
       sheetWeekDay.textContent = state.week + '周' + course.weekday.replace('星期', '周');
-      sheetPeriodLine.textContent = course.periods.replace('小节', '节 ') + getCourseTimeRange(course);
+      sheetPeriodLine.textContent = (local || exam ? '' : course.periods.replace('小节', '节') + ' ') + getCourseTimeRange(course);
       sheetTitle.textContent = course.courseName;
       sheetTeacher.textContent = course.teacher || '未标注教师';
-      sheetRoom.textContent = course.classroom || '待定地点';
+      sheetRoom.textContent = course.classroom || (local ? '未填写地点' : '待定地点');
       sheetWeeks.textContent = course.weeksText || '周次未识别';
+      document.getElementById('sheetWeeksLabel').textContent = local || exam ? '（周数）' : '（课程周数）';
+      document.getElementById('seatNumberRow').hidden = !exam || !course.seatNumber;
+      document.getElementById('sheetSeatNumber').textContent = course.seatNumber || '-';
       sheetCode.textContent = course.courseCode || '-';
       sheetWatermark.textContent = formatCourseCredits(course.credits);
       sheetTag.textContent = course.courseKind;
+      document.getElementById('teacherRow').hidden = local || exam && !course.teacher;
+      document.getElementById('codeRow').hidden = local || exam;
+      sheetWatermark.hidden = local || exam;
+      // exam-timetable-v2: exam seat has its own row; internal session IDs never appear as notes.
+      document.getElementById('scheduleNotesRow').hidden = !local || !course.notes;
+      document.getElementById('sheetScheduleNotes').textContent = course.notes || '未填写备注';
+      const edit = document.getElementById('local-schedule-edit');
+      edit.hidden = !local;
+      edit.href = local ? 'classsche://schedule/edit?id=' + encodeURIComponent(course.courseCode.slice(6)) : '#';
       updateSheetDots(group);
     };
 
@@ -799,11 +824,11 @@ export const buildTimetablePageScript = (params: TimetableScriptParams): string 
         card.style.zIndex = String(120 + stackIndex);
         card.style.transform = stackSize > 1 ? 'translate(' + (stackIndex * 2) + 'px,' + (-stackIndex * 2) + 'px)' : '';
 
-        const time = periodSlots[course.startPeriod]?.start || '';
+        const time = course.startTime ? getCourseTimeRange(course) : periodSlots[course.startPeriod]?.start || '';
         const room = (course.classroom || '').trim();
         card.innerHTML = [
-          '<div class="course-top"><div>' + time + '</div>' + (room ? ('<div class="course-room">' + room + '</div>') : '') + '</div>',
-          '<div class="course-title"><div class="course-title-text">' + course.courseName + '</div></div>'
+          '<div class="course-top"><div>' + escapeHtml(time) + '</div>' + (room ? ('<div class="course-room">' + escapeHtml(room) + '</div>') : '') + '</div>',
+          '<div class="course-title"><div class="course-title-text">' + escapeHtml(course.courseName) + '</div></div>'
         ].join('');
 
         card.title = course.courseName + ' | ' + course.weekday + ' ' + course.periods;

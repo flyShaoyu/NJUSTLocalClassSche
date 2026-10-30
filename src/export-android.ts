@@ -12,6 +12,7 @@ import { logDivider, logStep } from "./logger.js";
 import { parseJsonStep, withStep } from "./diagnostics.js";
 import { renderScorePage } from "./score-ui.js";
 import { renderTimetablePage } from "./timetable-ui.js";
+import { renderCampusToolsPage } from "./campus-tools-ui.js";
 
 const androidAssetsDir = path.resolve("android", "app", "src", "main", "assets");
 const androidBuildGradlePath = path.resolve("android", "app", "build.gradle.kts");
@@ -25,7 +26,8 @@ const bundledTemplateFiles = {
   examView: "exam-view.html",
   scoreView: "score-view.html",
   levelExamView: "level-exam-view.html",
-  homeView: "home-view.html"
+  homeView: "home-view.html",
+  campusTools: "campus-tools.html"
 } as const;
 const personalDataFiles = [
   "timetable.json",
@@ -190,7 +192,8 @@ const writeMetaFile = async (): Promise<void> => {
       examView: bundledTemplateFiles.examView,
       scoreView: bundledTemplateFiles.scoreView,
       levelExamView: bundledTemplateFiles.levelExamView,
-      homeView: bundledTemplateFiles.homeView
+      homeView: bundledTemplateFiles.homeView,
+      campusTools: bundledTemplateFiles.campusTools
     }
   };
 
@@ -379,6 +382,7 @@ const run = async (): Promise<void> => {
   await writeTextRuntimeAsset(bundledTemplateFiles.scoreView, renderScorePage([]));
   await writeTextRuntimeAsset(bundledTemplateFiles.levelExamView, renderLevelExamPage([]));
   await writeTextRuntimeAsset(bundledTemplateFiles.homeView, renderHomePage([], bundledHomeImages));
+  await writeTextRuntimeAsset(bundledTemplateFiles.campusTools, renderCampusToolsPage());
 
   for (const fileName of personalDataFiles) {
     await removeIfExists(path.join(androidAssetsDir, fileName));

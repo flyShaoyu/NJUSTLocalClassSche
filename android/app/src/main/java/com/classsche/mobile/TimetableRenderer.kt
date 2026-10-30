@@ -36,8 +36,10 @@ object TimetableRenderer {
       ?: fallbackHtml("首页缓存已更新，共解析 ${courses.size} 条课程。")
   }
 
-  fun toHtml(context: Context, courses: List<TimetableCourse>): String {
-    return renderAsset(context, "timetable-view.html", courses, applyTimetableCalendar = true)
+  fun toHtml(context: Context, courses: List<TimetableCourse>, semester: String? = null, includeExams: Boolean = false): String {
+    val calendar = TimetableSemesterStore.resolveCalendar(semester ?: TimetableSemesterStore.resolveRenderedSemester(context))
+    val displayed = if (includeExams) courses + ExamTimetableOverlay.courses(ExamNotificationHelper.loadExamOccurrences(context), calendar.week1Monday) else courses
+    return renderAsset(context, "timetable-view.html", displayed, applyTimetableCalendar = true, calendarSemester = semester)
       ?: fallbackHtml("本地课表已更新，共解析 ${courses.size} 条课程。")
   }
 
@@ -57,6 +59,10 @@ object TimetableRenderer {
           put("courseType", course.courseType)
           put("credits", course.credits)
           put("rawText", course.rawText)
+          if (course.startTime.isNotBlank()) put("startTime", course.startTime)
+          if (course.endTime.isNotBlank()) put("endTime", course.endTime)
+          if (course.notes.isNotBlank()) put("notes", course.notes)
+          if (course.seatNumber.isNotBlank()) put("seatNumber", course.seatNumber)
         }
       )
     }
@@ -72,12 +78,17 @@ object TimetableRenderer {
     context: Context,
     fileName: String,
     courses: List<TimetableCourse>,
-    applyTimetableCalendar: Boolean = false
+    applyTimetableCalendar: Boolean = false,
+    calendarSemester: String? = null
   ): String? {
-    val template = readAssetText(context, fileName) ?: return null
-    val renderedCourses = coursesPattern.replace(template, "const courses = ${toJson(courses)};")
+    var template = readAssetText(context, fileName) ?: return null
+    if (fileName == "timetable-view.html" && !template.contains("exam-timetable-v2")) {
+      template = runCatching { context.assets.open(fileName).bufferedReader().use { it.readText() } }.getOrDefault(template)
+    }
+    val safeJson = toJson(courses).replace("<", "\\u003c").replace("\u2028", "\\u2028").replace("\u2029", "\\u2029")
+    val renderedCourses = coursesPattern.replace(template) { "const courses = $safeJson;" }
     return if (applyTimetableCalendar) {
-      applyTimetableCalendarConfig(context, renderedCourses)
+      applyTimetableCalendarConfig(context, renderedCourses, calendarSemester)
     } else {
       renderedCourses
     }
@@ -85,9 +96,10 @@ object TimetableRenderer {
 
   private fun applyTimetableCalendarConfig(
     context: Context,
-    html: String
+    html: String,
+    semesterOverride: String? = null
   ): String {
-    val semester = TimetableSemesterStore.resolveRenderedSemester(context)
+    val semester = semesterOverride ?: TimetableSemesterStore.resolveRenderedSemester(context)
     val calendar = TimetableSemesterStore.resolveCalendar(semester)
     val configLiteral = """
       const timetableConfig = {
@@ -232,7 +244,11 @@ object TimetableRenderer {
               courseSequence = item.optString("courseSequence"),
               courseType = item.optString("courseType"),
               credits = item.optString("credits"),
-              rawText = item.optString("rawText")
+              rawText = item.optString("rawText"),
+              startTime = item.optString("startTime"),
+              endTime = item.optString("endTime"),
+              notes = item.optString("notes"),
+              seatNumber = item.optString("seatNumber")
             )
           )
         }

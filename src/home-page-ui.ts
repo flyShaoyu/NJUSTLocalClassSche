@@ -33,13 +33,13 @@ const MENU_ITEMS = [
   { key: "exam", label: "考试安排", enabled: true },
   { key: "score", label: "成绩查询", enabled: true },
   { key: "level", label: "等级考试", enabled: true },
-  { key: "add", label: "添加课表", enabled: false },
+  { key: "add", label: "添加日程", enabled: true },
   { key: "schedule", label: "课表查询", enabled: true },
-  { key: "room", label: "空闲教室", enabled: false },
-  { key: "site", label: "常用网站", enabled: false },
+  { key: "room", label: "空闲教室", enabled: true },
+  { key: "site", label: "常用网站", enabled: true },
   { key: "refresh", label: "更新数据", enabled: false },
-  { key: "library", label: "图书搜索", enabled: false },
-  { key: "borrow", label: "借阅信息", enabled: false }
+  { key: "library", label: "图书搜索", enabled: true },
+  { key: "toolbox", label: "小工具", enabled: true }
 ] as const;
 
 const serializeForScript = (value: unknown): string =>

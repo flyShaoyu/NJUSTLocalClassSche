@@ -81,6 +81,7 @@ class MainActivity : AppCompatActivity() {
   private lateinit var binding: ActivityMainBinding
   private val mainHandler = Handler(Looper.getMainLooper())
   private val ioExecutor = Executors.newSingleThreadExecutor()
+  private val timetableRefreshExecutor = Executors.newSingleThreadExecutor()
   private val prefs by lazy { getSharedPreferences("classsche_prefs", Context.MODE_PRIVATE) }
   private var syncingCourseNotificationSwitch = false
   private var syncingExamNotificationSwitch = false
@@ -104,10 +105,15 @@ class MainActivity : AppCompatActivity() {
   private var captchaDocumentSequence = 0
   private var pendingTimetableCaptcha = false
   private var isAutoUpdating = false
+  private var showRefreshResult = false
   private var homeRefreshLabel: TextView? = null
   private var cacheCaptureInProgress = false
   private var showingLiveTimetable = false
   private var currentWebScreen = WebScreen.HOME
+  private var generalEducationUpdateOpen = false
+  private var reopenGeneralEducation = false
+  private var scoreSection = "scores"
+  private val scoreSectionActionId = 0x4C530001
   private var homePageLoaded = false
   private var currentAssetExportId: String? = null
   private var renderedHomeSignature: String? = null
@@ -358,13 +364,13 @@ class MainActivity : AppCompatActivity() {
       HomeMenuEntry("exam", "考试安排", R.drawable.ic_home_exam, true),
       HomeMenuEntry("score", "成绩查询", R.drawable.ic_home_score, true),
       HomeMenuEntry("level", "等级考试", R.drawable.ic_home_level, true),
-      HomeMenuEntry("add", "添加课表", R.drawable.ic_home_add, false),
+      HomeMenuEntry("add", "添加日程", R.drawable.ic_home_add, true),
       HomeMenuEntry("schedule", "课表查询", R.drawable.ic_home_schedule, true),
-      HomeMenuEntry("room", "空闲教室", R.drawable.ic_home_room, false),
-      HomeMenuEntry("site", "常用网站", R.drawable.ic_home_site, false),
+      HomeMenuEntry("room", "空闲教室", R.drawable.ic_home_room, true),
+      HomeMenuEntry("site", "常用网站", R.drawable.ic_home_site, true),
       HomeMenuEntry("refresh", "更新数据", R.drawable.ic_home_refresh, true),
-      HomeMenuEntry("library", "图书搜索", R.drawable.ic_home_library, false),
-      HomeMenuEntry("borrow", "借阅信息", R.drawable.ic_home_borrow, false)
+      HomeMenuEntry("library", "图书搜索", R.drawable.ic_home_library, true),
+      HomeMenuEntry("toolbox", "小工具", R.drawable.ic_home_toolbox, true)
     )
     private val HOME_WEEKDAYS = listOf("星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日")
     private val HOME_WEEK_TITLES = listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
@@ -464,6 +470,7 @@ class MainActivity : AppCompatActivity() {
     homeViewerInertiaAnimator?.cancel()
     homeViewerInertiaAnimator = null
     ioExecutor.shutdownNow()
+    timetableRefreshExecutor.shutdownNow()
     super.onDestroy()
   }
 
@@ -552,6 +559,11 @@ class MainActivity : AppCompatActivity() {
       return
     }
 
+    if (currentWebScreen == WebScreen.SCORE && binding.timetablePage.visibility == View.VISIBLE) {
+      leaveScorePage()
+      return
+    }
+
     if (binding.timetablePage.visibility == View.VISIBLE && currentWebScreen != WebScreen.HOME) {
       showHomePage()
       return
@@ -572,9 +584,16 @@ class MainActivity : AppCompatActivity() {
     baseToolbarPaddingBottom = binding.toolbar.paddingBottom
     binding.toolbar.title = getString(R.string.toolbar_title_home)
     binding.toolbar.navigationIcon = null
+    binding.toolbar.setOnMenuItemClickListener { item ->
+      if (item.itemId == scoreSectionActionId && currentWebScreen == WebScreen.SCORE) {
+        binding.contentWebView.evaluateJavascript("window.GeneralEducationPage && window.GeneralEducationPage.toolbarAction()", null)
+        true
+      } else false
+    }
     binding.toolbar.setNavigationOnClickListener {
       when (currentWebScreen) {
-        WebScreen.TIMETABLE, WebScreen.EXAM, WebScreen.SCORE, WebScreen.LEVEL_EXAM -> showHomePage()
+        WebScreen.SCORE -> leaveScorePage()
+        WebScreen.TIMETABLE, WebScreen.EXAM, WebScreen.LEVEL_EXAM -> showHomePage()
         WebScreen.LOGIN -> showProfilePage()
         else -> Unit
       }
@@ -597,6 +616,9 @@ class MainActivity : AppCompatActivity() {
       javaScriptEnabled = true
       domStorageEnabled = true
       databaseEnabled = true
+      setSupportZoom(true)
+      builtInZoomControls = true
+      displayZoomControls = false
       allowFileAccess = true
       allowContentAccess = true
       mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
@@ -1032,6 +1054,16 @@ class MainActivity : AppCompatActivity() {
 
   @SuppressLint("SetJavaScriptEnabled")
   private fun setupContentWebView() {
+    binding.contentWebView.webChromeClient = object : WebChromeClient() {
+      override fun onJsConfirm(view: WebView, url: String, message: String, result: android.webkit.JsResult): Boolean {
+        if (!url.startsWith("https://classsche.local/score-view/")) return false
+        AlertDialog.Builder(this@MainActivity).setMessage(message)
+          .setNegativeButton("继续编辑") { _, _ -> result.cancel() }
+          .setPositiveButton("放弃修改") { _, _ -> result.confirm() }
+          .setOnCancelListener { result.cancel() }.show()
+        return true
+      }
+    }
     with(binding.contentWebView.settings) {
       javaScriptEnabled = true
       domStorageEnabled = true
@@ -1043,6 +1075,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     binding.contentWebView.webViewClient = object : WebViewClient() {
+      override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
+        val remote = url.startsWith("https://") && !url.startsWith("https://classsche.local/") || url.startsWith("http://")
+        view.settings.setSupportZoom(remote)
+        view.settings.builtInZoomControls = remote
+        view.settings.displayZoomControls = false
+        super.onPageStarted(view, url, favicon)
+      }
+
       override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
         return handleInternalPageNavigation(request.url.toString())
       }
@@ -1166,10 +1206,11 @@ class MainActivity : AppCompatActivity() {
     val credentials = CredentialStore.credentials(this)
 
     setTimetableRefreshInProgress(true)
+    showRefreshResult = showStartToast
     updateStatus("正在复用登录状态获取课表，会话失效时才重新登录…")
     if (showStartToast) Toast.makeText(this, "正在后台更新数据…", Toast.LENGTH_SHORT).show()
     val desiredSemester = TimetableSemesterStore.readSelectedSemester(this)
-    ioExecutor.execute {
+    timetableRefreshExecutor.execute {
       try {
         val result = HeadlessLoginClient(::appendDebugLog).login(
           loginUrl = LOGIN_URL,
@@ -1204,11 +1245,18 @@ class MainActivity : AppCompatActivity() {
         mainHandler.post {
           setTimetableRefreshInProgress(false)
           updateStatus("课表更新失败：$detail；原缓存已保留")
+          presentRefreshResult("更新失败", "$detail\n原缓存已保留")
           Toast.makeText(this, "课表更新失败：$detail", Toast.LENGTH_LONG).show()
           triggerPendingTimetableSemesterRefreshIfNeeded()
         }
       }
     }
+  }
+
+  private fun presentRefreshResult(title: String, message: String) {
+    if (!showRefreshResult || isFinishing || isDestroyed) return
+    showRefreshResult = false
+    AlertDialog.Builder(this).setTitle(title).setMessage(message).setPositiveButton("确定", null).show()
   }
 
   private fun openTimetableRefreshCaptcha(challenge: HeadlessLoginClient.CaptchaRequiredException) {
@@ -2826,6 +2874,8 @@ class MainActivity : AppCompatActivity() {
     } else {
       null
     }
+    binding.toolbar.menu.removeItem(scoreSectionActionId)
+    if (screen == WebScreen.SCORE) applyScoreSectionToolbar()
     applyToolbarLayout()
     updateToolbarNavigationButtonLayout()
     if (screen == WebScreen.HOME) {
@@ -3110,7 +3160,7 @@ class MainActivity : AppCompatActivity() {
   }
 
   private fun applyToolbarLayout() {
-    val usesPrimaryPageToolbar = currentWebScreen == WebScreen.HOME || currentWebScreen == WebScreen.PROFILE
+    val usesPrimaryPageToolbar = currentWebScreen == WebScreen.PROFILE
     val extraBottom = if (usesPrimaryPageToolbar) dpToPx(10) else 0
     val minHeight = if (usesPrimaryPageToolbar) dpToPx(56) else 0
 
@@ -3203,19 +3253,10 @@ class MainActivity : AppCompatActivity() {
   }
 
   private fun showCachedTimetableOrEmpty() {
-    val cacheFile = File(filesDir, GENERATED_CACHE_HTML_FILE)
-    val cacheJsonFile = File(filesDir, CACHE_JSON_FILE)
-
-    if (!hasUsableTimetableCache(cacheFile, cacheJsonFile)) {
-      showEmptyTimetablePage()
-      return
-    }
-
-    loadGeneratedPage(
-      webView = binding.contentWebView,
-      cacheFile = cacheFile,
-      fallbackBaseUrl = "https://classsche.local/fallback/",
-      fallbackHtml = TimetableRenderer.emptyHtml(this)
+    val courses = loadCoursesFromCacheJson()
+    binding.contentWebView.loadDataWithBaseURL(
+      "https://classsche.local/timetable-view/",
+      TimetableRenderer.toHtml(this, courses, includeExams = true), "text/html", "utf-8", null
     )
   }
 
@@ -3431,7 +3472,10 @@ class MainActivity : AppCompatActivity() {
     ResourceUpdateStore.readText(this, fileName)
 
   private fun loadExamPageWithLatestData() {
-    val templateHtml = readRuntimeAssetText("exam-view.html")
+    val currentTemplate = readRuntimeAssetText("exam-view.html")
+    val templateHtml = currentTemplate?.takeIf { it.contains("exam-default-expansion-v2") }
+      ?: runCatching { assets.open("exam-view.html").bufferedReader(Charsets.UTF_8).use { it.readText() } }.getOrNull()
+      ?: currentTemplate
 
     if (templateHtml.isNullOrBlank()) {
       binding.contentWebView.stopLoading()
@@ -3470,7 +3514,11 @@ class MainActivity : AppCompatActivity() {
   }
 
   private fun loadScorePageWithLatestData() {
-    val templateHtml = readRuntimeAssetText("score-view.html")?.let {
+    scoreSection = "scores"
+    val currentTemplate = readRuntimeAssetText("score-view.html")
+    val compatibleTemplate = if (currentTemplate?.contains("general-credit-pages-v4") == true) currentTemplate else
+      runCatching { assets.open("score-view.html").bufferedReader(Charsets.UTF_8).use { it.readText() } }.getOrNull() ?: currentTemplate
+    val templateHtml = compatibleTemplate?.let {
       injectLevelExamJsonIntoTemplate(it, readLatestLevelExamJson() ?: "[]")
     }
 
@@ -3498,16 +3546,44 @@ class MainActivity : AppCompatActivity() {
       consumePendingScoreUpdates()
     }
 
+    val catalogHtml = GeneralEducationCatalogStore.inject(this, html)
+    val readyHtml = if (reopenGeneralEducation) catalogHtml.replace("</body>", "<script>if(window.GeneralEducationPage)window.GeneralEducationPage.open();</script></body>") else catalogHtml
+    reopenGeneralEducation = false
+
     binding.contentWebView.stopLoading()
     binding.contentWebView.clearHistory()
     binding.contentWebView.clearCache(true)
     binding.contentWebView.loadDataWithBaseURL(
-      runtimeAssetBaseUrl(),
-      html,
+      "https://classsche.local/score-view/",
+      readyHtml,
       "text/html",
       "utf-8",
-      null
+      "https://classsche.local/score-view/"
     )
+  }
+
+  private fun leaveScorePage() {
+    binding.contentWebView.evaluateJavascript("Boolean(window.GeneralEducationPage && window.GeneralEducationPage.back())") { handled ->
+      if (handled != "true" && currentWebScreen == WebScreen.SCORE) showHomePage()
+    }
+  }
+
+  private fun applyScoreSectionToolbar() {
+    binding.toolbar.title = when (scoreSection) {
+      "credits" -> "学分统计"
+      "classification" -> "学分统计"
+      "catalog" -> "课程分类表"
+      else -> "成绩查询"
+    }
+    binding.toolbar.menu.removeItem(scoreSectionActionId)
+    val action = when (scoreSection) {
+      "credits" -> "修改分类"
+      "classification" -> "保存修改"
+      "catalog" -> "更新分类表"
+      else -> null
+    }
+    if (action != null) binding.toolbar.menu.add(0, scoreSectionActionId, 0, action)
+      .setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_ALWAYS)
   }
 
   private fun readLatestScoreJson(): String? {
@@ -3615,6 +3691,37 @@ class MainActivity : AppCompatActivity() {
   }
 
   private fun handleInternalPageNavigation(url: String): Boolean {
+    val localUri = android.net.Uri.parse(url)
+    if (localUri.scheme == "classsche" && localUri.host == "score-section") {
+      val section = localUri.path.orEmpty().removePrefix("/")
+      if (currentWebScreen == WebScreen.SCORE && binding.contentWebView.url.orEmpty().startsWith("https://classsche.local/score-view/") && section in setOf("scores", "credits", "classification", "catalog")) {
+        scoreSection = section
+        applyScoreSectionToolbar()
+      }
+      return true
+    }
+    if (localUri.scheme == "classsche" && localUri.host == "general-education" && localUri.path == "/refresh") {
+      if (currentWebScreen == WebScreen.SCORE && binding.contentWebView.url.orEmpty().startsWith("https://classsche.local/score-view/") && !generalEducationUpdateOpen) {
+        generalEducationUpdateOpen = true
+        startActivityForResult(Intent(this, GeneralEducationUpdateActivity::class.java), GeneralEducationUpdateActivity.REQUEST_CODE)
+      }
+      return true
+    }
+    if (localUri.scheme == "https" && localUri.host == "jwc.njust.edu.cn" && localUri.path == "/b1/7f/c1189a307583/page.htm" && currentWebScreen == WebScreen.SCORE) {
+      startActivity(Intent(this, CampusBrowserActivity::class.java).putExtra("url", "https://jwc.njust.edu.cn/b1/7f/c1189a307583/page.htm"))
+      return true
+    }
+    if (localUri.scheme == "classsche" && localUri.host == "schedule" && localUri.path == "/edit") {
+      if (currentWebScreen == WebScreen.TIMETABLE && !showingLiveTimetable) {
+        openCampusTool("schedule", localUri.getQueryParameter("id").orEmpty())
+      }
+      return true
+    }
+    if (localUri.scheme == "classsche" && localUri.host == "tools") {
+      val tool = localUri.path.orEmpty().removePrefix("/")
+      if (tool in listOf("schedule", "rooms", "sites", "library", "courses", "evaluation", "toolbox",CourseEnrollmentFeature.PAGE)) openCampusTool(tool)
+      return true
+    }
     return when {
       url.contains("timetable-view", ignoreCase = true) -> {
         showCachedTimetable()
@@ -3673,7 +3780,7 @@ class MainActivity : AppCompatActivity() {
     val scorePart = if (scoreJsonFile.exists()) "${scoreJsonFile.length()}:${scoreJsonFile.lastModified()}" else "missing"
     val levelExamPart = if (levelExamJsonFile.exists()) "${levelExamJsonFile.length()}:${levelExamJsonFile.lastModified()}" else "missing"
     val scoreUpdatePart = if (scoreUpdateMetaFile.exists()) "${scoreUpdateMetaFile.length()}:${scoreUpdateMetaFile.lastModified()}" else "missing"
-    return listOf(currentAssetExportId ?: "no-export", homePart, jsonPart, examPart, scorePart, levelExamPart, scoreUpdatePart).joinToString("|")
+    return listOf(currentAssetExportId ?: "no-export", homePart, jsonPart, examPart, scorePart, levelExamPart, scoreUpdatePart, LocalScheduleStore.revision(this)).joinToString("|")
   }
 
   private fun renderNativeHome() {
@@ -4321,6 +4428,8 @@ class MainActivity : AppCompatActivity() {
           showCachedLevelExamPage()
         } else if (item.key == "refresh") {
           startSilentTimetableRefresh()
+        } else if (item.key in listOf("add", "room", "site", "library", "toolbox")) {
+          openCampusTool(mapOf("add" to "schedule", "room" to "rooms", "site" to "sites", "library" to "library", "toolbox" to "toolbox").getValue(item.key))
         } else {
           Toast.makeText(this, "该功能入口已预留，暂未实现", Toast.LENGTH_SHORT).show()
         }
@@ -4331,6 +4440,40 @@ class MainActivity : AppCompatActivity() {
 
   private fun loadCoursesFromCacheJson(): List<TimetableCourse> {
     return TimetableScheduleHelper.loadCoursesFromCacheJson(this)
+  }
+
+  private fun openCampusTool(page: String, editId: String = "") {
+    if(page==CourseEnrollmentFeature.PAGE && !CourseEnrollmentFeature.browseEnabled) {
+      Toast.makeText(this,CourseEnrollmentFeature.UNAVAILABLE_MESSAGE,Toast.LENGTH_SHORT).show()
+      return
+    }
+    startActivityForResult(Intent(this, CampusToolsActivity::class.java)
+      .putExtra(CampusToolsActivity.EXTRA_PAGE, page)
+      .putExtra(CampusToolsActivity.EXTRA_EDIT_ID, editId), CampusToolsActivity.REQUEST_CODE)
+  }
+
+  @Deprecated("Deprecated in Java")
+  override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+    super.onActivityResult(requestCode, resultCode, data)
+    if (requestCode == GeneralEducationUpdateActivity.REQUEST_CODE) {
+      generalEducationUpdateOpen = false
+      if (resultCode == RESULT_OK) {
+        val catalog = runCatching { GeneralEducationCatalogStore.read(this) }.getOrNull()
+        if (catalog != null && currentWebScreen == WebScreen.SCORE) {
+          val script = "Boolean(window.GeneralEducationPage && window.GeneralEducationPage.updateCatalog(${GeneralEducationCatalogStore.scriptJson(catalog)}))"
+          binding.contentWebView.evaluateJavascript(script) { updated ->
+            if (updated != "true") { reopenGeneralEducation = true; showCachedScorePage() }
+          }
+        } else { reopenGeneralEducation = true; showCachedScorePage() }
+      }
+      return
+    }
+    if (requestCode != CampusToolsActivity.REQUEST_CODE) return
+    renderedHomeSignature = null
+    if (resultCode == RESULT_OK && data?.getBooleanExtra(CampusToolsActivity.EXTRA_OPEN_LOGIN, false) == true) showLoginPage()
+    else if (resultCode == RESULT_OK && data?.getBooleanExtra(CampusToolsActivity.EXTRA_OPEN_TIMETABLE, false) == true) showCachedTimetable()
+    else if (currentWebScreen == WebScreen.HOME) showHomePage()
+    else if (currentWebScreen == WebScreen.TIMETABLE && !showingLiveTimetable) showCachedTimetableOrEmpty()
   }
 
   private fun loadExamsFromCacheJson(): List<ExamArrangement> {
@@ -4518,22 +4661,24 @@ class MainActivity : AppCompatActivity() {
 
       normalized
         .filter { it.course.weekday == weekday && it.weeks.contains(week) }
-        .sortedWith(compareBy<NormalizedCourse> { it.startPeriod }.thenBy { it.endPeriod })
+        .sortedWith(compareBy<NormalizedCourse> { it.course.startTime.ifBlank { PERIOD_SLOTS[it.startPeriod]?.first.orEmpty() } }.thenBy { it.endPeriod })
         .filter { course ->
           if (offset != 0) return@filter true
-          val endText = PERIOD_SLOTS[course.endPeriod]?.second ?: "23:59"
+          val endText = course.course.endTime.ifBlank { PERIOD_SLOTS[course.endPeriod]?.second ?: "23:59" }
           parseTime(endText) >= now
         }
         .forEach { course ->
-          val start = parseTime(PERIOD_SLOTS[course.startPeriod]?.first ?: "00:00")
-          val end = parseTime(PERIOD_SLOTS[course.endPeriod]?.second ?: "23:59")
+          val startText = course.course.startTime.ifBlank { PERIOD_SLOTS[course.startPeriod]?.first ?: "00:00" }
+          val endText = course.course.endTime.ifBlank { PERIOD_SLOTS[course.endPeriod]?.second ?: "23:59" }
+          val start = parseTime(startText)
+          val end = parseTime(endText)
           val isAlert = offset == 0 && ((now >= start && now <= end) || (now < start && ChronoUnit.MINUTES.between(now, start) in 0..15))
-          val majorLabel = formatMajorPeriodLabel(course.startPeriod, course.endPeriod)
+          val majorLabel = if (course.course.startTime.isNotBlank()) "日程" else formatMajorPeriodLabel(course.startPeriod, course.endPeriod)
           result += HomeRecentEntry(
             displayDay = if (offset == 0) "今日" else "明日",
             title = course.course.courseName,
-            meta = "$majorLabel ${PERIOD_SLOTS[course.startPeriod]?.first.orEmpty()}-${PERIOD_SLOTS[course.endPeriod]?.second.orEmpty()}",
-            room = course.course.classroom.ifBlank { "待定" },
+            meta = "$majorLabel $startText-$endText",
+            room = course.course.classroom.ifBlank { if (course.course.startTime.isNotBlank()) "" else "待定" },
             isToday = offset == 0,
             isAlert = isAlert
           )
@@ -4867,7 +5012,7 @@ class MainActivity : AppCompatActivity() {
       appendDebugLog("TIMETABLE_CAPTURE", "INFO", "课表解析完成，courses=${courses.size}")
       val renderedHomeHtml = TimetableRenderer.toHomeHtml(this@MainActivity, courses)
       appendDebugLog("TIMETABLE_CAPTURE", "INFO", "首页课表 HTML 已生成，length=${renderedHomeHtml.length}")
-      val renderedHtml = TimetableRenderer.toHtml(this@MainActivity, courses)
+      val renderedHtml = TimetableRenderer.toHtml(this@MainActivity, courses, includeExams = true)
       appendDebugLog("TIMETABLE_CAPTURE", "INFO", "完整课表 HTML 已生成，length=${renderedHtml.length}")
       val json = TimetableRenderer.toJson(courses)
       appendDebugLog("TIMETABLE_CAPTURE", "INFO", "课表 JSON 已生成，length=${json.length}")
@@ -4907,6 +5052,7 @@ class MainActivity : AppCompatActivity() {
         )
         val summary = successStatus ?: "课表缓存已更新，共解析 ${courses.size} 条课程${if (completed.isBlank()) "" else "，$completed"}。"
         updateStatus(if (failures.isEmpty()) summary else "$summary ${failures.joinToString("；")}")
+        if (isAutoUpdating) presentRefreshResult(if (failures.isEmpty()) "更新完成" else "部分数据更新失败", if (failures.isEmpty()) summary else "$summary\n${failures.joinToString("\n")}")
         CourseNotificationScheduler.sync(this@MainActivity)
         ExamOngoingNotificationScheduler.sync(this@MainActivity)
         if (isAutoUpdating) {
@@ -4934,6 +5080,7 @@ class MainActivity : AppCompatActivity() {
         updateLoginActionState()
         authTimetableCaptureShouldShowCache = true
         updateStatus("课表缓存同步失败：${FailureDetails.describe(error)}；原缓存已保留")
+        if (isAutoUpdating) presentRefreshResult("更新失败", "${FailureDetails.describe(error)}\n原缓存已保留")
         if (isAutoUpdating) {
           Toast.makeText(this@MainActivity, "课表更新失败：${FailureDetails.describe(error)}", Toast.LENGTH_LONG).show()
           setTimetableRefreshInProgress(false)
@@ -5859,7 +6006,7 @@ class MainActivity : AppCompatActivity() {
           Charsets.UTF_8
         )
         File(filesDir, GENERATED_CACHE_HTML_FILE).writeText(
-          TimetableRenderer.toHtml(this, courses),
+          TimetableRenderer.toHtml(this, courses, includeExams = true),
           Charsets.UTF_8
         )
       }
@@ -5898,7 +6045,7 @@ class MainActivity : AppCompatActivity() {
         Charsets.UTF_8
       )
       File(filesDir, GENERATED_CACHE_HTML_FILE).writeText(
-        TimetableRenderer.toHtml(this, courses),
+        TimetableRenderer.toHtml(this, courses, includeExams = true),
         Charsets.UTF_8
       )
       prefs.edit()

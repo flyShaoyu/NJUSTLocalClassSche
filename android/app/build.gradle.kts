@@ -14,7 +14,7 @@ android {
     versionCode = 12
     versionName = "1.0.15"
 
-    testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    testInstrumentationRunner = "com.classsche.mobile.RuntimeChecks"
   }
 
   buildTypes {

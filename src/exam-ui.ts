@@ -10,6 +10,7 @@ const serializeForScript = (value: unknown): string =>
 
 const buildExamPageScript = (examsJson: string): string => `
   <script>
+    // exam-default-expansion-v2: only the nearest valid non-ended exam opens by default.
     const exams = ${examsJson};
     const weekLabels = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
     const list = document.getElementById("examList");
@@ -40,7 +41,7 @@ const buildExamPageScript = (examsJson: string): string => `
 
     const isPast = (exam) => {
       const time = parseExamTime(exam.examTime);
-      return time.end ? time.end < new Date() : false;
+      return time.end ? time.end <= new Date() : false;
     };
 
     const distanceLabel = (exam) => {
@@ -76,8 +77,11 @@ const buildExamPageScript = (examsJson: string): string => `
     };
 
     const firstActiveIndex = () => {
-      const next = exams.findIndex((exam) => !isPast(exam));
-      return next >= 0 ? next : Math.max(0, exams.length - 1);
+      const now = Date.now();
+      const candidates = exams.map((exam,index)=>({index,...parseExamTime(exam.examTime)}))
+        .filter(time=>time.start && time.end && Number.isFinite(time.start.valueOf()) && Number.isFinite(time.end.valueOf()) && time.end>time.start && time.end.valueOf()>now)
+        .sort((a,b)=>a.start-b.start || a.index-b.index);
+      return candidates.length ? candidates[0].index : -1;
     };
 
     const initialRender = () => {

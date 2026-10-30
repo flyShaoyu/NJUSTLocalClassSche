@@ -194,6 +194,8 @@ export const buildHomePageScript = (params: HomeScriptParams): string => `
 
     const menuIcon = (key) => {
       const icons = {
+        toolbox: '<svg viewBox="0 0 64 64" aria-hidden="true"><rect x="10" y="10" width="18" height="18" rx="5" style="fill:#e7f1fb"></rect><rect x="36" y="10" width="18" height="18" rx="5"></rect><rect x="10" y="36" width="18" height="18" rx="5"></rect><rect x="36" y="36" width="18" height="18" rx="5" style="fill:#d6e9f5"></rect></svg>',
+        evaluation: '<svg viewBox="0 0 64 64" aria-hidden="true"><rect x="14" y="7" width="37" height="49" rx="6" style="fill:#e7f1fb"></rect><path d="M23 19h19M23 29h12M23 40l8 8 15-17"></path></svg>',
         exam: '<svg viewBox="0 0 64 64" aria-hidden="true"><rect x="14" y="8" width="28" height="40" rx="3"></rect><path d="M24 20h20"></path><path d="M24 30h16"></path><circle cx="45" cy="44" r="11"></circle></svg>',
         score: '<svg viewBox="0 0 64 64" aria-hidden="true"><rect x="12" y="30" width="8" height="18" rx="2"></rect><rect x="28" y="18" width="8" height="30" rx="2"></rect><rect x="44" y="24" width="8" height="24" rx="2"></rect><path d="M10 54h44"></path></svg>',
         level: '<svg viewBox="0 0 64 64" aria-hidden="true"><rect x="16" y="10" width="32" height="44" rx="3"></rect><path d="M24 20h14"></path><path d="M24 28h10"></path><path d="M30 38l6-10 8 18"></path></svg>',
@@ -203,7 +205,7 @@ export const buildHomePageScript = (params: HomeScriptParams): string => `
         site: '<svg viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="19"></circle><path d="M14 32h36"></path><path d="M32 13c6 6 9 12 9 19s-3 13-9 19"></path><path d="M32 13c-6 6-9 12-9 19s3 13 9 19"></path></svg>',
         refresh: '<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M45 21a17 17 0 1 0 4 17"></path><path d="M46 11v14H32"></path></svg>',
         library: '<svg viewBox="0 0 64 64" aria-hidden="true"><circle cx="28" cy="28" r="14"></circle><path d="M39 39l11 11"></path><path d="M22 28c0-3 3-6 6-6"></path></svg>',
-        borrow: '<svg viewBox="0 0 64 64" aria-hidden="true"><rect x="16" y="10" width="30" height="44" rx="3"></rect><path d="M24 20h14"></path><path d="M24 30h14"></path><path d="M24 40h10"></path></svg>'
+        'course-search': '<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M34 53H17a9 9 0 0 1-9-9V17a9 9 0 0 1 9-9h27a9 9 0 0 1 9 9v17"></path><path d="M18 20h23M18 29h10M18 38h5"></path><circle cx="38" cy="39" r="10" style="fill:#d6e9f5"></circle><path d="M45 46l11 11"></path></svg>'
       };
 
       return icons[key] || icons.schedule;
@@ -240,6 +242,8 @@ export const buildHomePageScript = (params: HomeScriptParams): string => `
           return '<a class="' + classes + '" href="' + levelExamPageHref + '">' + inner + "</a>";
         }
 
+        const tool = {add:'schedule',room:'rooms',site:'sites',library:'library',toolbox:'toolbox'}[item.key];
+        if (tool) return '<a class="' + classes + '" href="classsche://tools/' + tool + '">' + inner + '</a>';
         return '<button type="button" class="' + classes + '" data-menu="' + escapeHtml(item.key) + '">' + inner + "</button>";
       }).join("");
     };

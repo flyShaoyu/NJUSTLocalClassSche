@@ -1,5 +1,6 @@
 import com.classsche.mobile.HeadlessLoginClient;
 import com.classsche.mobile.LoginCookieStore;
+import com.classsche.mobile.LoginCookiePolicy;
 import com.classsche.mobile.ScoreSyncTiming;
 import com.classsche.mobile.ScoreSyncTriggerPolicy;
 import com.classsche.mobile.LoginNavigationPolicy;
@@ -111,6 +112,14 @@ public final class SessionReuseCheck {
   static void reset(String name) { scenario=name; passwordPosts=0; captchaChecks=0; identityGets=0; timetableGets=0; }
 
   public static void main(String[] args) throws Exception {
+    reset("cookie-domain");
+    check(!LoginCookiePolicy.INSTANCE.acceptsScope(IDS, "platformMultilingual=zh_CN; Domain=edu.cn; Path=/; HttpOnly"), "public suffix must be ignored");
+    check(!LoginCookiePolicy.INSTANCE.acceptsScope(IDS, "JSESSIONID=other; Domain=bkjw.njust.edu.cn"), "foreign host must be ignored");
+    check(LoginCookiePolicy.INSTANCE.acceptsScope(IDS, "TGC=parent; Domain=.njust.edu.cn; Path=/authserver"), "university parent cookie must be retained");
+    check(LoginCookiePolicy.INSTANCE.acceptsScope(IDS, "JSESSIONID=; Path=/authserver; Max-Age=0"), "host-only deletion must be retained");
+    Map<String,List<String>> filtered = LoginCookiePolicy.INSTANCE.filterHeaders(IDS, Map.of("Set-Cookie", List.of("platformMultilingual=zh_CN; Domain=edu.cn", "JSESSIONID=session; Path=/authserver"), "Location", List.of("fixture")));
+    check(filtered.get("Set-Cookie").size()==1 && filtered.get("Location").equals(List.of("fixture")), "filter must preserve session cookie and unrelated headers");
+    System.out.println("PASS cookie scopes: public suffix ignored, original domain/path/deletion retained");
     URL.setURLStreamHandlerFactory(protocol -> protocol.equals("https") ? new URLStreamHandler() {
       protected URLConnection openConnection(URL url) { return new Connection(url); }
     } : null);

@@ -1,6 +1,7 @@
 ﻿import { ScoreRecord } from "./types.js";
 
 import { LevelExamRecord } from "./types.js";
+import { buildGeneralEducationScript, GENERAL_EDUCATION_HTML, GENERAL_EDUCATION_STYLE } from "./general-education-ui.js";
 
 const serializeForScript = (value: unknown): string =>
   JSON.stringify(value)
@@ -443,6 +444,7 @@ const buildScorePageScript = (scoresJson: string, levelExamsJson: string): strin
 
     renderSummary();
     renderSemesters();
+    ${buildGeneralEducationScript()}
   </script>
 `;
 
@@ -453,6 +455,7 @@ export const renderScorePage = (scores: ScoreRecord[], levelExams: LevelExamReco
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>成绩查询</title>
   <style>
+    ${GENERAL_EDUCATION_STYLE}
     :root {
       --sky: #74a7de;
       --sky-deep: #5f92cf;
@@ -893,7 +896,7 @@ export const renderScorePage = (scores: ScoreRecord[], levelExams: LevelExamReco
 </head>
 <body>
   <div class="app">
-    <main class="content">
+    <main class="content" id="scoreOverview">
       <section class="panel">
         <h1>全部已修课程</h1>
         <div class="summary-table">
@@ -906,12 +909,14 @@ export const renderScorePage = (scores: ScoreRecord[], levelExams: LevelExamReco
           <div id="summaryTable"></div>
         </div>
         <p id="selectionHint" class="selection-hint"></p>
+        <button type="button" id="openGeneralEducation" class="general-entry"><span>通识选修学分统计</span><span aria-hidden="true">›</span></button>
       </section>
 
       <section id="semesterList" class="semester-list">
         ${scores.length === 0 ? '<div class="empty">暂无成绩数据</div>' : ""}
       </section>
     </main>
+    ${GENERAL_EDUCATION_HTML}
   </div>
 
   <div id="tip" class="tip"></div>

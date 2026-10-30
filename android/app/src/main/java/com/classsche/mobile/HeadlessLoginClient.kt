@@ -17,6 +17,8 @@ import javax.crypto.Cipher
 import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
 import java.util.Base64
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.locks.ReentrantLock
 
 internal class HeadlessLoginClient(
   private val logger: (scope: String, status: String, message: String) -> Unit,
@@ -25,9 +27,10 @@ internal class HeadlessLoginClient(
 ) {
   companion object {
     // Timetable refresh and score sync have different executors. Share one auth attempt.
-    private val loginLock = Any()
+    private val loginLock = ReentrantLock()
   }
   private val cookieJar = CookieManager(null, CookiePolicy.ACCEPT_ORIGINAL_SERVER)
+  private var deadlineNanos = 0L
   data class LoginResult(
     val cookies: Map<String, String>,
     val timetableHtml: String
@@ -48,12 +51,20 @@ internal class HeadlessLoginClient(
     username: String,
     password: String,
     desiredSemester: String = ""
-  ): LoginResult = synchronized(loginLock) {
+  ): LoginResult {
+    check(loginLock.tryLock(15, TimeUnit.SECONDS)) { "等待登录验证超时：其他数据同步仍在进行，请稍后重试" }
+    deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(60)
     try {
-      loginWithSession(loginUrl, timetableUrl, username, password, desiredSemester)
+      return loginWithSession(loginUrl, timetableUrl, username, password, desiredSemester)
     } finally {
-      sharedCookies.flush()
+      try { sharedCookies.flush() } finally { loginLock.unlock() }
     }
+  }
+
+  private fun remainingTimeout(): Int {
+    val remaining = TimeUnit.NANOSECONDS.toMillis(deadlineNanos - System.nanoTime())
+    if (remaining <= 0 || Thread.currentThread().isInterrupted) throw java.net.SocketTimeoutException("登录验证总时间超过 60 秒，原缓存已保留")
+    return remaining.coerceAtMost(10000).coerceAtLeast(1).toInt()
   }
 
   private fun loginWithSession(
@@ -307,6 +318,7 @@ internal class HeadlessLoginClient(
     var currentBody = formBody
 
     repeat(8) {
+      remainingTimeout()
       val target = URL(currentUrl)
       if (target.protocol != "https" || target.host !in setOf("ids.njust.edu.cn", "ehall2.njust.edu.cn", "bkjw.njust.edu.cn")) {
         throw IllegalStateException("目标网站跳转错误：登录请求进入非预期站点 ${target.host}${target.path}")
@@ -315,8 +327,8 @@ internal class HeadlessLoginClient(
         requestMethod = currentMethod
         useCaches = false
         instanceFollowRedirects = false
-        connectTimeout = 10000
-        readTimeout = 10000
+        connectTimeout = remainingTimeout()
+        readTimeout = remainingTimeout()
         setRequestProperty("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
         setRequestProperty("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.6")
         setRequestProperty("User-Agent", userAgent)
@@ -334,10 +346,20 @@ internal class HeadlessLoginClient(
       }
 
       val code = connection.responseCode
-      val responseHeaders = connection.headerFields.filterKeys { it != null }
+      val responseHeaders = LoginCookiePolicy.filterHeaders(currentUrl, connection.headerFields.filterKeys { it != null })
       cookieJar.put(URI(currentUrl), responseHeaders)
       val body = (if (code >= 400) connection.errorStream else connection.inputStream)
-        ?.use { it.readBytes() }
+        ?.use { input ->
+          val output = java.io.ByteArrayOutputStream()
+          val buffer = ByteArray(8192)
+          while (true) {
+            connection.readTimeout = remainingTimeout()
+            val size = input.read(buffer)
+            if (size < 0) break
+            output.write(buffer, 0, size)
+          }
+          output.toByteArray()
+        }
         ?: ByteArray(0)
       val location = connection.getHeaderField("Location")
       connection.disconnect()

@@ -49,6 +49,15 @@ object TimetableScheduleHelper {
   )
 
   fun loadCoursesFromCacheJson(context: Context): List<TimetableCourse> {
+    val official = loadOfficialCourses(context)
+    val local = runCatching { LocalScheduleStore.courses(context) }.getOrElse {
+      AppDebugLog.append(context, "LOCAL_SCHEDULE", "FAIL", it.message ?: "本地日程读取失败，原文件保留")
+      emptyList()
+    }
+    return official + local
+  }
+
+  private fun loadOfficialCourses(context: Context): List<TimetableCourse> {
     val cacheJsonFile = File(context.filesDir, CACHE_JSON_FILE)
     if (!cacheJsonFile.exists() || cacheJsonFile.length() <= 2L) return emptyList()
     val rawJson = runCatching { cacheJsonFile.readText(Charsets.UTF_8) }.getOrNull() ?: return emptyList()
@@ -122,10 +131,10 @@ object TimetableScheduleHelper {
       val candidate = normalized
         .asSequence()
         .filter { it.course.weekday == weekday && matchesCourseWeek(it, week) }
-        .sortedWith(compareBy<NormalizedCourse> { it.startPeriod }.thenBy { it.endPeriod })
+        .sortedWith(compareBy<NormalizedCourse> { it.course.startTime.ifBlank { periodSlots[it.startPeriod]?.first.orEmpty() } }.thenBy { it.endPeriod })
         .mapNotNull { normalizedCourse ->
-          val start = parseTime(periodSlots[normalizedCourse.startPeriod]?.first ?: return@mapNotNull null)
-          val end = parseTime(periodSlots[normalizedCourse.endPeriod]?.second ?: return@mapNotNull null)
+          val start = parseTime(normalizedCourse.course.startTime.ifBlank { periodSlots[normalizedCourse.startPeriod]?.first ?: return@mapNotNull null })
+          val end = parseTime(normalizedCourse.course.endTime.ifBlank { periodSlots[normalizedCourse.endPeriod]?.second ?: return@mapNotNull null })
           CourseOccurrence(
             course = normalizedCourse.course,
             date = date,
@@ -162,10 +171,10 @@ object TimetableScheduleHelper {
       val candidate = normalized
         .asSequence()
         .filter { it.course.weekday == weekday && matchesCourseWeek(it, week) }
-        .sortedWith(compareBy<NormalizedCourse> { it.startPeriod }.thenBy { it.endPeriod })
+        .sortedWith(compareBy<NormalizedCourse> { it.course.startTime.ifBlank { periodSlots[it.startPeriod]?.first.orEmpty() } }.thenBy { it.endPeriod })
         .mapNotNull { normalizedCourse ->
-          val start = parseTime(periodSlots[normalizedCourse.startPeriod]?.first ?: return@mapNotNull null)
-          val end = parseTime(periodSlots[normalizedCourse.endPeriod]?.second ?: return@mapNotNull null)
+          val start = parseTime(normalizedCourse.course.startTime.ifBlank { periodSlots[normalizedCourse.startPeriod]?.first ?: return@mapNotNull null })
+          val end = parseTime(normalizedCourse.course.endTime.ifBlank { periodSlots[normalizedCourse.endPeriod]?.second ?: return@mapNotNull null })
           CourseOccurrence(
             course = normalizedCourse.course,
             date = date,

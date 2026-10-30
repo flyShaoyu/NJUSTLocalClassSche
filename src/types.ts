@@ -26,6 +26,10 @@ export interface TimetableCourse {
   courseType?: string;
   credits?: string;
   rawText: string;
+  startTime?: string;
+  endTime?: string;
+  notes?: string;
+  seatNumber?: string;
 }
 
 export interface ExamArrangement {
