@@ -1,3 +1,4 @@
+import { TIMETABLE_COLOR_SCRIPT } from "./timetable-colors.js";
 interface TimetableScriptParams {
   coursesJson: string;
   weekdaysJson: string;
@@ -70,7 +71,7 @@ export const buildTimetablePageScript = (params: TimetableScriptParams): string 
         endPeriod,
         duration: endPeriod - startPeriod + 1,
         weeks,
-        weeksText: String(course.courseCode||'').startsWith('local:') ? formatWeekRanges(weeks)+'周' : course.weeks,
+        weeksText: String(course.courseCode||'').startsWith('local:') ? formatWeekRanges(weeks)+'（周）' : String(course.weeks||'').replace(/[（(]?周[）)]?$/,'（周）'),
         credits: course.credits || '',
         paletteKey: course.courseName,
         courseKind: course.courseType || '未分类',
@@ -106,15 +107,8 @@ export const buildTimetablePageScript = (params: TimetableScriptParams): string 
     });
 
     const allWeeks = [...new Set(normalizeCourses.flatMap((course) => course.weeks))].sort((a, b) => a - b);
-    const colorMap = new Map();
-    let paletteIndex = 0;
-
-    for (const course of normalizeCourses) {
-      if (!colorMap.has(course.paletteKey)) {
-        colorMap.set(course.paletteKey, palette[paletteIndex % palette.length]);
-        paletteIndex += 1;
-      }
-    }
+    ${TIMETABLE_COLOR_SCRIPT}
+    const colorMap = assignTimetableColors(normalizeCourses,palette);
 
     const headerRow = document.getElementById('headerRow');
     const board = document.querySelector('.board');
@@ -698,7 +692,7 @@ export const buildTimetablePageScript = (params: TimetableScriptParams): string 
       document.getElementById('teacherRow').hidden = local || exam && !course.teacher;
       document.getElementById('codeRow').hidden = local || exam;
       sheetWatermark.hidden = local || exam;
-      // exam-timetable-v2: exam seat has its own row; internal session IDs never appear as notes.
+      // exam-timetable-v3: exam seat has its own row; internal session IDs never appear as notes.
       document.getElementById('scheduleNotesRow').hidden = !local || !course.notes;
       document.getElementById('sheetScheduleNotes').textContent = course.notes || '未填写备注';
       const edit = document.getElementById('local-schedule-edit');

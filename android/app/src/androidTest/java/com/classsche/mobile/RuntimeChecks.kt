@@ -477,6 +477,7 @@ class RuntimeChecks : Instrumentation() {
       check(ui{activity.findViewById<android.widget.Button>(R.id.librarySubmit).isEnabled}) { "Native CAPTCHA image was not ready" }
       check(ui{activity.findViewById<android.widget.ImageView>(R.id.libraryCaptchaImage).drawable!=null})
       check(!ui{activity.findViewById<android.widget.EditText>(R.id.libraryPassword).isSaveEnabled})
+      check(ui{activity.findViewById<com.google.android.material.textfield.TextInputLayout>(R.id.libraryPasswordLayout).placeholderText.toString()}=="默认密码为身份证后六位")
       check(ui{activity.findViewById<android.widget.Spinner>(R.id.libraryLoginType).selectedItemPosition}==0)
       check((ui{activity.window.attributes.flags} and android.view.WindowManager.LayoutParams.FLAG_SECURE)!=0)
       report("Native library login form passed: synthetic CAPTCHA copied to local ImageView, account/password/code inputs ready, barcode type default, no field persistence or screenshots; no real credentials submitted")
@@ -538,6 +539,7 @@ class RuntimeChecks : Instrumentation() {
       waitJs(view,"!!document.querySelector('[data-library-tab=account]')")
       js(view,"window.originalLibraryRequest=request;request=async function(action,...args){if(action==='library.status')return {cards:[1,2,3,4].map(i=>({label:'模拟状态'+i,value:String(i)}))};return window.originalLibraryRequest(action,...args)};document.querySelector('[data-library-tab=account]').click()")
       waitJs(view,"document.querySelectorAll('.library-account-card').length===4")
+      check(js(view,"document.querySelectorAll('#libraryContent h2').length===0 && !document.getElementById('libraryContent').textContent.includes('独立登录') && !!document.querySelector('#refreshLibraryStatus svg')")=="true")
       snapshot("library-account-synthetic")
       val monitor=addMonitor(LibraryLoginActivity::class.java.name,null,false)
       js(view,"document.getElementById('libraryLogin').click()")

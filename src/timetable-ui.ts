@@ -37,7 +37,22 @@ const COLOR_PALETTE = [
   ["#f2c66d", "#dfaa47"],
   ["#84c3a4", "#68aa8a"],
   ["#f08ca4", "#d96c87"],
-  ["#85aef7", "#668fe4"]
+  ["#85aef7", "#668fe4"],
+  ["#c476a9", "#ac5b90"],
+  ["#59a699", "#408c80"],
+  ["#c98f57", "#b07740"],
+  ["#8d98af", "#75819a"],
+  ["#b8b34c", "#9b9636"],
+  ["#aa79cf", "#905bb8"],
+  ["#dd7d63", "#c3654e"],
+  ["#5dabc4", "#438fa8"],
+  ["#c15f80", "#a84768"],
+  ["#83b358", "#689640"],
+  ["#8b7cbd", "#7162a3"],
+  ["#66b9b2", "#4b9d96"],
+  ["#b78b78", "#9b705e"],
+  ["#829fc5", "#6783ab"],
+  ["#c7a563", "#ab8949"]
 ];
 
 const serializeForScript = (value: unknown): string =>
@@ -724,6 +739,7 @@ export const renderTimetablePage = (courses: TimetableCourse[]): string => {
       z-index: 1;
     }
 
+    .schedule-edit-button{display:flex;align-items:center;justify-content:center;gap:9px;margin:14px 0 6px;min-height:44px;padding:10px 16px;border:1px solid #d2e3f3;border-radius:10px;background:#eaf3fc;color:#507da9;font-family:var(--font-cn);font-size:16px;text-decoration:none;touch-action:manipulation}.schedule-edit-button svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}.schedule-edit-button:active{background:#dcecfb}.schedule-edit-button[hidden]{display:none}
     .sheet-row {
       display: flex;
       align-items: baseline;
@@ -894,7 +910,7 @@ export const renderTimetablePage = (courses: TimetableCourse[]): string => {
         <div class="sheet-row"><span id="sheetWeeks" class="sheet-main">-</span><span id="sheetWeeksLabel" class="sheet-note">（课程周数）</span></div>
         <div class="sheet-row" id="codeRow"><span id="sheetCode" class="sheet-main">-</span><span class="sheet-note">（课程序号）</span></div>
         <div class="sheet-row" id="scheduleNotesRow" hidden><span id="sheetScheduleNotes" class="sheet-main" style="white-space:pre-wrap;overflow-wrap:anywhere"></span><span class="sheet-note">（备注）</span></div>
-        <a id="local-schedule-edit" hidden style="display:inline-block;margin:10px 0;color:#507da9;font-family:var(--font-cn);font-size:18px;padding:10px 0">编辑日程</a>
+        <a id="local-schedule-edit" class="schedule-edit-button" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 5 5 5M4 20l4-1 12-12a2 2 0 0 0-5-5L3 14l-1 5z"/></svg><span>编辑日程</span><span aria-hidden="true">›</span></a>
       </div>
     </div>
     <div id="sheetDots" class="sheet-dots" hidden></div>

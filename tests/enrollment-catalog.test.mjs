@@ -57,6 +57,8 @@ test('选课入口可打开分类页：搜索、筛选、分页、更正共享�
     assert.equal(await page.locator('.enrollment-course').count(),30);
     assert.equal(await page.locator('#enrollmentPrevious').isEnabled(),false);
     assert.equal(await page.locator('#enrollmentPageLabel').innerText(),'1 / 25');
+    const normal=page.locator('.enrollment-course').first();assert.ok((await normal.boundingBox()).height<100);
+    assert.equal(await normal.locator('.enrollment-meta').count(),1);assert.equal(await normal.locator('.enrollment-select').count(),1);assert.equal(await normal.locator('.meta-row').count(),0);
     const first=await page.locator('.enrollment-course h3').first().innerText();
     await page.locator('#enrollmentNext').click();assert.equal(await page.locator('#enrollmentPageLabel').innerText(),'2 / 25');
     assert.notEqual(await page.locator('.enrollment-course h3').first().innerText(),first);

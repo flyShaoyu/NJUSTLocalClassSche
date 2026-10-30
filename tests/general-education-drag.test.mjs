@@ -27,6 +27,7 @@ test('三条杠立即拖动跨分类，取消不改草稿，保存后重开和�
     await openEditor(page);
     let p=await point(card(page).locator('.general-drag-handle'));await page.mouse.move(p.x,p.y);await page.mouse.down();
     assert.equal(await page.locator('.general-drag-ghost').count(),1);
+    const ghost=await page.locator('.general-drag-ghost').boundingBox();assert.ok(Math.abs(ghost.y+ghost.height/2-p.y)<2,'浮层中心跟随触点，不再偏下');
     await mouseDrop(page,zone(page,'艺术审美类').locator('h2'));
     assert.equal(await zone(page,'艺术审美类').locator('[data-course-key="code:00000001"]').count(),1);
     assert.equal(await page.evaluate(key=>localStorage.getItem(key),storageKey),null);
@@ -69,7 +70,8 @@ test('手机触摸：普通滑动不触发，长按课程或直接拖手柄，�
     // Handles work without the long-press delay.
     p=await point(card(page).locator('.general-drag-handle'));await touch('touchStart',p);
     assert.equal(await page.locator('.general-drag-ghost').count(),1);
-    target=await point(zone(page,'辅修').locator('h2'));await touch('touchMove',target);await touch('touchEnd');
+    target=await point(zone(page,'辅修').locator('h2'));await touch('touchMove',target);
+    const ghostTouch=await page.locator('.general-drag-ghost').boundingBox();assert.ok(Math.abs(ghostTouch.y+ghostTouch.height/2-target.y)<2,'触摸移动也使用同一坐标');await touch('touchEnd');
     assert.equal(await zone(page,'辅修').locator('[data-course-key="code:00000001"]').count(),1);
     p=await point(card(page).locator('.general-drag-handle'));await touch('touchStart',p);await touch('touchCancel');
     assert.equal(await page.locator('.general-drag-ghost').count(),0);

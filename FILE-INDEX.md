@@ -161,3 +161,6 @@ Android 登录改动还应在构建后运行 `node --test tests/android-login.te
 
 
 原生图书馆登录框：`LibraryLoginActivity.kt`和`activity_library_login.xml`；登录脚本回归`tests/library-login.test.mjs`，设备原生验证码图片显示阶段`libraryNativeForm`（纯模拟图）、真实只读状态/会话复用阶段`libraryReal`（不记录真实值、不截图）。
+
+
+页面交互整理（2026-10-30）：`src/timetable-colors.ts`维护同周冲突图/Oklab色差选择，`timetable-ui.ts`维护30色及日程按钮；`campus-tools-ui.ts`的`loadBooks`串行合并最新查询、`renderLibraryAccount`管理四栏和底部操作；`enrollment-catalog-ui.ts`两行目录卡片；`general-education-drag.ts`维护触点居中、transform及最终松手坐标。覆盖在`tests/timetable-colors.test.mjs`、`campus-ui.test.mjs`、`general-education-drag.test.mjs`、`enrollment-catalog.test.mjs`；验证证据在被忽略的`artifacts/ui-polish-20261030/`。

@@ -114,6 +114,9 @@ test('校园页面：日程自定义时间、查询与失败恢复、教师入�
     await page.locator('[data-library-tab=account]').click();
     await page.locator('.library-account-card').first().waitFor();
     assert.equal(await page.locator('.library-account-card').count(),4);
+    assert.equal(await page.getByText('独立登录',{exact:true}).count(),0);
+    assert.equal(await page.locator('#libraryContent h2').count(),0);
+    assert.equal(await page.locator('#refreshLibraryStatus svg').count(),1);
     await page.locator('#libraryLogin').click();assert.equal(await page.evaluate(()=>window.libraryLoginOpened),true);
     await page.locator('#openLibraryHome').click();assert.equal(await page.evaluate(()=>window.openedUrl),'http://202.119.83.14:8080/uopac/reader/redr_info.php');
     assert.equal(await page.evaluate(()=>window.libraryStorageAccesses),0);
@@ -140,6 +143,8 @@ test('个人课表显示真实日程时间与备注，文本安全，教师课�
     assert.equal(await page.locator('#sheetPeriodLine').innerText(),'10:20-13:10');
     assert.equal(await page.locator('#sheetScheduleNotes').innerText(),'资料\n<备注>');
     assert.equal(await page.locator('#local-schedule-edit').getAttribute('href'),'classsche://schedule/edit?id=abc');
+    assert.ok((await page.locator('#local-schedule-edit').boundingBox()).height>=44);
+    assert.equal(await page.locator('#local-schedule-edit svg').count(),1);
     assert.equal(await page.locator('img').count(),0);
     assert.equal(await page.locator('#teacherRow').isVisible(),false);
     assert.equal(await page.locator('#sheetWeeksLabel').innerText(),'（周数）');
@@ -158,7 +163,7 @@ test('日程连续周数合并，考试座位单列且无场次备注，课程�
   const base={weekday:'星期五',periods:'3-5节',classroom:'模拟地点',weeks:'1,2,3,9,10,11,12周',rawText:''};
   await page.setContent(renderTimetablePage([{...base,courseName:'模拟日程',courseCode:'local:range',courseType:'本地日程',notes:''}]));
   await page.locator('.course-card').first().click();
-  assert.equal(await page.locator('#sheetWeeks').innerText(),'1-3,9-12周');
+  assert.equal(await page.locator('#sheetWeeks').innerText(),'1-3,9-12（周）');
   assert.equal(await page.locator('#sheetWeeksLabel').innerText(),'（周数）');
   assert.equal(await page.locator('#scheduleNotesRow').isVisible(),false);
   await page.goto('about:blank');await page.setContent(renderTimetablePage([{...base,courseName:'模拟考试',courseCode:'exam:test',courseType:'考试',seatNumber:'18',startTime:'10:20',endTime:'12:00'}]));
@@ -171,5 +176,28 @@ test('日程连续周数合并，考试座位单列且无场次备注，课程�
   assert.equal(await page.locator('#scheduleNotesRow').isVisible(),false);
   await page.goto('about:blank');await page.setContent(renderTimetablePage([{...base,courseName:'课程',courseCode:'official'}]));await page.locator('.course-card').first().click();
   assert.equal(await page.locator('#sheetWeeksLabel').innerText(),'（课程周数）');assert.equal(await page.locator('#seatNumberRow').isVisible(),false);
+ }finally{await browser.close();}
+});
+
+
+test('图书搜索保留最新请求，串行避开原生操作冲突，旧结果和旧错误不覆盖新搜索',{timeout:30000},async()=>{
+ const browser=await chromium.launch({headless:true});try{
+  const page=await browser.newPage({viewport:{width:393,height:800}}),errors=[];page.on('pageerror',e=>errors.push(e.message));
+  await page.evaluate(()=>{window.queries=[];window.respond=(index,fail=false)=>{const q=window.queries[index];window.CampusCallbacks.receive(q.id,fail?{ok:false,error:'旧查询失败'}:{ok:true,data:{total:1,page:q.page,books:[{id:q.keyword,title:q.keyword,author:'模拟作者',copies:1,available:1}]}});};window.CampusBridge={request(id,action,raw){const data=JSON.parse(raw);if(action==='library.search'){window.queries.push({id,...data});return;}setTimeout(()=>window.CampusCallbacks.receive(id,{ok:true,data:action==='bootstrap'?{page:'library'}:{books:[]}}),0);}};});
+  await page.setContent(renderCampusToolsPage());await page.evaluate(()=>window.CampusUI.start());await page.locator('#bookKeyword').waitFor();
+  const search=async keyword=>{await page.locator('#bookKeyword').fill(keyword);await page.locator('#bookSearch').evaluate(el=>el.requestSubmit());};
+  await search('旧书');await search('中间书');await search('新书');
+  assert.equal(await page.evaluate(()=>window.queries.length),1);
+  await page.evaluate(()=>window.respond(0));await page.waitForFunction(()=>window.queries.length===2);
+  assert.equal(await page.evaluate(()=>window.queries[1].keyword),'新书');assert.doesNotMatch(await page.locator('#bookResults').innerText(),/旧书/);
+  await page.evaluate(()=>window.respond(1));await page.locator('.book-card h3').waitFor();assert.equal(await page.locator('.book-card h3').innerText(),'新书');
+  await search('重复书');await search('重复书');assert.equal(await page.evaluate(()=>window.queries.length),3);await page.evaluate(()=>window.respond(2));
+  await page.waitForFunction(()=>document.querySelector('.book-card h3')?.textContent==='重复书');assert.equal(await page.evaluate(()=>window.queries.length),3);
+  await search('会失败的旧请求');await search('恢复书');await page.evaluate(()=>window.respond(3,true));await page.waitForFunction(()=>window.queries.length===5);await page.evaluate(()=>window.respond(4));
+  await page.waitForFunction(()=>document.querySelector('.book-card h3')?.textContent==='恢复书');assert.equal(await page.locator('#status').innerText(),'');assert.equal(await page.locator('#bookSearch button').innerText(),'搜索');
+  // Latest failure keeps visible results, permits manual retry, and does not become an empty success.
+  await search('失败书');await page.evaluate(()=>window.respond(5,true));await page.waitForFunction(()=>document.getElementById('status').textContent.includes('旧查询失败'));
+  assert.equal(await page.locator('.book-card h3').innerText(),'恢复书');await search('失败书');await page.evaluate(()=>window.respond(6));await page.waitForFunction(()=>document.querySelector('.book-card h3')?.textContent==='失败书');
+  assert.deepEqual(errors,[]);
  }finally{await browser.close();}
 });

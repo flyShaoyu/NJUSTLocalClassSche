@@ -82,7 +82,7 @@ object TimetableRenderer {
     calendarSemester: String? = null
   ): String? {
     var template = readAssetText(context, fileName) ?: return null
-    if (fileName == "timetable-view.html" && !template.contains("exam-timetable-v2")) {
+    if (fileName == "timetable-view.html" && !template.contains("exam-timetable-v3")) {
       template = runCatching { context.assets.open(fileName).bufferedReader().use { it.readText() } }.getOrDefault(template)
     }
     val safeJson = toJson(courses).replace("<", "\\u003c").replace("\u2028", "\\u2028").replace("\u2029", "\\u2029")
