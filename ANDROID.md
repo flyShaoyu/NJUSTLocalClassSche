@@ -174,7 +174,7 @@ npm run export:android
 原生登录入口首次先请求reader/redr_info.php核验已有会话，仅未登录时由原站引导登录表单；避免在已有会话时直接打开login.php使原站会话失效。测试账密通过测试APK的ADB本机内存通道填入，不放入adb命令参数、Intent或文件；该通道不在正式应用APK中。
 
 
-页面版本：校园工具`campus-typography-v8`、课表`exam-timetable-v4`、学分统计`general-credit-pages-v6`；旧资源包缺少标记时回退APK模板。图书搜索前端在单个原生请求进行中保留最新查询，避免触发原生`inFlight`拒绝；过期回调不覆盖新结果。图书馆密码提示使用原生TextInputLayout的placeholder，不写入密码字段。
+页面版本：校园工具`campus-typography-v8`、课表`exam-timetable-v4`、学分统计`general-credit-pages-v7`；旧资源包缺少标记时回退APK模板。图书搜索前端在单个原生请求进行中保留最新查询，避免触发原生`inFlight`拒绝；过期回调不覆盖新结果。图书馆密码提示使用原生TextInputLayout的placeholder，不写入密码字段。
 
 
 ### 图书馆成功登录后的本地账密保存（2026-10-30，替代此前仅内存策略）

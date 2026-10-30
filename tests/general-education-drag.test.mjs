@@ -109,6 +109,8 @@ test('恢复默认只改草稿，返回可放弃，保存后移除手动分类�
   const page=await browser.newPage({viewport:{width:393,height:800}});await openEditor(page);
   const custom={'code:00000001':'辅修','code:00000002':''};await page.evaluate(({key,value})=>localStorage.setItem(key,JSON.stringify(value)),{key:storageKey,value:custom});
   await page.reload();await page.evaluate(catalog=>window.GeneralEducationPage.updateCatalog(catalog),catalog);await page.evaluate(()=>window.GeneralEducationPage.edit());
+  const hintBox=await page.locator('#generalEditMessage').boundingBox(),resetBox=await page.locator('#generalResetDefaults').boundingBox();
+  assert.ok(resetBox.x>=hintBox.x+hintBox.width,'恢复默认位于提示右侧');assert.ok(resetBox.y<hintBox.y+hintBox.height&&hintBox.y<resetBox.y+resetBox.height,'按钮与提示同行');
   assert.equal(await card(page).getAttribute('data-course-category'),'辅修');await page.locator('#generalResetDefaults').click();
   assert.equal(await card(page).getAttribute('data-course-category'),'人文素养类');assert.deepEqual(await page.evaluate(key=>JSON.parse(localStorage.getItem(key)),storageKey),custom);
   page.once('dialog',dialog=>dialog.accept());await page.evaluate(()=>window.GeneralEducationPage.back());
