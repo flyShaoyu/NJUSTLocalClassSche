@@ -164,3 +164,6 @@ Android 登录改动还应在构建后运行 `node --test tests/android-login.te
 
 
 页面交互整理（2026-10-30）：`src/timetable-colors.ts`维护同周冲突图/Oklab色差选择，`timetable-ui.ts`维护30色及日程按钮；`campus-tools-ui.ts`的`loadBooks`串行合并最新查询、`renderLibraryAccount`管理四栏和底部操作；`enrollment-catalog-ui.ts`两行目录卡片；`general-education-drag.ts`维护触点居中、transform及最终松手坐标。覆盖在`tests/timetable-colors.test.mjs`、`campus-ui.test.mjs`、`general-education-drag.test.mjs`、`enrollment-catalog.test.mjs`；验证证据在被忽略的`artifacts/ui-polish-20261030/`。
+
+
+本轮跟进：`LibraryCredentialStore.kt`负责图书馆账号/密码/类型的独立Keystore密文与原子保存；`LibraryLoginActivity`只在本轮提交认证成功后保存并在重开时填入。设备阶段`libraryCredentials`为隔离的模拟认证闭环。`general-education-pages.ts`的`resetDefaults`重置分类草稿；课表详情正文与圆点布局在`timetable-ui.ts`，滚轮正文优先在`timetable-ui-script.ts`。专项测试位于`campus-ui.test.mjs`与`general-education-drag.test.mjs`，证据目录`artifacts/ui-polish-followup-20261030/`。

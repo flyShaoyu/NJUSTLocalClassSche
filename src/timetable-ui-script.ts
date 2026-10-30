@@ -692,7 +692,7 @@ export const buildTimetablePageScript = (params: TimetableScriptParams): string 
       document.getElementById('teacherRow').hidden = local || exam && !course.teacher;
       document.getElementById('codeRow').hidden = local || exam;
       sheetWatermark.hidden = local || exam;
-      // exam-timetable-v3: exam seat has its own row; internal session IDs never appear as notes.
+      // exam-timetable-v4: exam seat has its own row; internal session IDs never appear as notes.
       document.getElementById('scheduleNotesRow').hidden = !local || !course.notes;
       document.getElementById('sheetScheduleNotes').textContent = course.notes || '未填写备注';
       const edit = document.getElementById('local-schedule-edit');
@@ -918,6 +918,8 @@ export const buildTimetablePageScript = (params: TimetableScriptParams): string 
     }, { passive: true });
 
     detailSheet.addEventListener('wheel', (event) => {
+      const content=event.target.closest('.sheet-body');
+      if(content&&content.scrollHeight>content.clientHeight+1&&Math.abs(event.deltaY)>Math.abs(event.deltaX))return;
       if (!state.activeGroupId) return;
       const group = currentGroupsById.get(state.activeGroupId);
       if (!group || group.courses.length <= 1) return;

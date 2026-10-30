@@ -20,7 +20,7 @@ class RuntimeChecks : Instrumentation() {
   override fun onCreate(arguments: Bundle?) { super.onCreate(arguments); phase = arguments?.getString("phase") ?: "all"; start() }
   override fun onStart() {
     try {
-      when (phase) { "examExpansion" -> examExpansion(); "homeToolbar" -> homeToolbar(); "refinement" -> refinement(); "roomsMulti" -> roomsMulti(); "libraryNativeForm" -> libraryNativeForm(); "libraryReal" -> libraryReal(); "libraryAccount" -> libraryAccount(); "libraryNew" -> libraryNew(); "creditDrag" -> creditDrag(); "presentation" -> presentation(); "enrollment" -> enrollmentCatalogue(); "evaluation" -> evaluationOffline(); "cookies" -> cookieDiagnostics(); "loanCookie" -> loanCookie(); "queries" -> queries(); "catalog" -> catalog(); "interactions" -> interactions(); else -> localPages() }
+      when (phase) { "libraryCredentials" -> libraryCredentials(); "examExpansion" -> examExpansion(); "homeToolbar" -> homeToolbar(); "refinement" -> refinement(); "roomsMulti" -> roomsMulti(); "libraryNativeForm" -> libraryNativeForm(); "libraryReal" -> libraryReal(); "libraryAccount" -> libraryAccount(); "libraryNew" -> libraryNew(); "creditDrag" -> creditDrag(); "presentation" -> presentation(); "enrollment" -> enrollmentCatalogue(); "evaluation" -> evaluationOffline(); "cookies" -> cookieDiagnostics(); "loanCookie" -> loanCookie(); "queries" -> queries(); "catalog" -> catalog(); "interactions" -> interactions(); else -> localPages() }
       finish(Activity.RESULT_OK, Bundle().apply { putString("stream", "Runtime checks passed: $phase\n") })
     } catch (error: Throwable) {
       finish(Activity.RESULT_CANCELED, Bundle().apply { putString("stream", error.stackTraceToString()) })
@@ -484,6 +484,81 @@ class RuntimeChecks : Instrumentation() {
     } finally {ui{activity.finish()}}
   }
 
+  /** Synthetic credentials only; uses an isolated Keystore alias and no-backup file. */
+  private fun libraryCredentials() {
+    val namespace="library_credentials_test"
+    val vault=LibraryCredentialStore(targetContext,namespace)
+    val old=LibraryCredentialStore.Credentials("synthetic-old-user","synthetic-old-pass","bar_no")
+    val newer=LibraryCredentialStore.Credentials("synthetic-new-user","synthetic-new-pass","email")
+    val file=java.io.File(targetContext.noBackupFilesDir,"$namespace.enc")
+    var activity:Activity?=null
+    vault.clear()
+    try {
+      check(vault.save(old));check(vault.load()==old)
+      check(!vault.save(old.copy(password="")));check(vault.load()==old)
+      fun checkCiphertext(){val raw=file.readText();check(listOf(old.username,old.password,newer.username,newer.password).none { raw.contains(it) });check(raw.startsWith("v1:"))}
+      checkCiphertext()
+      val screen=launch(LibraryLoginActivity::class.java);activity=screen
+      val web=ui{screen.findViewById<WebView>(R.id.libraryLoginWebView)}
+      fun attachStore(screen:Activity){
+        LibraryLoginActivity::class.java.getDeclaredField("credentialStore").apply{isAccessible=true}.set(screen,vault)
+        ui{LibraryLoginActivity::class.java.getDeclaredMethod("restoreCredentials").apply{isAccessible=true}.invoke(screen)}
+      }
+      attachStore(screen)
+      check(ui{screen.findViewById<android.widget.EditText>(R.id.libraryUsername).text.toString()}==old.username)
+      check(ui{screen.findViewById<android.widget.EditText>(R.id.libraryPassword).text.toString()}==old.password)
+      val bitmap=android.graphics.Bitmap.createBitmap(90,34,android.graphics.Bitmap.Config.ARGB_8888)
+      android.graphics.Canvas(bitmap).apply{drawColor(android.graphics.Color.WHITE);drawText("TEST",8f,25f,android.graphics.Paint().apply{color=android.graphics.Color.BLUE;textSize=22f})}
+      val stream=java.io.ByteArrayOutputStream();bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG,100,stream);bitmap.recycle();val image=stream.toByteArray()
+      val accept=java.util.concurrent.atomic.AtomicBoolean(false);val posts=java.util.concurrent.atomic.AtomicInteger(0)
+      val form="<html><form method='POST' action='redr_verify.php'><input name='number'><input name='passwd' type='password'><input name='captcha'><input name='select' type='radio' value='bar_no'><input name='select' type='radio' value='cert_no'><input name='select' type='radio' value='email'><input type='submit'></form><img src='captcha.php'></html>"
+      ui {
+        web.stopLoading();val production=web.webViewClient
+        web.webViewClient=object:android.webkit.WebViewClient(){
+          override fun shouldInterceptRequest(v:WebView,r:android.webkit.WebResourceRequest):android.webkit.WebResourceResponse {
+            if(r.url.path.orEmpty().endsWith("captcha.php"))return android.webkit.WebResourceResponse("image/png",null,java.io.ByteArrayInputStream(image))
+            val html=if(r.method=="POST"&&r.url.path.orEmpty().endsWith("redr_verify.php")){
+              posts.incrementAndGet();if(accept.get())"<html><a href='logout.php'>注销</a></html>" else "<html><script>alert('用户名密码错误')</script></html>"
+            }else form
+            return android.webkit.WebResourceResponse("text/html","utf-8",java.io.ByteArrayInputStream(html.toByteArray()))
+          }
+          override fun onPageStarted(v:WebView,url:String,icon:android.graphics.Bitmap?){production.onPageStarted(v,url,icon)}
+          override fun onPageFinished(v:WebView,url:String){production.onPageFinished(v,url)}
+        }
+        web.loadUrl(CampusDataClient.LIBRARY+"reader/login.php")
+      }
+      fun awaitReady(){val deadline=SystemClock.uptimeMillis()+15000;while(SystemClock.uptimeMillis()<deadline&&!ui{screen.findViewById<android.widget.Button>(R.id.librarySubmit).isEnabled})SystemClock.sleep(100);check(ui{screen.findViewById<android.widget.Button>(R.id.librarySubmit).isEnabled})}
+      fun submit(){ui{
+        screen.findViewById<android.widget.EditText>(R.id.libraryUsername).setText(newer.username)
+        screen.findViewById<android.widget.EditText>(R.id.libraryPassword).setText(newer.password)
+        screen.findViewById<android.widget.EditText>(R.id.libraryCaptcha).setText("TEST")
+        screen.findViewById<android.widget.Spinner>(R.id.libraryLoginType).setSelection(2)
+        screen.findViewById<android.widget.Button>(R.id.librarySubmit).performClick()
+      }}
+      awaitReady();submit()
+      val failedDeadline=SystemClock.uptimeMillis()+15000
+      while(SystemClock.uptimeMillis()<failedDeadline&&(posts.get()<1||!ui{screen.findViewById<android.widget.Button>(R.id.librarySubmit).isEnabled}))SystemClock.sleep(100)
+      check(posts.get()==1);awaitReady();check(vault.load()==old)
+      accept.set(true);submit()
+      val deadline=SystemClock.uptimeMillis()+15000
+      while(SystemClock.uptimeMillis()<deadline&&!ui{screen.isFinishing})SystemClock.sleep(100)
+      check(ui{screen.isFinishing});check(posts.get()==2);check(vault.load()==newer);checkCiphertext()
+      check(LibraryCredentialStore(targetContext,namespace).load()==newer)
+      val reopened=launch(LibraryLoginActivity::class.java);activity=reopened
+      ui{reopened.findViewById<WebView>(R.id.libraryLoginWebView).stopLoading()};attachStore(reopened)
+      check(ui{reopened.findViewById<android.widget.EditText>(R.id.libraryUsername).text.toString()}==newer.username)
+      check(ui{reopened.findViewById<android.widget.EditText>(R.id.libraryPassword).text.toString()}==newer.password)
+      check(ui{reopened.findViewById<android.widget.Spinner>(R.id.libraryLoginType).selectedItemPosition}==2)
+      // Reusing an already-authenticated page must not overwrite credentials with unsubmitted edits.
+      ui{
+        reopened.findViewById<android.widget.EditText>(R.id.libraryPassword).setText("synthetic-unsubmitted")
+        LibraryLoginActivity::class.java.getDeclaredMethod("completeLogin").apply{isAccessible=true}.invoke(reopened)
+      }
+      check(vault.load()==newer)
+      report("Library encrypted credential flow passed with synthetic data: failed login does not overwrite, authenticated POST saves, isolated no-backup ciphertext contains no plaintext, reopen prefills account/password/type, session reuse does not save unsubmitted edits; no real credentials or external POST used")
+    } finally {ui{activity?.finish()};vault.clear();check(!file.exists())}
+  }
+
   /** Interactive CAPTCHA is completed by the owner; never snapshot/log real reader data. */
   private fun libraryReal() {
     val activity=launch(CampusToolsActivity::class.java){putExtra(CampusToolsActivity.EXTRA_PAGE,"library")}
@@ -708,8 +783,8 @@ class RuntimeChecks : Instrumentation() {
       snapshot("classification")
       check(js(view,"document.getElementById('generalStatsView').hidden")=="false")
       check(js(view,"document.querySelectorAll('[data-course-key] select').length")=="0")
-      fun point(selector: String): Pair<Float,Float> {
-        js(view,"document.querySelector(${JSONObject.quote(selector)}).scrollIntoView({block:'center'})")
+      fun point(selector: String, scroll: Boolean = true): Pair<Float,Float> {
+        if(scroll)js(view,"document.querySelector(${JSONObject.quote(selector)}).scrollIntoView({block:'center'})")
         val drawn=CountDownLatch(1)
         ui { view.postVisualStateCallback(1,object: WebView.VisualStateCallback(){override fun onComplete(id: Long){drawn.countDown()}}) }
         check(drawn.await(5,TimeUnit.SECONDS))
@@ -721,21 +796,32 @@ class RuntimeChecks : Instrumentation() {
       var down=0L
       fun touch(action: Int,pos: Pair<Float,Float>) {
         if(action==android.view.MotionEvent.ACTION_DOWN)down=SystemClock.uptimeMillis()
-        ui { val event=android.view.MotionEvent.obtain(down,SystemClock.uptimeMillis(),action,pos.first,pos.second,0);view.dispatchTouchEvent(event);event.recycle() }
+        ui {
+          val properties=arrayOf(android.view.MotionEvent.PointerProperties().apply{id=0;toolType=android.view.MotionEvent.TOOL_TYPE_FINGER})
+          val coords=arrayOf(android.view.MotionEvent.PointerCoords().apply{x=pos.first;y=pos.second;pressure=1f;size=1f})
+          val event=android.view.MotionEvent.obtain(down,SystemClock.uptimeMillis(),action,1,properties,coords,0,0,1f,1f,0,0,android.view.InputDevice.SOURCE_TOUCHSCREEN,0)
+          view.dispatchTouchEvent(event);event.recycle()
+        }
       }
+      js(view,"window.syntheticDragEvents=[];['touchstart','touchmove','touchend','touchcancel'].forEach(type=>document.addEventListener(type,e=>{const t=e.changedTouches[0];window.syntheticDragEvents.push({type,x:t?.clientX,y:t?.clientY,target:e.target.tagName,scroll:scrollY});window.syntheticDragEvents=window.syntheticDragEvents.slice(-8);},{capture:true,passive:true}))")
       val card="[data-course-key='code:00000001']"
       var pos=point("$card h3")
       touch(android.view.MotionEvent.ACTION_DOWN,pos);SystemClock.sleep(550)
       waitJs(view,"!!document.querySelector('.general-drag-ghost')")
-      pos=point("[data-category-drop='艺术审美类'] h2")
-      touch(android.view.MotionEvent.ACTION_MOVE,pos);touch(android.view.MotionEvent.ACTION_UP,pos)
+      val fromArt=pos;pos=point("[data-category-drop='艺术审美类'] h2",false)
+      for(step in 1..8){touch(android.view.MotionEvent.ACTION_MOVE,(fromArt.first+(pos.first-fromArt.first)*step/8) to (fromArt.second+(pos.second-fromArt.second)*step/8));SystemClock.sleep(30)}
+      report("Synthetic drag coordinates: "+js(view,"JSON.stringify({events:window.syntheticDragEvents,ghost:!!document.querySelector('.general-drag-ghost'),active:document.querySelector('.general-drop-active')?.dataset.categoryDrop,target:document.querySelector('[data-category-drop=艺术审美类] h2').getBoundingClientRect().toJSON(),width:innerWidth,height:innerHeight})"))
+      waitJs(view,"!!document.querySelector('[data-category-drop=艺术审美类].general-drop-active')")
+      touch(android.view.MotionEvent.ACTION_UP,pos)
       waitJs(view,"!!document.querySelector('[data-category-drop=艺术审美类] [data-course-key]')")
       SystemClock.sleep(400) // Two instantly synthesized gestures can be consumed as a native double-tap.
       pos=point("$card .general-drag-handle")
       touch(android.view.MotionEvent.ACTION_DOWN,pos)
       waitJs(view,"!!document.querySelector('.general-drag-ghost')")
-      pos=point("[data-category-drop='辅修'] h2")
-      touch(android.view.MotionEvent.ACTION_MOVE,pos);touch(android.view.MotionEvent.ACTION_UP,pos)
+      val fromMinor=pos;pos=point("[data-category-drop='辅修'] h2",false)
+      for(step in 1..8){touch(android.view.MotionEvent.ACTION_MOVE,(fromMinor.first+(pos.first-fromMinor.first)*step/8) to (fromMinor.second+(pos.second-fromMinor.second)*step/8));SystemClock.sleep(30)}
+      waitJs(view,"!!document.querySelector('[data-category-drop=辅修].general-drop-active')")
+      touch(android.view.MotionEvent.ACTION_UP,pos)
       waitJs(view,"!!document.querySelector('[data-category-drop=辅修] [data-course-key]')")
       js(view,"window.GeneralEducationPage.toolbarAction()")
       check(js(view,"JSON.parse(localStorage.getItem('classsche.general-education.drag-device-test'))['code:00000001']")=="\"辅修\"")

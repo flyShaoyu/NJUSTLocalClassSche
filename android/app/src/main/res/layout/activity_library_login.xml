@@ -10,7 +10,7 @@
 <com.google.android.material.textfield.TextInputLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="验证码"><com.google.android.material.textfield.TextInputEditText android:id="@+id/libraryCaptcha" android:layout_width="match_parent" android:layout_height="wrap_content" android:inputType="textNoSuggestions" android:singleLine="true" android:saveEnabled="false" android:importantForAutofill="no" /></com.google.android.material.textfield.TextInputLayout>
 <TextView android:id="@+id/libraryLoginStatus" android:layout_width="match_parent" android:layout_height="wrap_content" android:paddingTop="12dp" android:paddingBottom="12dp" android:text="正在准备验证码…" android:textSize="13sp" />
 <com.google.android.material.button.MaterialButton android:id="@+id/librarySubmit" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp" android:text="登录" android:enabled="false" />
-<TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:paddingTop="10dp" android:textSize="12sp" android:text="不保存账号密码或状态数据，仅保留用于官网复用的登录态。验证码需手动填写。" />
+<TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:paddingTop="10dp" android:textSize="12sp" android:text="登录成功后在本机加密保存账号密码，下次自动填入。状态数据不保存，验证码仍需手动填写。" />
 </LinearLayout></ScrollView>
 <WebView android:id="@+id/libraryLoginWebView" android:layout_width="match_parent" android:layout_height="1dp" android:visibility="invisible" android:importantForAutofill="noExcludeDescendants" />
 </LinearLayout>

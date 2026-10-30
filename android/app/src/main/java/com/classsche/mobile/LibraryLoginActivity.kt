@@ -15,7 +15,7 @@ import com.classsche.mobile.databinding.ActivityLibraryLoginBinding
 import org.json.JSONObject
 import org.json.JSONTokener
 
-/** Native, memory-only credentials; the official page still owns CSRF and password encoding. */
+/** Native credentials saved encrypted only after authenticated submission; the official page still owns CSRF and password encoding. */
 class LibraryLoginActivity : AppCompatActivity() {
   private lateinit var binding: ActivityLibraryLoginBinding
   private val handler=Handler(Looper.getMainLooper())
@@ -25,6 +25,8 @@ class LibraryLoginActivity : AppCompatActivity() {
   private var ready=false
   private var lastFailure=""
   private var captchaBitmap:Bitmap?=null
+  private lateinit var credentialStore:LibraryCredentialStore
+  private var submittedCredentials:LibraryCredentialStore.Credentials?=null
 
   @SuppressLint("SetJavaScriptEnabled")
   override fun onCreate(savedInstanceState:Bundle?) {
@@ -36,6 +38,8 @@ class LibraryLoginActivity : AppCompatActivity() {
     SecondaryPageToolbar.bind(binding.root,binding.toolbar)
     binding.toolbar.setNavigationOnClickListener{finish()}
     binding.libraryLoginType.adapter=ArrayAdapter(this,android.R.layout.simple_spinner_dropdown_item,listOf("条码号（学号）","证件号","Email"))
+    credentialStore=LibraryCredentialStore(this)
+    restoreCredentials()
     with(binding.libraryLoginWebView.settings){
       javaScriptEnabled=true;domStorageEnabled=false;allowFileAccess=false;allowContentAccess=false
       cacheMode=WebSettings.LOAD_NO_CACHE;saveFormData=false
@@ -51,7 +55,7 @@ class LibraryLoginActivity : AppCompatActivity() {
       override fun onJsAlert(v:WebView,url:String,message:String,result:JsResult):Boolean{
         if(!trusted(url))return false
         lastFailure=when{message.contains("验证码")->"验证码不正确，请换一张后重试";message.contains("密码")||message.contains("用户名")->"账号、图书馆密码或登录类型不正确";else->"图书馆未接受登录，请检查输入"}
-        pending=false;binding.libraryLoginStatus.text=lastFailure;result.confirm()
+        submittedCredentials=null;pending=false;binding.libraryLoginStatus.text=lastFailure;result.confirm()
         handler.post{reload(false)};return true
       }
     }
@@ -59,12 +63,23 @@ class LibraryLoginActivity : AppCompatActivity() {
     binding.librarySubmit.setOnClickListener{submit()}
     reload(true,true)
   }
+  private fun restoreCredentials(){
+    credentialStore.load()?.let { saved ->
+      binding.libraryUsername.setText(saved.username);binding.libraryPassword.setText(saved.password)
+      binding.libraryLoginType.setSelection(listOf("bar_no","cert_no","email").indexOf(saved.type).coerceAtLeast(0))
+    }
+  }
+  private fun completeLogin(){
+    val submitted=submittedCredentials;submittedCredentials=null
+    if(submitted!=null&&!credentialStore.save(submitted))android.widget.Toast.makeText(this,"登录成功，但账密加密保存失败；下次需重新输入",android.widget.Toast.LENGTH_LONG).show()
+    CookieManager.getInstance().flush();binding.libraryPassword.text?.clear();binding.libraryCaptcha.text?.clear();setResult(RESULT_OK);finish()
+  }
   private fun trusted(url:String)=url.startsWith(CampusDataClient.LIBRARY)&&!url.contains("@")
-  private fun fail(message:String){pending=false;binding.libraryLoginStatus.text=message;binding.librarySubmit.isEnabled=false;binding.libraryRefreshCaptcha.isEnabled=true}
+  private fun fail(message:String){submittedCredentials=null;pending=false;binding.libraryLoginStatus.text=message;binding.librarySubmit.isEnabled=false;binding.libraryRefreshCaptcha.isEnabled=true}
   private fun reload(clearFailure:Boolean,reuseExisting:Boolean=false){
     if(isFinishing||isDestroyed)return
     if(clearFailure)lastFailure=""
-    pending=false;ready=false;binding.librarySubmit.isEnabled=false;binding.libraryCaptcha.text?.clear()
+    submittedCredentials=null;pending=false;ready=false;binding.librarySubmit.isEnabled=false;binding.libraryCaptcha.text?.clear()
     binding.libraryCaptchaImage.setImageDrawable(null);captchaBitmap?.recycle();captchaBitmap=null
     binding.libraryLoginStatus.text=lastFailure.ifBlank{"正在准备验证码…"}
     binding.libraryLoginWebView.loadUrl(if(reuseExisting)CampusDataClient.LIBRARY+"reader/redr_info.php" else loginUrl)
@@ -83,7 +98,7 @@ class LibraryLoginActivity : AppCompatActivity() {
       if(isFinishing||isDestroyed||version!=generation)return@evaluateJavascript
       val data=runCatching{JSONObject(JSONTokener(raw).nextValue() as String)}.getOrNull()
       if(data?.optBoolean("authenticated")==true){
-        CookieManager.getInstance().flush();binding.libraryPassword.text?.clear();binding.libraryCaptcha.text?.clear();setResult(RESULT_OK);finish();return@evaluateJavascript
+        completeLogin();return@evaluateJavascript
       }
       if(data?.has("image")==true){
         val encoded=data.optString("image").substringAfter("base64,","")
@@ -113,8 +128,9 @@ class LibraryLoginActivity : AppCompatActivity() {
       u.value=${JSONObject.quote(username)};p.value=${JSONObject.quote(password)};c.value=${JSONObject.quote(captcha)};t.checked=true;
       if(f.requestSubmit)f.requestSubmit();else f.querySelector('input[type=submit],button[type=submit]').click();return true;
     })()""".trimIndent()
+    submittedCredentials=LibraryCredentialStore.Credentials(username,password,type)
     pending=true;ready=false;lastFailure="";binding.librarySubmit.isEnabled=false;binding.libraryRefreshCaptcha.isEnabled=false;binding.libraryLoginStatus.text="正在登录…"
     binding.libraryLoginWebView.evaluateJavascript(script){result->if(result!="true"&&!isFinishing&&!isDestroyed)fail("官网登录表单已变化，请重新获取验证码")}
   }
-  override fun onDestroy(){handler.removeCallbacksAndMessages(null);binding.libraryUsername.text?.clear();binding.libraryPassword.text?.clear();binding.libraryCaptcha.text?.clear();binding.libraryLoginWebView.stopLoading();binding.libraryLoginWebView.destroy();binding.libraryCaptchaImage.setImageDrawable(null);captchaBitmap?.recycle();super.onDestroy()}
+  override fun onDestroy(){submittedCredentials=null;handler.removeCallbacksAndMessages(null);binding.libraryUsername.text?.clear();binding.libraryPassword.text?.clear();binding.libraryCaptcha.text?.clear();binding.libraryLoginWebView.stopLoading();binding.libraryLoginWebView.destroy();binding.libraryCaptchaImage.setImageDrawable(null);captchaBitmap?.recycle();super.onDestroy()}
 }

@@ -102,3 +102,20 @@ test('分类在统计页内编辑，删除只移至待分类，空分类才有�
   assert.match(await page.locator('#generalTotals').innerText(),/总学分\n3 学分/);
  }finally{await browser.close();}
 });
+
+
+test('恢复默认只改草稿，返回可放弃，保存后移除手动分类并在重载后使用默认',{timeout:30000},async()=>{
+ const browser=await chromium.launch({headless:true});try{
+  const page=await browser.newPage({viewport:{width:393,height:800}});await openEditor(page);
+  const custom={'code:00000001':'辅修','code:00000002':''};await page.evaluate(({key,value})=>localStorage.setItem(key,JSON.stringify(value)),{key:storageKey,value:custom});
+  await page.reload();await page.evaluate(catalog=>window.GeneralEducationPage.updateCatalog(catalog),catalog);await page.evaluate(()=>window.GeneralEducationPage.edit());
+  assert.equal(await card(page).getAttribute('data-course-category'),'辅修');await page.locator('#generalResetDefaults').click();
+  assert.equal(await card(page).getAttribute('data-course-category'),'人文素养类');assert.deepEqual(await page.evaluate(key=>JSON.parse(localStorage.getItem(key)),storageKey),custom);
+  page.once('dialog',dialog=>dialog.accept());await page.evaluate(()=>window.GeneralEducationPage.back());
+  assert.match(await page.locator('#generalCategoryList').innerText(),/辅修/);
+  await page.evaluate(()=>window.GeneralEducationPage.edit());await page.locator('#generalResetDefaults').click();await page.evaluate(()=>window.GeneralEducationPage.toolbarAction());
+  assert.deepEqual(await page.evaluate(key=>JSON.parse(localStorage.getItem(key)),storageKey),{});
+  await page.reload();await page.evaluate(catalog=>window.GeneralEducationPage.updateCatalog(catalog),catalog);await page.locator('#openGeneralEducation').click();
+  assert.match(await page.locator('#generalCategoryList').innerText(),/人文素养类/);assert.doesNotMatch(await page.locator('#generalCategoryList').innerText(),/辅修/);assert.equal(await page.locator('#generalResetDefaults').isVisible(),false);
+ }finally{await browser.close();}
+});

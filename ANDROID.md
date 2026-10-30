@@ -161,12 +161,12 @@ npm run export:android
 
 `library.status`只读`reader/redr_info.php`，仅解析`.infobox-container .infobox`中的4个状态块；不提取profile、图表或借阅历史，结构不完整则明确报错，不填造数据。账号页只提供独立登录、刷新和打开官网，更多操作交给原站。登录使用官方WebView表单，验证码由用户填写；成功后返回并重新核验状态，不能仅凭网页跳转宣称登录成功。
 
-登录/官网页通过`private_library`启用LOAD_NO_CACHE、禁用DOM存储、表单保存和自动填充；原生reader请求禁用缓存。不写入状态JSON/HTML、个人资料、账密或真实截图。仅保留WebView会话Cookie供后续原站访问复用；不导出Cookie。测试使用.env的`LIB_USERNAME/LIB_PASSWORD`，不能使用学校`USERNAME/PASSWORD`；.env不进入APK或Git。临时浏览器真实登录验证已完成，测试上下文关闭后清理登录态；仅记录结构结论，不记录数值和个人页面。
+登录/官网页通过`private_library`启用LOAD_NO_CACHE、禁用DOM存储、表单保存和自动填充；原生reader请求禁用缓存。不写入状态JSON/HTML、个人资料或真实截图；账密保存策略见下方最新加密存储说明。仅保留WebView会话Cookie供后续原站访问复用；不导出Cookie。测试使用.env的`LIB_USERNAME/LIB_PASSWORD`，不能使用学校`USERNAME/PASSWORD`；.env不进入APK或Git。临时浏览器真实登录验证已完成，测试上下文关闭后清理登录态；仅记录结构结论，不记录数值和个人页面。
 
 
 ### 原生图书馆登录框
 
-`LibraryLoginActivity.kt`/`activity_library_login.xml`替代直接网页输入：原生EditText及类型选择，隐藏且无原生桥接的官方WebView仅负责既有CSRF、验证码和密码编码。验证码通过同源Canvas从已加载图片复制到本地ImageView，RAM内解码；不识别验证码、不上传、不截图、不落盘。换一张重新获取官网表单，提交用requestSubmit（兼容submit按钮点击）触发官网原编码一次。字段禁用状态保存/自动填充、页面禁用缓存/DOM存储，窗口FLAG_SECURE防止登录截图；销毁时清空密码/验证码，成功只保存供官网复用的WebView会话Cookie。
+`LibraryLoginActivity.kt`/`activity_library_login.xml`替代直接网页输入：原生EditText及类型选择，隐藏且无原生桥接的官方WebView仅负责既有CSRF、验证码和密码编码。验证码通过同源Canvas从已加载图片复制到本地ImageView，RAM内解码；不识别验证码、不上传、不截图、不落盘。换一张重新获取官网表单，提交用requestSubmit（兼容submit按钮点击）触发官网原编码一次。字段禁用状态保存/自动填充、页面禁用缓存/DOM存储，窗口FLAG_SECURE防止登录截图；销毁时清空密码/验证码，成功保留供官网复用的WebView会话Cookie；本轮新增授权后，还通过独立Keystore密钥加密保存图书馆账密和登录类型。
 
 已通过真实模拟器四栏API和官网已登录状态验证。官网荐购图书一栏的数值可能是空span；保留“—”表示未提供，不编造0。模拟登录框图片/路由测试使用明确的TEST图片，不提交真实账号；表单编码、单次提交、异常目标拦截使用模拟凭据。用户真实验证码仅由本人输入。
 
@@ -174,4 +174,8 @@ npm run export:android
 原生登录入口首次先请求reader/redr_info.php核验已有会话，仅未登录时由原站引导登录表单；避免在已有会话时直接打开login.php使原站会话失效。测试账密通过测试APK的ADB本机内存通道填入，不放入adb命令参数、Intent或文件；该通道不在正式应用APK中。
 
 
-页面版本：校园工具`campus-typography-v8`、课表`exam-timetable-v3`、学分统计`general-credit-pages-v5`；旧资源包缺少标记时回退APK模板。图书搜索前端在单个原生请求进行中保留最新查询，避免触发原生`inFlight`拒绝；过期回调不覆盖新结果。图书馆密码提示使用原生TextInputLayout的placeholder，不写入密码字段。
+页面版本：校园工具`campus-typography-v8`、课表`exam-timetable-v4`、学分统计`general-credit-pages-v6`；旧资源包缺少标记时回退APK模板。图书搜索前端在单个原生请求进行中保留最新查询，避免触发原生`inFlight`拒绝；过期回调不覆盖新结果。图书馆密码提示使用原生TextInputLayout的placeholder，不写入密码字段。
+
+
+### 图书馆成功登录后的本地账密保存（2026-10-30，替代此前仅内存策略）
+`LibraryCredentialStore.kt`使用独立Android Keystore AES-256-GCM密钥，将账号、密码、登录类型整条加密并通过AtomicFile写入noBackupFilesDir，隔离于教务CredentialStore。只有原生提交后官网出现认证标记才保存；失败/取消/仅复用既有会话不保存，保存失败明确提示。重开原生框自动填入保存的账密和类型，不自动提交或代答验证码。数据不进入网页模板、日志、Git或Android备份。Instrumentation阶段`libraryCredentials`只用隔离test命名空间和虚构账密验证加密、失败不覆盖、成功保存、重开及已有会话不覆盖；收尾删除测试文件和密钥。

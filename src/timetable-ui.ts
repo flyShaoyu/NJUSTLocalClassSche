@@ -652,8 +652,10 @@ export const renderTimetablePage = (courses: TimetableCourse[]): string => {
     .sheet-body {
       position: relative;
       padding: 8px 22px 0;
-      min-height: 150px;
-      overflow: hidden;
+      min-height: 0;
+      overflow: auto;
+      overscroll-behavior: contain;
+      padding-bottom: 6px;
     }
 
     .sheet-dots {
@@ -739,7 +741,7 @@ export const renderTimetablePage = (courses: TimetableCourse[]): string => {
       z-index: 1;
     }
 
-    .schedule-edit-button{display:flex;align-items:center;justify-content:center;gap:9px;margin:14px 0 6px;min-height:44px;padding:10px 16px;border:1px solid #d2e3f3;border-radius:10px;background:#eaf3fc;color:#507da9;font-family:var(--font-cn);font-size:16px;text-decoration:none;touch-action:manipulation}.schedule-edit-button svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}.schedule-edit-button:active{background:#dcecfb}.schedule-edit-button[hidden]{display:none}
+    .schedule-edit-button{display:inline-flex;justify-self:start;align-items:center;gap:5px;margin:2px 0;min-height:28px;padding:2px 0;border:0;background:transparent;color:white;font-family:var(--font-cn);font-size:14px;text-decoration:none;touch-action:manipulation;opacity:.9}.schedule-edit-button svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}.schedule-edit-button:active{opacity:.65}.schedule-edit-button[hidden]{display:none}
     .sheet-row {
       display: flex;
       align-items: baseline;

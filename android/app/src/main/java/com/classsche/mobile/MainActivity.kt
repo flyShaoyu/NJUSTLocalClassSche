@@ -3516,7 +3516,7 @@ class MainActivity : AppCompatActivity() {
   private fun loadScorePageWithLatestData() {
     scoreSection = "scores"
     val currentTemplate = readRuntimeAssetText("score-view.html")
-    val compatibleTemplate = if (currentTemplate?.contains("general-credit-pages-v5") == true) currentTemplate else
+    val compatibleTemplate = if (currentTemplate?.contains("general-credit-pages-v6") == true) currentTemplate else
       runCatching { assets.open("score-view.html").bufferedReader(Charsets.UTF_8).use { it.readText() } }.getOrNull() ?: currentTemplate
     val templateHtml = compatibleTemplate?.let {
       injectLevelExamJsonIntoTemplate(it, readLatestLevelExamJson() ?: "[]")

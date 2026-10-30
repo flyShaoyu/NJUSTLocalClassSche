@@ -143,7 +143,8 @@ test('个人课表显示真实日程时间与备注，文本安全，教师课�
     assert.equal(await page.locator('#sheetPeriodLine').innerText(),'10:20-13:10');
     assert.equal(await page.locator('#sheetScheduleNotes').innerText(),'资料\n<备注>');
     assert.equal(await page.locator('#local-schedule-edit').getAttribute('href'),'classsche://schedule/edit?id=abc');
-    assert.ok((await page.locator('#local-schedule-edit').boundingBox()).height>=44);
+    assert.ok((await page.locator('#local-schedule-edit').boundingBox()).height<=32);
+    assert.equal(await page.locator('#local-schedule-edit').evaluate(el=>getComputedStyle(el).backgroundColor),'rgba(0, 0, 0, 0)');
     assert.equal(await page.locator('#local-schedule-edit svg').count(),1);
     assert.equal(await page.locator('img').count(),0);
     assert.equal(await page.locator('#teacherRow').isVisible(),false);
@@ -199,5 +200,24 @@ test('图书搜索保留最新请求，串行避开原生操作冲突，旧结�
   await search('失败书');await page.evaluate(()=>window.respond(5,true));await page.waitForFunction(()=>document.getElementById('status').textContent.includes('旧查询失败'));
   assert.equal(await page.locator('.book-card h3').innerText(),'恢复书');await search('失败书');await page.evaluate(()=>window.respond(6));await page.waitForFunction(()=>document.querySelector('.book-card h3')?.textContent==='失败书');
   assert.deepEqual(errors,[]);
+ }finally{await browser.close();}
+});
+
+
+test('小屏重叠日程：编辑无背景小按钮，详情可滚动且底部切换圆点可见可点击',{timeout:30000},async()=>{
+ const browser=await chromium.launch({headless:true});try{
+  const page=await browser.newPage({viewport:{width:393,height:640}});page.setDefaultTimeout(6000);
+  const base={weekday:'星期一',periods:'1-3节',weeks:'1-20周',courseType:'本地日程',startTime:'08:00',endTime:'10:00',classroom:'模拟地点',notes:'模拟说明'.repeat(100)};
+  await page.setContent(renderTimetablePage([{...base,courseName:'日程甲',courseCode:'local:a'},{...base,courseName:'日程乙',courseCode:'local:b'}]));
+  await page.locator('.course-card').last().click();await page.waitForTimeout(300);
+  assert.equal(await page.locator('#sheetDots .sheet-dot').count(),2);
+  const activeBefore=await page.locator('#sheetDots .sheet-dot.active').getAttribute('data-dot-index');
+  await page.locator('.sheet-body').hover();await page.mouse.wheel(0,150);await page.waitForFunction(()=>document.querySelector('.sheet-body').scrollTop>0);
+  assert.equal(await page.locator('#sheetDots .sheet-dot.active').getAttribute('data-dot-index'),activeBefore,'垂直滚动备注不切换日程');
+  await page.locator('#local-schedule-edit').scrollIntoViewIfNeeded();
+  const edit=await page.locator('#local-schedule-edit').boundingBox(),dots=await page.locator('#sheetDots').boundingBox();
+  assert.ok(edit.height<=32);assert.ok(edit.y+edit.height<=dots.y+1,'编辑按钮不侵占圆点区');assert.ok(dots.y+dots.height<=640,'圆点不被详情底部裁掉');
+  const target=await page.locator('#sheetDots .sheet-dot').nth(1).getAttribute('data-dot-index');
+  await page.locator('#sheetDots .sheet-dot').nth(1).click();assert.equal(await page.locator('#sheetDots .sheet-dot.active').getAttribute('data-dot-index'),target);
  }finally{await browser.close();}
 });
