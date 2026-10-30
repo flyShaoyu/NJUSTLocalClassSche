@@ -36,6 +36,8 @@ android {
     jvmTarget = "17"
   }
 
+  packaging { resources { pickFirsts += setOf("META-INF/LICENSE.md", "META-INF/NOTICE.md") } }
+
   buildFeatures {
     viewBinding = true
   }
@@ -48,4 +50,7 @@ dependencies {
   implementation("androidx.activity:activity-ktx:1.9.2")
   implementation("androidx.webkit:webkit:1.11.0")
   implementation("org.jsoup:jsoup:1.18.1")
+  implementation("org.eclipse.angus:jakarta.mail:2.0.5")
+  implementation("org.eclipse.angus:angus-activation:2.0.3")
+  implementation("jakarta.activation:jakarta.activation-api:2.1.4")
 }

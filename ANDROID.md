@@ -182,3 +182,12 @@ npm run export:android
 
 
 ReleaseVersion.kt支持alpha.N/beta.N/rc.N，更新页面保留完整版本后缀并按数值序号比较，正式版本高于同核心预览版本。预览APK同样递增versionCode，使用现有签名。
+
+
+### 原生学校邮箱
+入口：CampusToolsActivity仅从可信本地小工具页打开未导出的SchoolMailActivity。邮件/授权码不走JS桥接。SchoolMailAccountStore复用独立namespace的Keystore AES-GCM存储；与图书馆和教务凭据隔离。凭据配置仅在IMAP/SMTP认证通过后保存。
+SchoolMailClient使用Eclipse Angus Mail 2.0.5（官方Android兼容说明：https://eclipse-ee4j.github.io/angus-mail/Android），Activation 2.0.3/API 2.1.4。默认IMAPS993、SMTPS465，系统证书及主机名校验，不放宽TLS；固定腾讯服务主机，不支持任意邮件服务器。连接15秒、读写25秒超时，后台执行，不自动重发SMTP。
+列表每页30条，仅预取envelope/flags/UID；用UID和UIDVALIDITY校验与分页，不跨邮件夹复用编号，READ_ONLY和peek不改已读。正文最多512KB，MIME深度/数量有界，附件不取内容，HTML只转文字。首版不实现附件发送、完整HTML、删除、标已读或离线正文缓存。
+SchoolMailOutbox只持久化唯一草稿编号、账号指纹、Message-ID、时间和发送状态，不存正文或授权码。accepted=SMTP受理；unknown/partial不能当发送失败自动重试；进程中断的sending转unknown。成功后核对/追加已发送副本，副本失败不再发SMTP。
+SchoolMailPolling默认关闭，JobScheduler持久任务74120、联网约束和15/30/60分钟周期；系统不保证准点。通知74121默认不显示邮件标题/发件人。新UID基线按账号与UIDVALIDITY隔离；撤销配置/停用轮询不继续后续通知。轮询结果以通用错误描述存入本机设置，不记录原始协议或邮件内容。
+设备测试schoolMail使用内存假Store/Transport，覆盖读写逻辑但不冒充真实协议送达；schoolMailTls只握手及欢迎语；schoolMailReal的.env内存接入仅存在测试APK；schoolMailSendTest仅用户单独授权时执行，通过本机内存通道接收本人指定的单个收件人并先查唯一记录。未配置有效授权码时不能宣称真实收发通过。

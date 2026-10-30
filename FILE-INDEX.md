@@ -170,3 +170,6 @@ Android 登录改动还应在构建后运行 `node --test tests/android-login.te
 
 
 预览发布：本机`release-tools/release-lib.mjs`管理语义版本及预发布API属性，`release.mjs`负责--prerelease计划与续传；测试`release-tools/tests/*.test.mjs`完全模拟外部写入。`ReleaseVersion.kt`用于Android更新后缀提取与比较，回归在`CampusParserCheck.java`。
+
+
+学校邮箱：`SchoolMailActivity.kt`（原生设置、列表、阅读、写信、回执）、`SchoolMailModels.kt`（模型、输入校验、独立授权码密文）、`SchoolMailClient.kt`（Angus IMAP/SMTP）、`SchoolMailMime.kt`（有界纯文字解析）、`SchoolMailOutbox.kt`（发送唯一编号及未知状态持久化）、`SchoolMailPolling.kt`（默认关闭的系统联网周期任务及隐私通知）。布局`activity_school_mail.xml`，入口在`campus-tools-ui.ts`/`CampusToolsActivity.kt`。核心和UID/MIME/回执测试在`SchoolMailChecks.kt`，设备阶段schoolMail/schoolMailTls/schoolMailReal/schoolMailSendTest在`RuntimeChecks.kt`；证据目录`artifacts/school-mail-20261030/`。

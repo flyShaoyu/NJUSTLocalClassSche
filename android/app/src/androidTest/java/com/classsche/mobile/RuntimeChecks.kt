@@ -20,7 +20,7 @@ class RuntimeChecks : Instrumentation() {
   override fun onCreate(arguments: Bundle?) { super.onCreate(arguments); phase = arguments?.getString("phase") ?: "all"; start() }
   override fun onStart() {
     try {
-      when (phase) { "libraryCredentials" -> libraryCredentials(); "examExpansion" -> examExpansion(); "homeToolbar" -> homeToolbar(); "refinement" -> refinement(); "roomsMulti" -> roomsMulti(); "libraryNativeForm" -> libraryNativeForm(); "libraryReal" -> libraryReal(); "libraryAccount" -> libraryAccount(); "libraryNew" -> libraryNew(); "creditDrag" -> creditDrag(); "presentation" -> presentation(); "enrollment" -> enrollmentCatalogue(); "evaluation" -> evaluationOffline(); "cookies" -> cookieDiagnostics(); "loanCookie" -> loanCookie(); "queries" -> queries(); "catalog" -> catalog(); "interactions" -> interactions(); else -> localPages() }
+      when (phase) { "schoolMailSendTest" -> schoolMailSendTest(); "schoolMailReal" -> schoolMailReal(); "schoolMailTls" -> schoolMailTls(); "schoolMail" -> {SchoolMailChecks.run(targetContext,::report);schoolMailUi()}; "libraryCredentials" -> libraryCredentials(); "examExpansion" -> examExpansion(); "homeToolbar" -> homeToolbar(); "refinement" -> refinement(); "roomsMulti" -> roomsMulti(); "libraryNativeForm" -> libraryNativeForm(); "libraryReal" -> libraryReal(); "libraryAccount" -> libraryAccount(); "libraryNew" -> libraryNew(); "creditDrag" -> creditDrag(); "presentation" -> presentation(); "enrollment" -> enrollmentCatalogue(); "evaluation" -> evaluationOffline(); "cookies" -> cookieDiagnostics(); "loanCookie" -> loanCookie(); "queries" -> queries(); "catalog" -> catalog(); "interactions" -> interactions(); else -> localPages() }
       finish(Activity.RESULT_OK, Bundle().apply { putString("stream", "Runtime checks passed: $phase\n") })
     } catch (error: Throwable) {
       finish(Activity.RESULT_CANCELED, Bundle().apply { putString("stream", error.stackTraceToString()) })
@@ -57,6 +57,118 @@ class RuntimeChecks : Instrumentation() {
   }
   private fun launch(type: Class<out Activity>, extras: Intent.() -> Unit = {}): Activity =
     startActivitySync(Intent(targetContext, type).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); extras() })
+
+  /** Test APK only: caller supplies one explicitly authorized recipient over a local RAM channel. */
+  private fun schoolMailSendTest(){
+    val account=SchoolMailAccountStore(targetContext).load()?:error("Real account must authenticate before send test")
+    val server=java.net.ServerSocket(0,1,java.net.InetAddress.getByName("127.0.0.1"));server.soTimeout=120000
+    report("MAIL_SEND_TEST_PORT="+server.localPort)
+    val recipient=server.use{listener->listener.accept().use{socket->
+      socket.soTimeout=15000;val text=socket.getInputStream().bufferedReader().readLine().orEmpty();check(text.length<=1000)
+      val value=JSONObject(text).getString("recipient");check(SchoolMailPolicy.addresses(value).size==1)
+      socket.getOutputStream().write("OK\n".toByteArray());socket.getOutputStream().flush();value
+    }}
+    val id=java.util.UUID.nameUUIDFromBytes(("classsche-school-mail-test-20261030:"+account.address+":"+recipient).toByteArray()).toString()
+    SchoolMailOutbox(targetContext).use{outbox->
+      val prior=outbox.find(id)
+      if(prior!=null){report("Authorized test already has journal state="+prior.state+"; no duplicate send attempted; id="+id);check(prior.state=="accepted"){"Prior send not confirmed; refused resend"};return}
+      val draft=SchoolMailDraft(recipient,"课表App邮箱功能验证 [20261030]","这是一封由课表App发出的学校邮箱收发功能测试邮件。\n仅用于验证SMTP发送，测试结束，无需回复。")
+      val result=SchoolMailClient(account).send(id,draft,outbox)
+      report("Authorized one-time test: state="+result.state+"; id="+id+"; "+result.detail)
+      check(result.state=="accepted"){"Test was not confirmed accepted; journal retained; no automatic retry"}
+      check(outbox.find(id)?.state=="accepted")
+    }
+  }
+
+  /** Authorized .env EMAIL fields enter RAM through test APK only. No external mail is sent. */
+  private fun schoolMailReal(){
+    val activity=launch(SchoolMailActivity::class.java)
+    try{
+      val busy=SchoolMailActivity::class.java.getDeclaredField("busy").apply{isAccessible=true}
+      val readyDeadline=SystemClock.uptimeMillis()+90000
+      while(SystemClock.uptimeMillis()<readyDeadline&&ui{busy.getBoolean(activity)})SystemClock.sleep(100)
+      check(!ui{busy.getBoolean(activity)}){"Previous mailbox read still in progress"}
+      ui{SchoolMailActivity::class.java.getDeclaredMethod("settings").apply{isAccessible=true}.invoke(activity)}
+      val server=java.net.ServerSocket(0,1,java.net.InetAddress.getByName("127.0.0.1"));server.soTimeout=120000
+      var expectedAccount:SchoolMailAccount?=null
+      report("MAIL_CREDENTIAL_PORT="+server.localPort)
+      server.use{listener->listener.accept().use{socket->
+        socket.soTimeout=15000;val input=socket.getInputStream().bufferedReader(Charsets.UTF_8);val line=StringBuilder()
+        while(line.length<8192){val ch=input.read();if(ch<0||ch==10)break;line.append(ch.toChar())}
+        val fields=JSONObject(line.toString());expectedAccount=SchoolMailAccount(fields.getString("email"),fields.getString("password"));val content=ui{activity.findViewById<android.widget.LinearLayout>(R.id.mailContent)}
+        ui{
+          content.findViewWithTag<android.widget.EditText>("mailAccount").setText(fields.getString("email"))
+          content.findViewWithTag<android.widget.EditText>("mailSecret").setText(fields.getString("password"))
+          content.findViewWithTag<android.widget.Button>("mailVerify").performClick()
+        }
+        socket.getOutputStream().write("OK\n".toByteArray());socket.getOutputStream().flush()
+      }}
+      val deadline=SystemClock.uptimeMillis()+120000
+      while(SystemClock.uptimeMillis()<deadline&&ui{busy.getBoolean(activity)})SystemClock.sleep(100)
+      check(!ui{busy.getBoolean(activity)}){"Real mail validation timed out"}
+      val stored=SchoolMailAccountStore(targetContext).load()
+      if(stored==null||stored!=expectedAccount){
+        val detail=ui{activity.findViewById<android.widget.TextView>(R.id.mailStatus).text.toString()}
+        val expected=expectedAccount?:error("Missing local test account")
+        for((stage,operation) in listOf<Pair<String,()->Unit>>("IMAP" to {SchoolMailClient(expected).verifyReceiving()},"SMTP" to {SchoolMailClient(expected).verifySending()})){
+          try{operation();report("Mail diagnostic $stage authenticated; no mail sent")}
+          catch(e:Exception){
+            val messages=generateSequence(e as Throwable?){it.cause}.take(6).joinToString(" | "){it.message.orEmpty()}
+            val secrets=listOf(expected.address,expected.secret,android.util.Base64.encodeToString(expected.address.toByteArray(),android.util.Base64.NO_WRAP),android.util.Base64.encodeToString(expected.secret.toByteArray(),android.util.Base64.NO_WRAP))
+            var safe=messages;for(value in secrets.filter{it.isNotBlank()})safe=safe.replace(value,"[redacted]",true)
+            safe=safe.replace(Regex("[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+"),"[address]").replace(Regex("[A-Za-z0-9+/=_-]{24,}"),"[identifier]").take(500)
+            report("Mail diagnostic $stage failure (redacted server response): "+safe)
+          }
+        }
+        error("Real mail connection failed: $detail")
+      }
+      val client=SchoolMailClient(stored)
+      val page=client.list();check(page.items.size<=30)
+      if(page.items.isNotEmpty()){
+        val body=client.read("INBOX",page.items.first().uid,page.validity)
+        check(body.uid==page.items.first().uid)
+      }
+      SchoolMailPolling.observe(targetContext,stored,page,false)
+      check(SchoolMailPolling.interval(targetContext)==0){"Real validation must not silently enable polling"}
+      report("Real mail validation passed: IMAP and SMTP authenticated without sending mail; account saved encrypted; inbox headers and newest text read through native client. No addresses, subjects, bodies or app code logged; polling remains off")
+    }finally{ui{activity.finish()}}
+  }
+
+  private fun schoolMailTls(){
+    for((host,port) in listOf(SchoolMailPolicy.IMAP_HOST to 993,SchoolMailPolicy.SMTP_HOST to 465)){
+      val socket=javax.net.ssl.SSLSocketFactory.getDefault().createSocket() as javax.net.ssl.SSLSocket
+      socket.use{
+        it.connect(java.net.InetSocketAddress(host,port),12000);it.soTimeout=12000
+        it.sslParameters=it.sslParameters.apply{endpointIdentificationAlgorithm="HTTPS"};it.startHandshake()
+        val line=it.inputStream.bufferedReader().readLine().orEmpty();check(if(port==993)line.startsWith("* OK",true)else line.startsWith("220")){"Mail server greeting not received"}
+        report("Android verified TLS and public greeting: $host:$port; no AUTH, LOGIN, mailbox access or mail sent")
+      }
+    }
+  }
+
+  private fun schoolMailUi(){
+    if(SchoolMailAccountStore(targetContext).load()!=null){report("Native mailbox UI test skipped: an existing real account is configured; no mailbox opened by simulated test");return}
+    val activity=launch(CampusToolsActivity::class.java){putExtra(CampusToolsActivity.EXTRA_PAGE,"toolbox")}
+    val view=ui{activity.findViewById<WebView>(R.id.toolsWebView)}
+    try{
+      waitJs(view,"!!document.querySelector('[data-open-tool=mail]')")
+      val monitor=addMonitor(SchoolMailActivity::class.java.name,null,false)
+      js(view,"document.querySelector('[data-open-tool=mail]').click()")
+      val mail=waitForMonitorWithTimeout(monitor,6000)?:error("School mail native entry did not open");removeMonitor(monitor)
+      check((ui{mail.window.attributes.flags} and android.view.WindowManager.LayoutParams.FLAG_SECURE)!=0)
+      check(SchoolMailPolling.interval(targetContext)==0){"Initial polling should remain disabled"}
+      val fake=SchoolMailContent("INBOX",42,1,"模拟邮件","sender@example.invalid","reader@example.invalid","sender@example.invalid",0,"<script>原文作为文字显示</script>",listOf("模拟附件.pdf"),false,"<synthetic@example.invalid>","")
+      ui{SchoolMailActivity::class.java.getDeclaredMethod("showMessage",SchoolMailContent::class.java).apply{isAccessible=true}.invoke(mail,fake)}
+      check(ui{mail.findViewById<android.widget.LinearLayout>(R.id.mailContent).childCount}>3)
+      ui{SchoolMailActivity::class.java.getDeclaredMethod("compose",SchoolMailContent::class.java).apply{isAccessible=true}.invoke(mail,fake)}
+      val content=ui{mail.findViewById<android.widget.LinearLayout>(R.id.mailContent)}
+      check(ui{content.findViewWithTag<android.widget.EditText>("mailTo").text.toString()}==fake.replyTo)
+      check(ui{content.findViewWithTag<android.widget.EditText>("mailSubject").text.toString()}=="Re: 模拟邮件")
+      check(ui{content.findViewWithTag<android.widget.Button>("mailSend").text.toString()}=="发送邮件")
+      ui{mail.finish()}
+      report("Native mailbox opens from toolbox; secure window, opt-in polling default off; no real account or email used")
+    }finally{ui{activity.finish()}}
+  }
 
   private fun cookieDiagnostics() {
     ui { CookieManager.getInstance().setAcceptCookie(true) }

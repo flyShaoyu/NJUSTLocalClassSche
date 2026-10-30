@@ -100,7 +100,7 @@ class CampusToolsActivity : AppCompatActivity() {
     if (page == "teacher") loadTeacher() else {
       binding.toolsWebView.addJavascriptInterface(Bridge(), "CampusBridge")
       val updated = ResourceUpdateStore.readText(this, "campus-tools.html")
-      val html = updated?.takeIf { it.contains("campus-typography-v8") && it.contains("native-start-v2") && (page!="evaluation" || it.contains("evaluation-submit-v1")) && (page !in listOf("toolbox",CourseEnrollmentFeature.PAGE) || it.contains("enrollment-catalog-v1")) }
+      val html = updated?.takeIf { it.contains("campus-typography-v9") && it.contains("native-start-v2") && (page!="evaluation" || it.contains("evaluation-submit-v1")) && (page !in listOf("toolbox",CourseEnrollmentFeature.PAGE) || it.contains("enrollment-catalog-v1")) }
         ?: runCatching { assets.open("campus-tools.html").bufferedReader().use { it.readText() } }.getOrNull()
       if (html.isNullOrBlank()) message("页面资源缺失，请重新安装完整安装包") else {
         val pageHtml=if(page==CourseEnrollmentFeature.PAGE)GeneralEducationCatalogStore.inject(this,html) else html
@@ -268,6 +268,9 @@ class CampusToolsActivity : AppCompatActivity() {
     }
 
     @JavascriptInterface fun openTool(tool: String) = runOnUiThread {
+      if(localPage() && page=="toolbox" && tool=="mail" && !openingTool){
+        openingTool=true;startActivityForResult(Intent(this@CampusToolsActivity,SchoolMailActivity::class.java),721);return@runOnUiThread
+      }
       if(localPage() && page=="toolbox" && tool==CourseEnrollmentFeature.PAGE && !CourseEnrollmentFeature.browseEnabled) {
         android.widget.Toast.makeText(this@CampusToolsActivity,CourseEnrollmentFeature.UNAVAILABLE_MESSAGE,android.widget.Toast.LENGTH_SHORT).show()
         return@runOnUiThread

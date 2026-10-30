@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto" android:id="@+id/mailRoot" android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical" android:background="@color/surface">
+<com.google.android.material.appbar.MaterialToolbar android:id="@+id/mailToolbar" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="0dp" android:paddingTop="4dp" android:paddingBottom="4dp" android:background="@color/sky_top" android:theme="@style/ThemeOverlay.Material3.Dark.ActionBar" app:titleCentered="true" />
+<TextView android:id="@+id/mailStatus" android:layout_width="match_parent" android:layout_height="wrap_content" android:padding="12dp" android:textSize="13sp" android:textColor="#936A29" android:background="#FFF8E8" android:visibility="gone" />
+<ScrollView android:id="@+id/mailScroll" android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:fillViewport="true"><LinearLayout android:id="@+id/mailContent" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="12dp" /></ScrollView>
+</LinearLayout>

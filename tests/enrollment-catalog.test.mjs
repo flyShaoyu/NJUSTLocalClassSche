@@ -49,8 +49,9 @@ test('选课入口可打开分类页：搜索、筛选、分页、更正共享�
     const open=async tool=>{await page.goto('https://classsche.local/campus-tools/?tool='+tool);await page.evaluate(()=>window.CampusUI.start());};
     await open('toolbox');
     assert.equal(await page.getByRole('button',{name:/选课 \/ 抢课/}).isEnabled(),true);
+    await page.getByRole('button',{name:/学校邮箱/}).click();
     await page.getByRole('button',{name:/选课 \/ 抢课/}).click();
-    assert.deepEqual(await page.evaluate(()=>window.opened),['enrollment']);
+    assert.deepEqual(await page.evaluate(()=>window.opened),['mail','enrollment']);
     await open('enrollment');
     await page.locator('.enrollment-course').first().waitFor();
     assert.match(await page.locator('#enrollmentSummary').innerText(),/741/);
