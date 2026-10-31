@@ -20,7 +20,7 @@ class RuntimeChecks : Instrumentation() {
   override fun onCreate(arguments: Bundle?) { super.onCreate(arguments); phase = arguments?.getString("phase") ?: "all"; start() }
   override fun onStart() {
     try {
-      when (phase) { "schoolMailSendTest" -> schoolMailSendTest(); "schoolMailReal" -> schoolMailReal(); "schoolMailTls" -> schoolMailTls(); "schoolMail" -> {SchoolMailChecks.run(targetContext,::report);schoolMailUi()}; "libraryCredentials" -> libraryCredentials(); "examExpansion" -> examExpansion(); "homeToolbar" -> homeToolbar(); "refinement" -> refinement(); "roomsMulti" -> roomsMulti(); "libraryNativeForm" -> libraryNativeForm(); "libraryReal" -> libraryReal(); "libraryAccount" -> libraryAccount(); "libraryNew" -> libraryNew(); "creditDrag" -> creditDrag(); "presentation" -> presentation(); "enrollment" -> enrollmentCatalogue(); "evaluation" -> evaluationOffline(); "cookies" -> cookieDiagnostics(); "loanCookie" -> loanCookie(); "queries" -> queries(); "catalog" -> catalog(); "interactions" -> interactions(); else -> localPages() }
+      when (phase) { "uiStyle" -> uiStyle(); "mailNotifications" -> mailNotifications(); "schoolMailSendTest" -> schoolMailSendTest(); "schoolMailReal" -> schoolMailReal(); "schoolMailTls" -> schoolMailTls(); "schoolMail" -> {SchoolMailChecks.run(targetContext,::report);schoolMailUi()}; "libraryCredentials" -> libraryCredentials(); "examExpansion" -> examExpansion(); "homeToolbar" -> homeToolbar(); "refinement" -> refinement(); "roomsMulti" -> roomsMulti(); "libraryNativeForm" -> libraryNativeForm(); "libraryReal" -> libraryReal(); "libraryAccount" -> libraryAccount(); "libraryNew" -> libraryNew(); "creditDrag" -> creditDrag(); "presentation" -> presentation(); "enrollment" -> enrollmentCatalogue(); "evaluation" -> evaluationOffline(); "cookies" -> cookieDiagnostics(); "loanCookie" -> loanCookie(); "queries" -> queries(); "catalog" -> catalog(); "interactions" -> interactions(); else -> localPages() }
       finish(Activity.RESULT_OK, Bundle().apply { putString("stream", "Runtime checks passed: $phase\n") })
     } catch (error: Throwable) {
       finish(Activity.RESULT_CANCELED, Bundle().apply { putString("stream", error.stackTraceToString()) })
@@ -146,17 +146,93 @@ class RuntimeChecks : Instrumentation() {
     }
   }
 
+  private fun uiStyle(){
+    fun views(root:android.view.View):List<android.view.View> = listOf(root)+if(root is android.view.ViewGroup)(0 until root.childCount).flatMap{views(root.getChildAt(it))}else emptyList()
+    val site=launch(CampusToolsActivity::class.java){putExtra(CampusToolsActivity.EXTRA_PAGE,"sites")};waitForIdleSync();SystemClock.sleep(150)
+    val reference=ui{site.findViewById<android.view.View>(R.id.toolbar).height};ui{site.finish()}
+    val pages=listOf(NotificationSettingsActivity::class.java,ScoreSyncSettingsActivity::class.java,TimetableSemesterSettingsActivity::class.java,LogViewerActivity::class.java,SchoolMailSettingsActivity::class.java,SchoolMailGuideActivity::class.java)
+    for(type in pages){
+      val activity=launch(type);waitForIdleSync();SystemClock.sleep(100)
+      val toolbar=ui{activity.findViewById<android.view.View>(R.id.toolbar)?:activity.findViewById(R.id.mailToolbar)}
+      check(ui{toolbar.height}==reference){"${type.simpleName} header differs from common-sites header"}
+      ui{activity.finish()}
+    }
+    report("Uniform headers: common-sites, notification/score/semester/log settings, mail settings and guide use identical height")
+    val factory=SchoolMailRuntime.clientFactory
+    val pollPrefs=targetContext.getSharedPreferences("school_mail_poll",0);val pollSnapshot=pollPrefs.all.toMap()
+    targetContext.getSystemService(android.app.job.JobScheduler::class.java).cancel(74120)
+    MailFixture.connectFails=false;MailFixture.inbox.clear();MailFixture.sent.clear()
+    SchoolMailRuntime.clientFactory={SchoolMailClient(it,MailFixture.session())}
+    var mail:Activity?=null
+    try{
+      if(SchoolMailAccountStore(targetContext).load()!=null){
+        val activity=launch(SchoolMailActivity::class.java);mail=activity
+        val busy=SchoolMailActivity::class.java.getDeclaredField("busy").apply{isAccessible=true}
+        val deadline=SystemClock.uptimeMillis()+8000
+        while(ui{busy.getBoolean(activity)}&&SystemClock.uptimeMillis()<deadline)SystemClock.sleep(50)
+        check(!ui{busy.getBoolean(activity)})
+        val toolbar=ui{activity.findViewById<com.google.android.material.appbar.MaterialToolbar>(R.id.mailToolbar)}
+        waitForIdleSync()
+        val layoutDeadline=SystemClock.uptimeMillis()+4000
+        while(ui{toolbar.height}!=reference&&SystemClock.uptimeMillis()<layoutDeadline)SystemClock.sleep(50)
+        check(ui{toolbar.height}==reference){"Mail header=${ui{toolbar.height}}, expected=$reference, layout=${ui{toolbar.layoutParams.height}}"}
+        check(ui{(0 until toolbar.menu.size()).none{toolbar.menu.getItem(it).title.toString()=="写信"}})
+        val popup=androidx.appcompat.view.ContextThemeWrapper(activity,ui{toolbar.popupTheme})
+        val color=popup.obtainStyledAttributes(intArrayOf(android.R.attr.colorBackground)).let{val value=it.getColor(0,0);it.recycle();value}
+        check(color==android.graphics.Color.WHITE)
+        val content=ui{activity.findViewById<android.widget.LinearLayout>(R.id.mailContent)}
+        check(ui{content.findViewWithTag<android.view.View>("mailFolderSelector")!=null})
+        check(ui{views(content).filterIsInstance<android.widget.TextView>().none{it.text.toString().contains("不会自动执行邮件")}})
+        val rows=listOf(SchoolMailOutbox.Entry("synthetic","synthetic","<synthetic@example.invalid>","accepted",System.currentTimeMillis(),"模拟发送结果"))
+        ui{
+          SchoolMailActivity::class.java.getDeclaredMethod("clear").apply{isAccessible=true}.invoke(activity)
+          SchoolMailActivity::class.java.getDeclaredMethod("renderOutbox",List::class.java).apply{isAccessible=true}.invoke(activity,rows)
+        }
+        val identifier=ui{views(content).filterIsInstance<android.widget.TextView>().first{it.text.toString().startsWith("编号 ")}}
+        check(!ui{identifier.isShown})
+        ui{views(content).filterIsInstance<android.widget.Button>().first{it.text.toString()=="查看发送标识"}.performClick()}
+        check(ui{identifier.isShown})
+        report("Mail: no duplicate compose action or bottom notice, white overflow menu, clean folder selector and expandable outbox identifiers; fake receiving only")
+      }
+    }finally{
+      ui{mail?.finish()};SchoolMailRuntime.clientFactory=factory
+      val restore=pollPrefs.edit().clear()
+      pollSnapshot.forEach{(key,value)->when(value){is String->restore.putString(key,value);is Boolean->restore.putBoolean(key,value);is Long->restore.putLong(key,value);is Int->restore.putInt(key,value);is Float->restore.putFloat(key,value)}}
+      restore.commit();SchoolMailPolling.schedule(targetContext)
+    }
+    val settings=launch(SchoolMailSettingsActivity::class.java);waitForIdleSync()
+    val selector=ui{settings.findViewById<android.widget.LinearLayout>(R.id.mailContent).findViewWithTag<android.view.ViewGroup>("mailUpdateInterval")}
+    val row=ui{selector.getChildAt(0) as android.view.ViewGroup}
+    val centers=ui{(0 until row.childCount).map{val v=row.getChildAt(it);(v.top+v.bottom)/2}}
+    check(centers.maxOrNull()!!-centers.minOrNull()!!<=2)
+    ui{settings.finish()}
+    report("Update interval arrow and text are vertically aligned; all long intervals verified by mailNotifications phase")
+  }
+
+  private fun mailNotifications(){
+    SchoolMailChecks.reuse(::report)
+    MailNotificationChecks.run(targetContext,::report)
+    report("Opening native mail settings")
+    val settings=launch(SchoolMailSettingsActivity::class.java)
+    check(ui{settings.findViewById<android.widget.LinearLayout>(R.id.mailContent).findViewWithTag<android.view.View>("mailUpdateInterval")!=null})
+    check(ui{settings.findViewById<android.widget.LinearLayout>(R.id.mailContent).findViewWithTag<android.view.View>("mailNotificationSwitch")!=null})
+    ui{settings.finish()}
+    waitForIdleSync()
+    report("Opening native mail guide")
+    val guide=launch(SchoolMailGuideActivity::class.java)
+    val content=ui{guide.findViewById<android.widget.LinearLayout>(R.id.mailContent)}
+    check(ui{(0 until content.childCount).count{content.getChildAt(it) is android.widget.ImageView}}==6)
+    ui{guide.finish()}
+    report("Native mail settings and guide: update interval and notification switch share one page; six bundled guide images loaded")
+  }
+
   private fun schoolMailUi(){
     if(SchoolMailAccountStore(targetContext).load()!=null){report("Native mailbox UI test skipped: an existing real account is configured; no mailbox opened by simulated test");return}
-    val activity=launch(CampusToolsActivity::class.java){putExtra(CampusToolsActivity.EXTRA_PAGE,"toolbox")}
-    val view=ui{activity.findViewById<WebView>(R.id.toolsWebView)}
+    val activity=launch(SchoolMailActivity::class.java)
     try{
-      waitJs(view,"!!document.querySelector('[data-open-tool=mail]')")
-      val monitor=addMonitor(SchoolMailActivity::class.java.name,null,false)
-      js(view,"document.querySelector('[data-open-tool=mail]').click()")
-      val mail=waitForMonitorWithTimeout(monitor,6000)?:error("School mail native entry did not open");removeMonitor(monitor)
+      val mail=activity
       check((ui{mail.window.attributes.flags} and android.view.WindowManager.LayoutParams.FLAG_SECURE)!=0)
-      check(SchoolMailPolling.interval(targetContext)==0){"Initial polling should remain disabled"}
+      check(SchoolMailPolling.interval(targetContext) in SchoolMailPolling.intervals)
       val fake=SchoolMailContent("INBOX",42,1,"模拟邮件","sender@example.invalid","reader@example.invalid","sender@example.invalid",0,"<script>原文作为文字显示</script>",listOf("模拟附件.pdf"),false,"<synthetic@example.invalid>","")
       ui{SchoolMailActivity::class.java.getDeclaredMethod("showMessage",SchoolMailContent::class.java).apply{isAccessible=true}.invoke(mail,fake)}
       check(ui{mail.findViewById<android.widget.LinearLayout>(R.id.mailContent).childCount}>3)
@@ -166,7 +242,7 @@ class RuntimeChecks : Instrumentation() {
       check(ui{content.findViewWithTag<android.widget.EditText>("mailSubject").text.toString()}=="Re: 模拟邮件")
       check(ui{content.findViewWithTag<android.widget.Button>("mailSend").text.toString()}=="发送邮件")
       ui{mail.finish()}
-      report("Native mailbox opens from toolbox; secure window, opt-in polling default off; no real account or email used")
+      report("Native mailbox opens directly; secure window, update/notification settings separated; no real account or email used")
     }finally{ui{activity.finish()}}
   }
 
@@ -803,6 +879,26 @@ class RuntimeChecks : Instrumentation() {
       val dp=targetContext.resources.displayMetrics.density
       check(ui{toolbar.paddingBottom}==(4*dp).toInt())
       report("Home toolbar compact layout passed: height="+ui{toolbar.height}+"px, bottom padding="+ui{toolbar.paddingBottom}+"px; no extra 10dp")
+        val grid=ui{activity.findViewById<android.widget.GridLayout>(R.id.homeMenuGrid)}
+        val labels=ui{(0 until grid.childCount).map{(grid.getChildAt(it) as android.widget.LinearLayout).getChildAt(1) as android.widget.TextView}.map{it.text.toString()}}
+        check("邮件管理" in labels&&"空闲教室" !in labels)
+        val blocked=addMonitor(SchoolMailActivity::class.java.name,ActivityResult(Activity.RESULT_CANCELED,null),true)
+        ui{grid.getChildAt(labels.indexOf("邮件管理")).performClick()};waitForIdleSync()
+        check(blocked.hits==1);removeMonitor(blocked)
+        val monitor=addMonitor(SchoolMailSettingsActivity::class.java.name,null,false)
+        ui{MainActivity::class.java.getDeclaredMethod("showProfilePage").apply{isAccessible=true}.invoke(activity);activity.findViewById<android.view.View>(R.id.profileMailSettingsRow).performClick()}
+        val settings=waitForMonitorWithTimeout(monitor,5000)?:error("Profile mail update settings did not open");removeMonitor(monitor);ui{settings.finish()}
+        ui{MainActivity::class.java.getDeclaredMethod("showCachedTimetable").apply{isAccessible=true}.invoke(activity)}
+        waitForIdleSync()
+        val selector=ui{toolbar.menu.findItem(0x4C530002)?.actionView}?:error("Missing timetable semester dropdown")
+        check(ui{selector.contentDescription.toString().startsWith("选择课表学期")})
+        check(ui{selector.background==null&&(selector as android.widget.TextView).currentTextColor==android.graphics.Color.WHITE})
+        ui{selector.performClick()};waitForIdleSync()
+        var popupVisible=false;val popupDeadline=SystemClock.uptimeMillis()+5000
+        while(!popupVisible&&SystemClock.uptimeMillis()<popupDeadline){popupVisible=uiAutomation.rootInActiveWindow?.findAccessibilityNodeInfosByText("跟随当前学期")?.isNotEmpty()==true;if(!popupVisible)SystemClock.sleep(100)}
+        check(popupVisible){"Semester popup did not become visible"}
+        sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK)
+        report("Home mail entry replaces rooms; profile opens shared mail settings; timetable native semester dropdown opens without a network query")
     } finally {
       ui { main?.finish() }
       val editor=prefs.edit();if(old==null)editor.remove("score_sync_mode") else editor.putString("score_sync_mode",old);editor.commit()

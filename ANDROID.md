@@ -185,9 +185,38 @@ ReleaseVersion.kt支持alpha.N/beta.N/rc.N，更新页面保留完整版本后�
 
 
 ### 原生学校邮箱
-入口：CampusToolsActivity仅从可信本地小工具页打开未导出的SchoolMailActivity。邮件/授权码不走JS桥接。SchoolMailAccountStore复用独立namespace的Keystore AES-GCM存储；与图书馆和教务凭据隔离。凭据配置仅在IMAP/SMTP认证通过后保存。
+入口：首页“邮件管理”打开未导出的SchoolMailActivity，原空闲教室入口移至小工具。邮件/授权码不走JS桥接。SchoolMailAccountStore复用独立namespace的Keystore AES-GCM存储；与图书馆和教务凭据隔离。凭据配置仅在IMAP/SMTP认证通过后保存。
 SchoolMailClient使用Eclipse Angus Mail 2.0.5（官方Android兼容说明：https://eclipse-ee4j.github.io/angus-mail/Android），Activation 2.0.3/API 2.1.4。默认IMAPS993、SMTPS465，系统证书及主机名校验，不放宽TLS；固定腾讯服务主机，不支持任意邮件服务器。连接15秒、读写25秒超时，后台执行，不自动重发SMTP。
 列表每页30条，仅预取envelope/flags/UID；用UID和UIDVALIDITY校验与分页，不跨邮件夹复用编号，READ_ONLY和peek不改已读。正文最多512KB，MIME深度/数量有界，附件不取内容，HTML只转文字。首版不实现附件发送、完整HTML、删除、标已读或离线正文缓存。
 SchoolMailOutbox只持久化唯一草稿编号、账号指纹、Message-ID、时间和发送状态，不存正文或授权码。accepted=SMTP受理；unknown/partial不能当发送失败自动重试；进程中断的sending转unknown。成功后核对/追加已发送副本，副本失败不再发SMTP。
-SchoolMailPolling默认关闭，JobScheduler持久任务74120、联网约束和15/30/60分钟周期；系统不保证准点。通知74121默认不显示邮件标题/发件人。新UID基线按账号与UIDVALIDITY隔离；撤销配置/停用轮询不继续后续通知。轮询结果以通用错误描述存入本机设置，不记录原始协议或邮件内容。
+SchoolMailPolling保留升级用户的原设置，新安装默认15分钟并启用新邮件通知，JobScheduler持久任务74120、联网约束和15/30/60分钟周期；系统不保证准点。通知74121默认不显示邮件标题/发件人。新UID基线按账号与UIDVALIDITY隔离；撤销配置/停用轮询不继续后续通知。轮询结果以通用错误描述存入本机设置，不记录原始协议或邮件内容。
 设备测试schoolMail使用内存假Store/Transport，覆盖读写逻辑但不冒充真实协议送达；schoolMailTls只握手及欢迎语；schoolMailReal的.env内存接入仅存在测试APK；schoolMailSendTest仅用户单独授权时执行，通过本机内存通道接收本人指定的单个收件人并先查唯一记录。未配置有效授权码时不能宣称真实收发通过。
+
+
+### 邮件提醒、引导与课表学期快捷选择
+
+- “设置 → 邮件更新与通知”与邮件页同名按钮打开同一 `SchoolMailSettingsActivity`，更新间隔（关闭、15/30分钟、1/2/5/10/20小时、1/2/5天）和新邮件通知独立保存。没有配置账号时不会建立收件任务。
+- `NotificationDefaults` 只为全新安装开启上课/考试通知、15分钟邮件检查和新邮件通知，并在首次启动申请 Android 13+ 通知权限；升级不覆盖原有关闭选择。系统拒绝通知权限时不能显示通知，红点不依赖该权限。
+- `SchoolMailPolling` 按账号哈希和 UIDVALIDITY 保存新 UID 集合及首页提示集合。第一次读取仅建立基线；后台发现新信显示首页邮件红点，进入相应列表清除已展示邮件的首页提示，列表标记在打开邮件后清除。只改变本机记录，不修改服务器已读状态；通知关闭不影响红点。
+- `SchoolMailGuideActivity` 使用六张去元数据、保留遮挡的 WebP 图片（总计约301KiB），逐步解释网页版开启 IMAP/SMTP、生成客户端专用密码和在 App 保存连接；支持点图放大。原图未进入仓库。
+- 课表页标题栏右侧新增浅蓝学期下拉，与原学期设置共用 `TimetableSemesterStore`；选项包含跟随当前学期与已有学期目录，选择后沿用 Cookie 优先的静默数据更新流程，更新进行中不允许重复切换。
+- `MailNotificationChecks.kt` 使用隔离文件/偏好和模拟邮件验证首次安装默认值、升级保留、一次权限提示、系统通知、新邮件标记、账号与 UIDVALIDITY 隔离；设备阶段 `mailNotifications` 同时验证设置页与六张引导图，不向外发信。
+
+
+邮箱账号与登录连接：`SchoolMailAccountStore` 继续使用独立 Keystore AES-GCM 密文保存完整邮箱和客户端专用密码。重开 App 自动读取；验证成功后才保存，未保存/损坏时交由用户配置。`SchoolMailConnections` 在进程内串行复用已认证 IMAP/SMTP 连接，不使用教务 Cookie；按账号及大小写敏感的授权码指纹隔离，失联后重建连接，闲置2分钟关闭。更换账号/授权码、移除配置和连接操作失败会清理旧连接；关闭在工作线程完成，不阻塞界面。任何操作都不自动重试，SMTP 结果未知仍由发送记录防止重复提交。显式注入测试会话的客户端保持独立连接，设备 `mailNotifications` 阶段另用模拟协议验证真实复用组件。
+
+
+2026-10-30 设备验证：`emulator-5554` 的 `mailNotifications`（模拟协议连接复用、通知默认值和红点、共享设置、六张引导图）、`homeToolbar`（首页邮件入口、设置入口、课表下拉）及 `schoolMail`（模拟收发、UID/MIME、加密和防重发）均通过。未向外发送真实邮件、未截屏，测试后关闭模拟器。
+
+
+### 界面统一（2026-10-31）
+
+`SecondaryPageToolbar.applyGeometry` 统一所有本地页面标题栏为52dp内容高度加状态栏；带域名副标题的外链浏览器保留自适应高度。菜单使用独立白底蓝色高亮主题，不继承蓝色标题栏的深色菜单。`BluePageUi` 提供无底色/无圆角选择行（独立箭头）及白色选项、同步结果弹窗。邮件移除标题栏写信入口和列表尾部提示，发送记录改状态卡片，发送标识折叠；目录选择不再用系统Spinner。课表学期入口无底色、白字与白色选项弹窗。
+
+邮件更新支持15/30分钟、1/2/5/10/20小时、1/2/5天及关闭，存储单位仍为分钟，不迁移或重置既有设置。`BrowserUserAgent.desktop` 只对邮箱网页版使用电脑版UA（保留本机WebView引擎版本），引导与邮件页面入口均带 `desktop_mode`。
+
+课表首选组共31色：扩色前的15种原色，以及参考截图提取的16种课程底色（Display P3换算sRGB后的JPEG近似值）；后加的15种仅作补充，合计46色，文字保持白色。不以对比度阈值筛掉用户选定原色/参考色。`TIMETABLE_PREFERRED_COLOR_COUNT` 与调色板前31项对应。分配先避免同周撞色，再优先首选组；不同周可以复用首选色，同周首选色不够时才使用补充色。组内仍按感知色差区分，大块课程优先取色，输入顺序不影响结果。全学期视图过滤考试，周视图和考试通知仍保留。模板标记 `timetable-flush-footer-v5` 使旧资源回退APK模板。离线回归在 `timetable-colors.test.mjs` / `campus-ui.test.mjs`，设备阶段 `uiStyle` 验证等高标题栏、菜单颜色、选择箭头与发送记录，仅模拟收信并恢复原收件检查点。
+
+本轮验证：68项离线回归及最终APK的 `uiStyle` 通过，未截屏。额外运行 `mailNotifications` 时，连接复用、通知/红点、长间隔和电脑版UA断言通过，随后首次绘制设置页遭模拟器 `libhwui.so / GrGLGpu::createTexture` 崩溃；重启后 `uiStyle` 再次通过，独立 `homeToolbar` 冷启动仍遭同一驱动崩溃，因此这两项完整阶段不计为本轮通过。未保留无效的页面软件渲染绕行，测试结束关闭模拟器。
+
+手机课表底部与周次栏贴齐：移除独立 ooter-underlay 白色遮罩和额外底部留白，背景统一白色。14行按可用高度（扣除日期栏、周次栏、13个行间距）精确均分，不向下取整；第14节完整显示到蓝栏上边缘。campus-ui.test.mjs 使用多个手机视口和动态调整尺寸验证几何位置，不截屏。

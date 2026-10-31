@@ -320,18 +320,7 @@ class LocalScoreEditorActivity : AppCompatActivity() {
     ).toInt()
 
   private fun applyToolbarLayout() {
-    val minHeight = TypedValue.applyDimension(
-      TypedValue.COMPLEX_UNIT_DIP,
-      48f + (lastStatusBarInsetTop / resources.displayMetrics.density),
-      resources.displayMetrics
-    ).toInt()
-    binding.toolbar.minimumHeight = minHeight
-    binding.toolbar.setPadding(
-      baseToolbarPaddingLeft,
-      baseToolbarPaddingTop + lastStatusBarInsetTop,
-      baseToolbarPaddingRight,
-      baseToolbarPaddingBottom
-    )
+    SecondaryPageToolbar.applyGeometry(binding.toolbar,lastStatusBarInsetTop)
   }
 
   private fun updateToolbarNavigationButtonLayout() {

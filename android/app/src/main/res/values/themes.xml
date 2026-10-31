@@ -20,4 +20,11 @@
         <item name="android:windowLightNavigationBar" tools:targetApi="o_mr1">false</item>
     </style>
     <style name="Theme.ClassScheMobile.BluePage" parent="Theme.ClassScheMobile" />
+    <style name="ThemeOverlay.ClassSche.Popup" parent="ThemeOverlay.AppCompat.Light">
+        <item name="android:colorBackground">#FFFFFF</item>
+        <item name="android:textColorPrimary">#526B84</item>
+        <item name="android:textColorSecondary">#8193A7</item>
+        <item name="colorAccent">@color/login_blue</item>
+        <item name="colorControlActivated">@color/login_blue</item>
+    </style>
 </resources>

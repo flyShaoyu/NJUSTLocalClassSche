@@ -1,8 +1,11 @@
 /** Term-stable colors: shared teaching weeks form a weighted conflict graph. */
+export const TIMETABLE_PREFERRED_COLOR_COUNT = 31;
 export const TIMETABLE_COLOR_SCRIPT = String.raw`
 function assignTimetableColors(courses,palette){
+ if(!palette.length)palette=[['#2167b0','#185590']];
+ const preferredCount=Math.min(${TIMETABLE_PREFERRED_COLOR_COUNT},palette.length);
  const graph=new Map();
- for(const c of courses){if(!graph.has(c.paletteKey))graph.set(c.paletteKey,{weeks:new Set(),neighbors:new Map()});for(const w of c.weeks)graph.get(c.paletteKey).weeks.add(w);}
+ for(const c of courses){if(!graph.has(c.paletteKey))graph.set(c.paletteKey,{weeks:new Set(),neighbors:new Map(),area:1});const node=graph.get(c.paletteKey);node.area=Math.max(node.area,Number(c.duration)||Number(c.endPeriod)-Number(c.startPeriod)+1||1);for(const w of c.weeks)node.weeks.add(w);}
  const keys=[...graph.keys()].sort((a,b)=>String(a).localeCompare(String(b),'zh-CN'));
  for(let i=0;i<keys.length;i++)for(let j=i+1;j<keys.length;j++){
   const a=graph.get(keys[i]),b=graph.get(keys[j]);let overlap=0;for(const w of a.weeks)if(b.weeks.has(w))overlap++;
@@ -19,7 +22,7 @@ function assignTimetableColors(courses,palette){
  while(assigned.size<keys.length){
   const remaining=keys.filter(k=>!assigned.has(k));
   const saturation=k=>new Set([...graph.get(k).neighbors.keys()].filter(n=>assigned.has(n)).map(n=>assigned.get(n))).size;
-  remaining.sort((a,b)=>saturation(b)-saturation(a)||graph.get(b).neighbors.size-graph.get(a).neighbors.size||keys.indexOf(a)-keys.indexOf(b));
+  remaining.sort((a,b)=>saturation(b)-saturation(a)||graph.get(b).area-graph.get(a).area||graph.get(b).neighbors.size-graph.get(a).neighbors.size||keys.indexOf(a)-keys.indexOf(b));
   const key=remaining[0],neighbors=[...graph.get(key).neighbors].filter(([n])=>assigned.has(n));
   const candidates=palette.map((_,index)=>{
    const same=neighbors.reduce((sum,[n,weight])=>sum+(assigned.get(n)===index?weight:0),0);
@@ -27,7 +30,7 @@ function assignTimetableColors(courses,palette){
    const separation=compare.length?Math.min(...compare.map(n=>distance(index,n))):1;
    return {index,same,separation};
   });
-  candidates.sort((a,b)=>a.same-b.same||(usage[a.index]===0?0:1)-(usage[b.index]===0?0:1)||b.separation-a.separation||usage[a.index]-usage[b.index]||a.index-b.index);
+  candidates.sort((a,b)=>a.same-b.same||(a.index<preferredCount?0:1)-(b.index<preferredCount?0:1)||(usage[a.index]===0?0:1)-(usage[b.index]===0?0:1)||b.separation-a.separation||usage[a.index]-usage[b.index]||a.index-b.index);
   const index=candidates[0].index;assigned.set(key,index);usage[index]++;
  }
  return new Map([...assigned].map(([key,index])=>[key,palette[index]]));

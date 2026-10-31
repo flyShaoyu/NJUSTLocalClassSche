@@ -36,7 +36,7 @@ class CampusBrowserActivity : AppCompatActivity() {
     binding = ActivityCampusToolsBinding.inflate(layoutInflater)
     setContentView(binding.root)
     binding.toolbar.title = "常用网站"
-    SecondaryPageToolbar.bind(binding.root, binding.toolbar)
+    SecondaryPageToolbar.bind(binding.root, binding.toolbar,domainSubtitle=true)
     binding.toolbar.setNavigationOnClickListener { onBackPressed() }
     binding.toolbar.menu.add("复制链接").apply { setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS) }
     binding.toolbar.setOnMenuItemClickListener {
@@ -48,6 +48,9 @@ class CampusBrowserActivity : AppCompatActivity() {
       true
     }
     with(binding.toolsWebView.settings) { javaScriptEnabled = true; domStorageEnabled = true; allowFileAccess = false; allowContentAccess = false; setSupportZoom(true); builtInZoomControls = true; displayZoomControls = false; useWideViewPort = true; loadWithOverviewMode = true }
+    if(intent.getBooleanExtra("desktop_mode",false)||android.net.Uri.parse(intent.getStringExtra("url").orEmpty()).host=="mail.njust.edu.cn"){
+      binding.toolsWebView.settings.userAgentString=BrowserUserAgent.desktop(WebSettings.getDefaultUserAgent(this))
+    }
     if (libraryPrivate) {
       with(binding.toolsWebView.settings) { cacheMode=WebSettings.LOAD_NO_CACHE; saveFormData=false; domStorageEnabled=false }
       binding.toolsWebView.importantForAutofill=View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS

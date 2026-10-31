@@ -9,7 +9,7 @@
         android:paddingTop="4dp" android:paddingBottom="4dp"
         android:background="@color/sky_top"
         android:theme="@style/ThemeOverlay.Material3.Dark.ActionBar"
-        app:contentInsetStartWithNavigation="20dp" app:titleCentered="true" app:subtitleCentered="true" />
+        app:contentInsetStartWithNavigation="20dp" app:titleCentered="true" app:popupTheme="@style/ThemeOverlay.ClassSche.Popup" app:subtitleCentered="true" />
     <TextView android:id="@+id/browserError" android:layout_width="match_parent"
         android:layout_height="wrap_content" android:visibility="gone"
         android:padding="12dp" android:background="#FFF8E8"

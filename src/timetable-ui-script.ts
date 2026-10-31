@@ -12,6 +12,7 @@ interface TimetableScriptParams {
 
 export const buildTimetablePageScript = (params: TimetableScriptParams): string => `
   <script>
+    // timetable-flush-footer-v5
     const courses = ${params.coursesJson};
     const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     const timetableConfig = {
@@ -340,12 +341,11 @@ export const buildTimetablePageScript = (params: TimetableScriptParams): string 
       const footerHeight = footerBar?.getBoundingClientRect().height || 56;
       const gap = 2;
       const gridGapHeight = gap * 13;
-      const boardVerticalPadding = 12;
-      const availableHeight = Math.max(14 * 20, viewportHeight - headerHeight - footerHeight - boardVerticalPadding - gridGapHeight);
-      const rowHeight = Math.max(20, Math.floor(availableHeight / 14));
+      const availableHeight = Math.max(14, viewportHeight - headerHeight - footerHeight - gridGapHeight);
+      const rowHeight = availableHeight / 14;
       const axisWidth = viewportWidth <= 390 ? 15 : 16;
 
-      root.style.setProperty('--footer-height', Math.ceil(footerHeight) + 'px');
+      root.style.setProperty('--footer-height', footerHeight + 'px');
       root.style.setProperty('--axis-width', axisWidth + 'px');
       root.style.setProperty('--row-min-height', rowHeight + 'px');
       root.style.setProperty('--row-height', rowHeight + 'px');
@@ -834,7 +834,7 @@ export const buildTimetablePageScript = (params: TimetableScriptParams): string 
 
     const render = () => {
       const visibleCourses = normalizeCourses.filter((course) =>
-        state.viewMode === 'full' || course.weeks.includes(state.week)
+        state.viewMode === 'full' ? course.courseType !== '考试' : course.weeks.includes(state.week)
       );
 
       closeSheet();

@@ -201,6 +201,7 @@ export const buildHomePageScript = (params: HomeScriptParams): string => `
         level: '<svg viewBox="0 0 64 64" aria-hidden="true"><rect x="16" y="10" width="32" height="44" rx="3"></rect><path d="M24 20h14"></path><path d="M24 28h10"></path><path d="M30 38l6-10 8 18"></path></svg>',
         add: '<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M18 18h28"></path><path d="M18 32h28"></path><path d="M18 46h28"></path><circle cx="12" cy="18" r="2"></circle><circle cx="12" cy="32" r="2"></circle><circle cx="12" cy="46" r="2"></circle></svg>',
         schedule: '<svg viewBox="0 0 64 64" aria-hidden="true"><rect x="10" y="16" width="44" height="34" rx="6"></rect><path d="M10 26h44"></path><path d="M20 10v12"></path><path d="M44 10v12"></path><path d="M18 34h8"></path><path d="M30 34h8"></path><path d="M42 34h4"></path></svg>',
+        mail: '<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M14 15h36a5 5 0 0 1 5 5L32 36 9 20a5 5 0 0 1 5-5Z" fill="#d6e9f5"></path><rect x="9" y="15" width="46" height="34" rx="5"></rect><path d="m9 20 23 16 23-16"></path></svg>',
         room: '<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M10 24l22-12 22 12"></path><path d="M14 28h36"></path><path d="M18 28v18"></path><path d="M28 28v18"></path><path d="M38 28v18"></path><path d="M48 28v18"></path><path d="M12 50h40"></path></svg>',
         site: '<svg viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="19"></circle><path d="M14 32h36"></path><path d="M32 13c6 6 9 12 9 19s-3 13-9 19"></path><path d="M32 13c-6 6-9 12-9 19s3 13 9 19"></path></svg>',
         refresh: '<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M45 21a17 17 0 1 0 4 17"></path><path d="M46 11v14H32"></path></svg>',
@@ -242,7 +243,7 @@ export const buildHomePageScript = (params: HomeScriptParams): string => `
           return '<a class="' + classes + '" href="' + levelExamPageHref + '">' + inner + "</a>";
         }
 
-        const tool = {add:'schedule',room:'rooms',site:'sites',library:'library',toolbox:'toolbox'}[item.key];
+        const tool = {add:'schedule',mail:'mail',room:'rooms',site:'sites',library:'library',toolbox:'toolbox'}[item.key];
         if (tool) return '<a class="' + classes + '" href="classsche://tools/' + tool + '">' + inner + '</a>';
         return '<button type="button" class="' + classes + '" data-menu="' + escapeHtml(item.key) + '">' + inner + "</button>";
       }).join("");

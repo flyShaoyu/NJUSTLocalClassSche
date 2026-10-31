@@ -275,7 +275,7 @@ class CampusToolsActivity : AppCompatActivity() {
         android.widget.Toast.makeText(this@CampusToolsActivity,CourseEnrollmentFeature.UNAVAILABLE_MESSAGE,android.widget.Toast.LENGTH_SHORT).show()
         return@runOnUiThread
       }
-      if(localPage() && page=="toolbox" && !openingTool && tool in listOf("courses","evaluation",CourseEnrollmentFeature.PAGE)) {
+      if(localPage() && page=="toolbox" && !openingTool && tool in listOf("rooms","courses","evaluation",CourseEnrollmentFeature.PAGE)) {
         openingTool = true
         startActivityForResult(Intent(this@CampusToolsActivity,CampusToolsActivity::class.java).putExtra(EXTRA_PAGE,tool),721)
       }

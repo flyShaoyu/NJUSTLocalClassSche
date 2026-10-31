@@ -8,6 +8,7 @@ import java.util.UUID
 
 /** In-process protocol providers: no socket, real credentials or real email ever sent. */
 internal object MailFixture {
+  var receivingConnections=0;var sendingConnections=0
   var connectFails=false;var uncertain=false;var partial=false;var copyFails=false;var sends=0;var appends=0;var closed=0
   val inbox=mutableListOf<Message>();val sent=mutableListOf<Message>()
   fun session():Session {
@@ -18,7 +19,7 @@ internal object MailFixture {
   }
 }
 class FixtureMailStore(session:Session,url:URLName?):Store(session,url){
-  override fun protocolConnect(host:String?,port:Int,user:String?,password:String?):Boolean{if(MailFixture.connectFails)throw AuthenticationFailedException("synthetic auth failure");return true}
+  override fun protocolConnect(host:String?,port:Int,user:String?,password:String?):Boolean{MailFixture.receivingConnections++;if(MailFixture.connectFails)throw AuthenticationFailedException("synthetic auth failure");return true}
   override fun getDefaultFolder():Folder=FixtureMailFolder(this,"root")
   override fun getFolder(name:String):Folder=FixtureMailFolder(this,name)
   override fun getFolder(url:URLName):Folder=getFolder(url.file)
@@ -54,10 +55,37 @@ class FixtureMailFolder(store:Store,private val folderName:String):Folder(store)
   override fun getMessagesByUID(uids:LongArray)=uids.toList().mapNotNull{getMessageByUID(it)}.toTypedArray()
 }
 class FixtureMailTransport(session:Session,url:URLName?):Transport(session,url){
-  override fun protocolConnect(host:String?,port:Int,user:String?,password:String?):Boolean{if(MailFixture.connectFails)throw AuthenticationFailedException("synthetic auth failure");return true}
+  override fun protocolConnect(host:String?,port:Int,user:String?,password:String?):Boolean{MailFixture.sendingConnections++;if(MailFixture.connectFails)throw AuthenticationFailedException("synthetic auth failure");return true}
   override fun sendMessage(message:Message,addresses:Array<out Address>){MailFixture.sends++;check(message is MimeMessage&&message.getHeader("Message-ID")!=null);if(MailFixture.uncertain)throw MessagingException("synthetic connection lost after DATA");if(MailFixture.partial)throw SendFailedException("synthetic partial",null,arrayOf(addresses[0]),null,null)}
 }
 internal object SchoolMailChecks {
+ fun reuse(report:(String)->Unit){
+  val account=SchoolMailAccount("session@example.invalid","SensitiveAppCode")
+  MailFixture.connectFails=false;MailFixture.uncertain=false;MailFixture.receivingConnections=0;MailFixture.sendingConnections=0
+  SchoolMailConnections.invalidate()
+  try{
+    val store=SchoolMailConnections.receiving(account,MailFixture.session()){it}
+    repeat(3){check(SchoolMailConnections.receiving(account,MailFixture.session()){it}===store)}
+    check(MailFixture.receivingConnections==1)
+    val transport=SchoolMailConnections.sending(account,MailFixture.session()){it}
+    check(SchoolMailConnections.sending(account,MailFixture.session()){it}===transport&&MailFixture.sendingConnections==1)
+    store.close();val replaced=SchoolMailConnections.receiving(account,MailFixture.session()){it}
+    check(replaced!==store&&MailFixture.receivingConnections==2)
+    // Password comparison must be case sensitive, unlike normalized account identifiers.
+    val changed=SchoolMailConnections.receiving(account.copy(secret="sensitiveappcode"),MailFixture.session()){it}
+    check(changed!==replaced&&!replaced.isConnected&&!transport.isConnected)
+    check(runCatching{SchoolMailConnections.receiving(account,MailFixture.session()){throw IllegalStateException("synthetic interrupted read")}}.isFailure)
+    check(!changed.isConnected)
+    val before=MailFixture.receivingConnections;MailFixture.connectFails=true
+    check(runCatching{SchoolMailConnections.receiving(account,MailFixture.session()){}}.isFailure)
+    check(MailFixture.receivingConnections==before+1) // no hidden authentication retry
+    MailFixture.connectFails=false
+    val recovered=SchoolMailConnections.receiving(account,MailFixture.session()){it};check(recovered.isConnected)
+    SchoolMailConnections.invalidate()
+    val reset=SchoolMailConnections.receiving(account,MailFixture.session()){it};check(reset!==recovered&&!recovered.isConnected)
+    report("Mail session reuse: IMAP/SMTP authenticate once across operations; closed connections reconnect; password changes/invalidation/errors clear old state; failures never retry the command")
+  }finally{MailFixture.connectFails=false;SchoolMailConnections.invalidate()}
+ }
  fun run(context:Context,report:(String)->Unit){
   val session=MailFixture.session();val account=SchoolMailAccount("synthetic@example.invalid","synthetic-app-code")
   val client=SchoolMailClient(account,session)

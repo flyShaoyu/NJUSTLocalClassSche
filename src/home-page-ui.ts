@@ -35,7 +35,7 @@ const MENU_ITEMS = [
   { key: "level", label: "等级考试", enabled: true },
   { key: "add", label: "添加日程", enabled: true },
   { key: "schedule", label: "课表查询", enabled: true },
-  { key: "room", label: "空闲教室", enabled: true },
+  { key: "mail", label: "邮件管理", enabled: true },
   { key: "site", label: "常用网站", enabled: true },
   { key: "refresh", label: "更新数据", enabled: false },
   { key: "library", label: "图书搜索", enabled: true },

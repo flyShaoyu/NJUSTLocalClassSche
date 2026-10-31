@@ -41,6 +41,6 @@ internal object SchoolMailPolicy {
 internal class SchoolMailAccountStore(context:android.content.Context){
   private val vault=LibraryCredentialStore(context,"school_mail_credentials")
   fun load():SchoolMailAccount?=vault.load()?.let{SchoolMailAccount(it.username,it.password)}
-  fun save(account:SchoolMailAccount):Boolean{account.validate();return vault.save(LibraryCredentialStore.Credentials(account.address,account.secret,"email"))}
-  fun clear()=vault.clear()
+  fun save(account:SchoolMailAccount):Boolean{account.validate();val saved=vault.save(LibraryCredentialStore.Credentials(account.address,account.secret,"email"));if(saved)SchoolMailConnections.accountSaved(account);return saved}
+  fun clear(){SchoolMailConnections.invalidate();vault.clear()}
 }

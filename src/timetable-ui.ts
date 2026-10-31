@@ -22,7 +22,9 @@ const PERIOD_SLOTS: Record<number, { start: string; end: string }> = {
   14: { start: "12:15", end: "14:00" }
 };
 
+// Original 15 + 16 screenshot colors are preferred; later colors supplement them.
 const COLOR_PALETTE = [
+  // Original palette.
   ["#f39ac3", "#d97daa"],
   ["#ffd36f", "#f0ba4d"],
   ["#7ed2aa", "#66bf94"],
@@ -38,6 +40,24 @@ const COLOR_PALETTE = [
   ["#84c3a4", "#68aa8a"],
   ["#f08ca4", "#d96c87"],
   ["#85aef7", "#668fe4"],
+  // Screenshot course fills, sampled after conversion to sRGB (JPEG approximations).
+  ["#e286aa", "#c77696"],
+  ["#fecb62", "#e0b356"],
+  ["#78cfa7", "#6ab693"],
+  ["#abd289", "#96b979"],
+  ["#85b763", "#75a157"],
+  ["#72b4ef", "#649ed2"],
+  ["#4781d4", "#3e72bb"],
+  ["#536baf", "#495e9a"],
+  ["#9f8bea", "#8c7ace"],
+  ["#7158d1", "#634db8"],
+  ["#ce7abf", "#b56ba8"],
+  ["#e07875", "#c56a67"],
+  ["#d04543", "#b73d3b"],
+  ["#ce533b", "#b54934"],
+  ["#bc9e84", "#a58b74"],
+  ["#d0c670", "#b7ae63"],
+  // Lower-priority supplemental palette.
   ["#c476a9", "#ac5b90"],
   ["#59a699", "#408c80"],
   ["#c98f57", "#b07740"],
@@ -146,8 +166,8 @@ export const renderTimetablePage = (courses: TimetableCourse[]): string => {
       height: 100dvh;
       min-height: 100dvh;
       display: grid;
-      grid-template-rows: auto minmax(0, 1fr);
-      padding-bottom: calc(var(--footer-height) + 8px);
+      grid-template-rows: minmax(0, 1fr);
+      padding-bottom: var(--footer-height);
       background: #ffffff;
     }
 
@@ -196,7 +216,7 @@ export const renderTimetablePage = (courses: TimetableCourse[]): string => {
       grid-template-rows: auto minmax(0, 1fr);
       background: #ffffff;
       border-radius: 0;
-      box-shadow: 0 30px 65px rgba(66, 88, 128, 0.14);
+      box-shadow: none;
       overflow: hidden;
       transition: filter 180ms ease, transform 180ms ease;
     }
@@ -319,7 +339,7 @@ export const renderTimetablePage = (courses: TimetableCourse[]): string => {
       margin: 0;
       padding: 4px 3px;
       border-radius: 4px;
-      color: white;
+      color: #ffffff;
       display: grid;
       grid-template-rows: auto 1fr;
       align-items: stretch;
@@ -360,7 +380,7 @@ export const renderTimetablePage = (courses: TimetableCourse[]): string => {
       font-family: var(--font-ui);
       font-weight: 600;
       text-align: center;
-      text-shadow: 0 1px 2px rgba(0,0,0,0.12);
+      text-shadow: none;
     }
 
     .course-room {
@@ -502,17 +522,6 @@ export const renderTimetablePage = (courses: TimetableCourse[]): string => {
       box-shadow: 0 -10px 24px rgba(55, 89, 136, 0.16);
       border-top: 1px solid rgba(181, 201, 226, 0.55);
       z-index: 1000;
-    }
-
-    .footer-underlay {
-      position: fixed;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      height: calc(var(--footer-height) + env(safe-area-inset-bottom) + 12px);
-      background: #ffffff;
-      z-index: 998;
-      pointer-events: none;
     }
 
     .footer-side,
@@ -785,7 +794,7 @@ export const renderTimetablePage = (courses: TimetableCourse[]): string => {
         min-height: 100dvh;
         overflow: hidden;
       }
-      .app { height: 100dvh; min-height: 100dvh; padding-bottom: calc(var(--footer-height) + 2px); }
+      .app { height: 100dvh; min-height: 100dvh; padding-bottom: var(--footer-height); }
       .back-button {
         width: 34px;
         height: 34px;
@@ -877,7 +886,6 @@ export const renderTimetablePage = (courses: TimetableCourse[]): string => {
     </main>
   </div>
 
-  <div class="footer-underlay"></div>
   <footer class="footer-bar">
     <div id="footerDay" class="footer-side">星期一</div>
     <div class="footer-center">

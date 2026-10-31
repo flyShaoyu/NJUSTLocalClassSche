@@ -198,6 +198,7 @@ class MainActivity : AppCompatActivity() {
   private val notificationPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
     if (granted) {
       attemptEnableNotificationAfterPermission()
+      runCatching { CourseNotificationScheduler.sync(this); ExamOngoingNotificationScheduler.sync(this) }
     } else {
       when (pendingNotificationToggleTarget) {
         NotificationToggleTarget.COURSE -> {
@@ -215,6 +216,13 @@ class MainActivity : AppCompatActivity() {
     }
     pendingNotificationToggleTarget = null
     refreshNotificationInputEnabledState()
+  }
+  private var lastMailBadgeRevision = -1L
+  private val mailBadgeRunnable = object:Runnable {
+    override fun run(){
+      if(currentWebScreen==WebScreen.HOME){val rev=SchoolMailPolling.revision(this@MainActivity);if(rev!=lastMailBadgeRevision){lastMailBadgeRevision=rev;renderHomeMenu()}}
+      mainHandler.postDelayed(this,2000)
+    }
   }
   private val homeCarouselRunnable = object : Runnable {
     override fun run() {
@@ -310,6 +318,7 @@ class MainActivity : AppCompatActivity() {
   }
 
   companion object {
+    private const val SEMESTER_MENU_ID = 0x4C530002
     private const val LOGIN_URL = UniversityEndpoints.LOGIN
     private const val TIMETABLE_URL = UniversityEndpoints.TIMETABLE
     private const val HOME_ASSET_BASE_URL = "file:///android_asset/"
@@ -366,7 +375,7 @@ class MainActivity : AppCompatActivity() {
       HomeMenuEntry("level", "等级考试", R.drawable.ic_home_level, true),
       HomeMenuEntry("add", "添加日程", R.drawable.ic_home_add, true),
       HomeMenuEntry("schedule", "课表查询", R.drawable.ic_home_schedule, true),
-      HomeMenuEntry("room", "空闲教室", R.drawable.ic_home_room, true),
+      HomeMenuEntry("mail", "邮件管理", R.drawable.ic_home_mail_menu, true),
       HomeMenuEntry("site", "常用网站", R.drawable.ic_home_site, true),
       HomeMenuEntry("refresh", "更新数据", R.drawable.ic_home_refresh, true),
       HomeMenuEntry("library", "图书搜索", R.drawable.ic_home_library, true),
@@ -433,6 +442,7 @@ class MainActivity : AppCompatActivity() {
   @SuppressLint("SetJavaScriptEnabled")
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
+    NotificationDefaults.initialize(this)
     binding = ActivityMainBinding.inflate(layoutInflater)
     setContentView(binding.root)
 
@@ -454,6 +464,7 @@ class MainActivity : AppCompatActivity() {
     showHomePage()
     binding.root.post {
       refreshGeneratedCacheAfterStartup()
+      if(NotificationDefaults.consumePermissionPrompt(this) && Build.VERSION.SDK_INT>=33 && !hasPostNotificationPermission()) notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
     }
   }
 
@@ -476,6 +487,7 @@ class MainActivity : AppCompatActivity() {
 
   override fun onPause() {
     qrLoginController?.onHostPaused()
+    mainHandler.removeCallbacks(mailBadgeRunnable)
     updateDownloadUiVisible = false
     mainHandler.removeCallbacks(updateDownloadPollRunnable)
     super.onPause()
@@ -484,6 +496,8 @@ class MainActivity : AppCompatActivity() {
   override fun onResume() {
     super.onResume()
     qrLoginController?.onHostResumed()
+    mainHandler.removeCallbacks(mailBadgeRunnable)
+    mainHandler.post(mailBadgeRunnable)
     updateDownloadUiVisible = true
     restoreNotificationSettings()
     updateNotificationLeadTimeSummary()
@@ -1125,6 +1139,7 @@ class MainActivity : AppCompatActivity() {
     binding.profileScoreSyncSettingsRow.setOnClickListener {
       startActivity(Intent(this, ScoreSyncSettingsActivity::class.java))
     }
+    binding.profileMailSettingsRow.setOnClickListener { startActivity(Intent(this, SchoolMailSettingsActivity::class.java)) }
     binding.profileCheckUpdateRow.setOnClickListener {
       checkForAppUpdate()
     }
@@ -1256,7 +1271,7 @@ class MainActivity : AppCompatActivity() {
   private fun presentRefreshResult(title: String, message: String) {
     if (!showRefreshResult || isFinishing || isDestroyed) return
     showRefreshResult = false
-    AlertDialog.Builder(this).setTitle(title).setMessage(message).setPositiveButton("确定", null).show()
+    BluePageUi.refreshResult(this,title,message)
   }
 
   private fun openTimetableRefreshCaptcha(challenge: HeadlessLoginClient.CaptchaRequiredException) {
@@ -2855,6 +2870,8 @@ class MainActivity : AppCompatActivity() {
     } else {
       null
     }
+    binding.toolbar.menu.removeItem(SEMESTER_MENU_ID)
+    if (screen == WebScreen.TIMETABLE) renderTimetableSemesterMenu()
     binding.toolbar.menu.removeItem(scoreSectionActionId)
     if (screen == WebScreen.SCORE) applyScoreSectionToolbar()
     applyToolbarLayout()
@@ -3141,17 +3158,7 @@ class MainActivity : AppCompatActivity() {
   }
 
   private fun applyToolbarLayout() {
-    val usesPrimaryPageToolbar = currentWebScreen == WebScreen.PROFILE
-    val extraBottom = if (usesPrimaryPageToolbar) dpToPx(10) else 0
-    val minHeight = if (usesPrimaryPageToolbar) dpToPx(56) else 0
-
-    binding.toolbar.minimumHeight = minHeight
-    binding.toolbar.setPadding(
-      baseToolbarPaddingLeft,
-      baseToolbarPaddingTop + lastStatusBarInsetTop,
-      baseToolbarPaddingRight,
-      baseToolbarPaddingBottom + extraBottom
-    )
+    SecondaryPageToolbar.applyGeometry(binding.toolbar,lastStatusBarInsetTop)
   }
 
   private fun updateToolbarNavigationButtonLayout() {
@@ -3197,6 +3204,28 @@ class MainActivity : AppCompatActivity() {
     binding.contentWebView.loadUrl(TIMETABLE_URL)
   }
 
+  private fun renderTimetableSemesterMenu() {
+    binding.toolbar.menu.removeItem(SEMESTER_MENU_ID)
+    val selected=TimetableSemesterStore.readSelectedSemester(this)
+    val effective=TimetableSemesterStore.resolveDesiredSemester(this)
+    val button=TextView(this).apply {
+      text=effective.ifBlank{"选择学期"};textSize=12f;setTextColor(Color.WHITE)
+      gravity=android.view.Gravity.CENTER;setPadding(dpToPx(8),0,dpToPx(16),0);minHeight=dpToPx(44);maxWidth=dpToPx(144);isSingleLine=true;ellipsize=android.text.TextUtils.TruncateAt.END
+      contentDescription="选择课表学期，当前"+effective
+      setCompoundDrawablesRelativeWithIntrinsicBounds(null,null,ContextCompat.getDrawable(this@MainActivity,R.drawable.ic_dropdown)?.mutate()?.apply{setTint(Color.WHITE)},null);compoundDrawablePadding=dpToPx(4)
+    }
+    binding.toolbar.menu.add(0,SEMESTER_MENU_ID,0,"选择学期").setActionView(button).setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_ALWAYS)
+    button.setOnClickListener {
+      if(isAutoUpdating||loginSubmitted||authPageLoading||cacheCaptureInProgress){Toast.makeText(this,"更新或登录正在进行，请稍候再切换学期",Toast.LENGTH_SHORT).show();return@setOnClickListener}
+      val catalog=TimetableSemesterStore.readCatalog(this)
+      val options=(listOf("")+catalog.availableSemesters+listOf(selected,effective)).distinct()
+      BluePageUi.choices(this,"选择课表学期",options.map{if(it.isBlank())"跟随当前学期" else it},options.indexOf(selected)){index->
+        val value=options[index]
+        if(value!=selected){TimetableSemesterStore.saveSelectedSemester(this,value);renderTimetableSemesterMenu();startSilentTimetableRefresh(showStartToast=true)}
+      }
+    }
+  }
+
   private fun showCachedTimetable() {
     showingLiveTimetable = false
     applyWebScreen(WebScreen.TIMETABLE)
@@ -3239,6 +3268,7 @@ class MainActivity : AppCompatActivity() {
       "https://classsche.local/timetable-view/",
       TimetableRenderer.toHtml(this, courses, includeExams = true), "text/html", "utf-8", null
     )
+    renderTimetableSemesterMenu()
   }
 
   private fun prepareTimetablePage(
@@ -3700,7 +3730,7 @@ class MainActivity : AppCompatActivity() {
     }
     if (localUri.scheme == "classsche" && localUri.host == "tools") {
       val tool = localUri.path.orEmpty().removePrefix("/")
-      if (tool in listOf("schedule", "rooms", "sites", "library", "courses", "evaluation", "toolbox",CourseEnrollmentFeature.PAGE)) openCampusTool(tool)
+      if (tool in listOf("schedule", "rooms", "sites", "library", "courses", "evaluation", "toolbox","mail",CourseEnrollmentFeature.PAGE)) { if(tool=="mail")startActivity(Intent(this,SchoolMailActivity::class.java)) else openCampusTool(tool) }
       return true
     }
     return when {
@@ -3761,7 +3791,7 @@ class MainActivity : AppCompatActivity() {
     val scorePart = if (scoreJsonFile.exists()) "${scoreJsonFile.length()}:${scoreJsonFile.lastModified()}" else "missing"
     val levelExamPart = if (levelExamJsonFile.exists()) "${levelExamJsonFile.length()}:${levelExamJsonFile.lastModified()}" else "missing"
     val scoreUpdatePart = if (scoreUpdateMetaFile.exists()) "${scoreUpdateMetaFile.length()}:${scoreUpdateMetaFile.lastModified()}" else "missing"
-    return listOf(currentAssetExportId ?: "no-export", homePart, jsonPart, examPart, scorePart, levelExamPart, scoreUpdatePart, LocalScheduleStore.revision(this)).joinToString("|")
+    return listOf(currentAssetExportId ?: "no-export", homePart, jsonPart, examPart, scorePart, levelExamPart, scoreUpdatePart, LocalScheduleStore.revision(this), SchoolMailPolling.revision(this)).joinToString("|")
   }
 
   private fun renderNativeHome() {
@@ -4373,7 +4403,7 @@ class MainActivity : AppCompatActivity() {
       }
       iconContainer.addView(icon)
 
-      if (item.key == "score" && hasScoreUpdateDot) {
+      if ((item.key == "score" && hasScoreUpdateDot) || (item.key == "mail" && SchoolMailPolling.hasPending(this))) {
         iconContainer.addView(View(this).apply {
           layoutParams = FrameLayout.LayoutParams(dpToPx(10), dpToPx(10), android.view.Gravity.END or android.view.Gravity.TOP).also {
             it.topMargin = dpToPx(2)
@@ -4405,6 +4435,8 @@ class MainActivity : AppCompatActivity() {
           showCachedExamSchedule()
         } else if (item.key == "score") {
           showCachedScorePage()
+        } else if (item.key == "mail") {
+          startActivity(Intent(this,SchoolMailActivity::class.java))
         } else if (item.key == "level") {
           showCachedLevelExamPage()
         } else if (item.key == "refresh") {

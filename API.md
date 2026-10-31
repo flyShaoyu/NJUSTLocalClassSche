@@ -160,4 +160,6 @@ Android 登录与后台成绩同步只尝试统一认证，不再处理旧教务
 发布接口：GitHub预览版最终使用draft=false、prerelease=true、make_latest=false；Gitee最终保留prerelease=true。校验接口返回属性后才确认完成，--resume保留原渠道。依据GitHub Releases官方文档及Gitee API v5。
 
 
-学校邮箱：小工具的openTool("mail")只打开原生Activity，无远程网页mail.*请求接口。密码与正文不返回CampusCallbacks。SchoolMailClient公开内部操作verify/folders/list/read/send；UID与UIDVALIDITY共同标识邮件。SMTP发送要求唯一id和显式点击确认，Outbox与正文读写分离；无后台自动回复/发信。轮询仅IMAP只读，可在设置关闭。
+学校邮箱：首页邮件入口只打开原生Activity，无远程网页mail.*请求接口。密码与正文不返回CampusCallbacks。SchoolMailClient公开内部操作verify/folders/list/read/send；UID与UIDVALIDITY共同标识邮件。SMTP发送要求唯一id和显式点击确认，Outbox与正文读写分离；无后台自动回复/发信。轮询仅IMAP只读，可在设置关闭。
+
+邮箱登录态不使用 CAS Cookie。账号/授权码经 `SchoolMailAccountStore` 加密保存后跨进程恢复，已认证连接由 `SchoolMailConnections` 在进程内复用，按账号与授权码隔离；闲置2分钟关闭，错误或移除配置失效。断线重建连接不会重放读写命令，尤其不重试 SMTP 发送。

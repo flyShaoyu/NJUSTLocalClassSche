@@ -7,17 +7,20 @@ import jakarta.mail.search.HeaderTerm
 import org.eclipse.angus.mail.imap.IMAPFolder
 import java.util.Date
 
-/** One short-lived connection per user action. Default endpoints enforce verified TLS. */
+/** Saved app-code authenticates after process restart; live production connections are reused briefly. */
 internal class SchoolMailClient(
   private val account:SchoolMailAccount,
-  private val session:Session=Session.getInstance(SchoolMailPolicy.properties()),
+  session:Session?=null,
   private val imapHost:String=SchoolMailPolicy.IMAP_HOST,private val imapPort:Int=993,
   private val smtpHost:String=SchoolMailPolicy.SMTP_HOST,private val smtpPort:Int=465
 ){
+  private val reusable=session==null&&imapHost==SchoolMailPolicy.IMAP_HOST&&imapPort==993&&smtpHost==SchoolMailPolicy.SMTP_HOST&&smtpPort==465
+  private val session=session?:Session.getInstance(SchoolMailPolicy.properties())
   init{account.validate()}
-  private fun <T> withStore(action:(Store)->T):T {val store=session.getStore("imaps");try{store.connect(imapHost,imapPort,account.address,account.secret);return action(store)}finally{runCatching{store.close()}}}
+  private fun <T> withStore(action:(Store)->T):T {if(reusable)return SchoolMailConnections.receiving(account,session,action);val store=session.getStore("imaps");try{store.connect(imapHost,imapPort,account.address,account.secret);return action(store)}finally{runCatching{store.close()}}}
+  private fun <T> withTransport(action:(Transport)->T):T {if(reusable)return SchoolMailConnections.sending(account,session,action);val transport=session.getTransport("smtps");try{transport.connect(smtpHost,smtpPort,account.address,account.secret);return action(transport)}finally{runCatching{transport.close()}}}
   fun verify(){try{verifyReceiving()}catch(error:Exception){throw SchoolMailConnectionException("IMAP收信",error)};verifySending()}
-  fun verifySending(){val transport=session.getTransport("smtps");try{transport.connect(smtpHost,smtpPort,account.address,account.secret)}catch(error:Exception){throw SchoolMailConnectionException("SMTP发信",error)}finally{runCatching{transport.close()}}}
+  fun verifySending(){try{withTransport{}}catch(error:Exception){throw SchoolMailConnectionException("SMTP发信",error)}}
   fun verifyReceiving(){withStore{check(it.getFolder("INBOX").exists()){"服务器没有收件箱"}}}
   private fun safeFolder(name:String){require(name.length in 1..500&&!name.contains('\r')&&!name.contains('\n')){"邮件夹无效"}}
   fun folders():List<SchoolMailFolder> = withStore { store ->
@@ -62,17 +65,16 @@ internal class SchoolMailClient(
       saveChanges();setHeader("Message-ID",messageId)
     }
     outbox.begin(id,account.address,messageId)
-    val transport=session.getTransport("smtps");var submitted=false
+    var submitted=false
     try{
-      transport.connect(smtpHost,smtpPort,account.address,account.secret)
-      submitted=true;transport.sendMessage(message,message.allRecipients)
+      withTransport{transport->submitted=true;transport.sendMessage(message,message.allRecipients)}
     }catch(error:Exception){
       val partial=(error as? SendFailedException)?.validSentAddresses?.isNotEmpty()==true
       val definite=error is AuthenticationFailedException||!submitted||error is org.eclipse.angus.mail.smtp.SMTPSendFailedException&&error.returnCode in 400..599&&!partial
       val state=if(partial)"partial" else if(definite)"failed" else "unknown"
       val detail=if(partial)"部分收件人可能已收到，请逐个核对，勿整封重发" else if(definite)"发送失败："+SchoolMailErrors.describe(error) else "发送结果未知，可能已被服务器接收；请查已发送或向收件人核对，勿直接重发"
       outbox.update(id,state,detail);return SendResult(state,detail)
-    }finally{runCatching{transport.close()}}
+    }
     // SMTP acceptance is distinct from recipient delivery. Never automatically send again.
     outbox.update(id,"accepted","邮件已被SMTP服务器受理，不代表已送达收件人")
     val copied=runCatching{withStore{store->

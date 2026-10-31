@@ -139,13 +139,7 @@ class ScoreSyncSettingsActivity : AppCompatActivity() {
   private fun formatIntervalLabel(hours: Int): String = "${hours}h"
 
   private fun applyToolbarLayout() {
-    binding.toolbar.minimumHeight = 0
-    binding.toolbar.setPadding(
-      baseToolbarPaddingLeft,
-      baseToolbarPaddingTop + lastStatusBarInsetTop,
-      baseToolbarPaddingRight,
-      baseToolbarPaddingBottom
-    )
+    SecondaryPageToolbar.applyGeometry(binding.toolbar,lastStatusBarInsetTop)
   }
 
   private fun updateToolbarNavigationButtonLayout() {

@@ -224,13 +224,7 @@ class NotificationSettingsActivity : AppCompatActivity() {
   }
 
   private fun applyToolbarLayout() {
-    binding.toolbar.minimumHeight = 0
-    binding.toolbar.setPadding(
-      baseToolbarPaddingLeft,
-      baseToolbarPaddingTop + lastStatusBarInsetTop,
-      baseToolbarPaddingRight,
-      baseToolbarPaddingBottom
-    )
+    SecondaryPageToolbar.applyGeometry(binding.toolbar,lastStatusBarInsetTop)
   }
 
   private fun updateToolbarNavigationButtonLayout() {

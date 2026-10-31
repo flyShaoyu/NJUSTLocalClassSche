@@ -62,6 +62,8 @@
             android:screenOrientation="portrait" />
 
         <activity android:name=".SchoolMailActivity" android:exported="false" android:theme="@style/Theme.ClassScheMobile.BluePage" android:screenOrientation="portrait" />
+        <activity android:name=".SchoolMailSettingsActivity" android:exported="false" android:theme="@style/Theme.ClassScheMobile.BluePage" android:screenOrientation="portrait" />
+        <activity android:name=".SchoolMailGuideActivity" android:exported="false" android:theme="@style/Theme.ClassScheMobile.BluePage" android:screenOrientation="portrait" />
         <service android:name=".SchoolMailPollService" android:permission="android.permission.BIND_JOB_SERVICE" android:exported="false" />
         <activity android:name=".CampusToolsActivity" android:exported="false"
             android:theme="@style/Theme.ClassScheMobile.BluePage" android:screenOrientation="portrait"

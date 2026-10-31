@@ -15,7 +15,7 @@
         android:paddingBottom="4dp"
         android:theme="@style/ThemeOverlay.Material3.Dark.ActionBar"
         app:contentInsetStartWithNavigation="20dp"
-        app:titleCentered="true" app:subtitleCentered="true" />
+        app:titleCentered="true" app:popupTheme="@style/ThemeOverlay.ClassSche.Popup" app:subtitleCentered="true" />
 
     <FrameLayout
         android:layout_width="match_parent"
@@ -304,7 +304,13 @@
                             android:layout_height="1dp"
                             android:background="#1FB8C7D8" />
 
-                        <LinearLayout
+                        <LinearLayout android:id="@+id/profileMailSettingsRow" android:layout_width="match_parent" android:layout_height="wrap_content" android:background="?attr/selectableItemBackground" android:clickable="true" android:focusable="true" android:gravity="center_vertical" android:minHeight="60dp" android:orientation="horizontal" android:padding="16dp">
+  <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
+    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="邮件更新与通知" android:textColor="#6F8094" android:textSize="14sp" android:textStyle="bold"/>
+    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="设置收件检查间隔和新邮件提醒" android:textColor="#90A1B3" android:textSize="12sp"/>
+  </LinearLayout><TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="›" android:textColor="#97A9BD" android:textSize="18sp"/>
+</LinearLayout><View android:layout_width="match_parent" android:layout_height="1dp" android:background="#1FB8C7D8"/>
+<LinearLayout
                             android:id="@+id/profileScoreSyncSettingsRow"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"

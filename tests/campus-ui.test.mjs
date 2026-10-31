@@ -158,6 +158,37 @@ test('个人课表显示真实日程时间与备注，文本安全，教师课�
 });
 
 
+test('手机课表第14节贴齐周次栏，底部没有独立白色遮罩，缩放后不留空隙', {timeout:30000},async()=>{
+ const browser=await chromium.launch({headless:true});try{
+  const page=await browser.newPage({viewport:{width:393,height:801}});
+  await page.setContent(renderTimetablePage([{courseName:'第14节测试课程',weekday:'星期三',periods:'14-14节',weeks:'1-20周',classroom:'测试地点'}]));
+  for(const viewport of [{width:393,height:801},{width:360,height:640},{width:412,height:915},{width:393,height:734}]){
+   await page.setViewportSize(viewport);
+   await page.waitForFunction(()=>{const cell=document.querySelector('.slot-cell[data-period="14"]'),footer=document.querySelector('.footer-bar');return Math.abs(cell.getBoundingClientRect().bottom-footer.getBoundingClientRect().top)<1;});
+   const geometry=await page.evaluate(()=>{const last=document.querySelector('.slot-cell[data-period="14"]').getBoundingClientRect(),card=document.querySelector('.course-card').getBoundingClientRect(),footer=document.querySelector('.footer-bar').getBoundingClientRect();return{last:last.bottom,card:card.bottom,footer:footer.top,colors:['body','.app','.board','.grid-scroll','.schedule'].map(s=>getComputedStyle(document.querySelector(s)).backgroundColor)};});
+   assert.ok(Math.abs(geometry.last-geometry.footer)<1,JSON.stringify(geometry));
+   assert.ok(Math.abs(geometry.card-geometry.footer)<1,JSON.stringify(geometry));
+   assert.deepEqual(new Set(geometry.colors),new Set(['rgb(255, 255, 255)']));
+   assert.equal(await page.locator('.footer-underlay').count(),0);
+   await page.locator('#modeToggle').click();await page.locator('#modeToggle').click();
+  }
+ }finally{await browser.close();}
+});
+
+test('全学期隐藏考试，切回周视图仍显示考试', {timeout:30000},async()=>{
+ const browser=await chromium.launch({headless:true});try{
+  const page=await browser.newPage({viewport:{width:393,height:800}});
+  const base={weekday:'星期一',periods:'1-3节',weeks:'1-20周',classroom:'模拟地点',teacher:'模拟教师'};
+  await page.setContent(renderTimetablePage([{...base,courseName:'普通课程',courseType:'专业课'},{...base,courseName:'模拟考试',courseType:'考试',courseCode:'exam:synthetic',startTime:'08:00',endTime:'09:30'}]));
+  assert.equal(await page.locator('.course-card').filter({hasText:'模拟考试'}).count(),1);
+  await page.locator('#modeToggle').click();assert.equal(await page.locator('#weekLabel').innerText(),'全学期');
+  assert.equal(await page.locator('.course-card').filter({hasText:'模拟考试'}).count(),0);
+  assert.equal(await page.locator('.course-card').filter({hasText:'普通课程'}).count(),1);
+  assert.doesNotMatch(await page.locator('#legend').innerText(),/模拟考试/);
+  await page.locator('#modeToggle').click();assert.equal(await page.locator('.course-card').filter({hasText:'模拟考试'}).count(),1);
+ }finally{await browser.close();}
+});
+
 test('日程连续周数合并，考试座位单列且无场次备注，课程周数标签保持', {timeout:30000},async()=>{
  const browser=await chromium.launch({headless:true});try{
   const page=await browser.newPage({viewport:{width:393,height:800}});

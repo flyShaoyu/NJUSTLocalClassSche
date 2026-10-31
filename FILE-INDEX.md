@@ -172,4 +172,10 @@ Android 登录改动还应在构建后运行 `node --test tests/android-login.te
 预览发布：本机`release-tools/release-lib.mjs`管理语义版本及预发布API属性，`release.mjs`负责--prerelease计划与续传；测试`release-tools/tests/*.test.mjs`完全模拟外部写入。`ReleaseVersion.kt`用于Android更新后缀提取与比较，回归在`CampusParserCheck.java`。
 
 
-学校邮箱：`SchoolMailActivity.kt`（原生设置、列表、阅读、写信、回执）、`SchoolMailModels.kt`（模型、输入校验、独立授权码密文）、`SchoolMailClient.kt`（Angus IMAP/SMTP）、`SchoolMailMime.kt`（有界纯文字解析）、`SchoolMailOutbox.kt`（发送唯一编号及未知状态持久化）、`SchoolMailPolling.kt`（默认关闭的系统联网周期任务及隐私通知）。布局`activity_school_mail.xml`，入口在`campus-tools-ui.ts`/`CampusToolsActivity.kt`。核心和UID/MIME/回执测试在`SchoolMailChecks.kt`，设备阶段schoolMail/schoolMailTls/schoolMailReal/schoolMailSendTest在`RuntimeChecks.kt`；证据目录`artifacts/school-mail-20261030/`。
+学校邮箱：`SchoolMailActivity.kt`（原生设置、列表、阅读、写信、回执）、`SchoolMailModels.kt`（模型、输入校验、独立授权码密文）、`SchoolMailClient.kt`（Angus IMAP/SMTP）、`SchoolMailMime.kt`（有界纯文字解析）、`SchoolMailOutbox.kt`（发送唯一编号及未知状态持久化）、`SchoolMailPolling.kt`（收件间隔、独立通知开关和本机新邮件红点）。布局`activity_school_mail.xml`，首页入口在`MainActivity.HOME_MENU_ITEMS`。核心和UID/MIME/回执测试在`SchoolMailChecks.kt`，设备阶段schoolMail/schoolMailTls/schoolMailReal/schoolMailSendTest在`RuntimeChecks.kt`；证据目录`artifacts/school-mail-20261030/`。
+
+邮件更新/通知新入口：`SchoolMailSettingsActivity.kt`（设置与邮箱共用），`SchoolMailPolling.kt`（周期任务、通知开关、按UID持久化的首页/列表红点），`NotificationDefaults.kt`（新安装默认开启及一次系统权限申请）。`SchoolMailGuideActivity.kt` 和 `res/drawable-nodpi/mail_guide_*.webp` 是离线图文引导；原始截图不打包。课表标题栏下拉：`MainActivity.renderTimetableSemesterMenu`；首页邮件替代教室：`HOME_MENU_ITEMS`、`src/home-page-ui*`，小工具空闲教室：`campus-tools-ui.ts`。设备回归见 `MailNotificationChecks.kt` / `RuntimeChecks` 阶段 `mailNotifications`。
+
+邮箱免重复登录：`SchoolMailConnections.kt`（短时复用 IMAP/SMTP 已认证连接、2分钟闲置释放、账号/授权码改变及错误失效），`SchoolMailModels.kt` 的 `SchoolMailAccountStore`（Keystore 密文保存并自动恢复），`SchoolMailClient.kt`（生产连接复用；不重试发送）。离线复用验证在 `SchoolMailChecks.reuse`。
+
+标题栏/邮件控件统一：`BluePageUi.kt`（独立箭头的选择行、白色选项与更新结果弹窗），`SecondaryPageToolbar.applyGeometry`（本地页面统一52dp+状态栏，外链域名页例外），`themes.xml` 的 `ThemeOverlay.ClassSche.Popup`。`SchoolMailActivity.renderOutbox` 为卡片记录与折叠标识；`BrowserUserAgent.kt` 为邮箱电脑版UA。课表固定白字、原15色+截图16色共同优先（前31项）、后15种补充色、大块优先在 `src/timetable-colors.ts` / `src/timetable-ui.ts`；首选数量见 `TIMETABLE_PREFERRED_COLOR_COUNT`，不按对比度阈值筛除。全学期过滤考试在 `src/timetable-ui-script.ts`；模板标记为 `timetable-flush-footer-v5`。设备回归阶段 `uiStyle`，不截屏。
