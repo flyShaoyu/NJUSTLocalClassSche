@@ -51,7 +51,8 @@ test('选课入口可打开分类页：搜索、筛选、分页、更正共享�
     assert.equal(await page.getByRole('button',{name:/选课 \/ 抢课/}).isEnabled(),true);
     await page.getByRole('button',{name:/空闲教室/}).click();
     await page.getByRole('button',{name:/选课 \/ 抢课/}).click();
-    assert.deepEqual(await page.evaluate(()=>window.opened),['rooms','enrollment']);
+      await page.getByRole('button',{name:/网络登录/}).click();
+      assert.deepEqual(await page.evaluate(()=>window.opened),['rooms','enrollment','network']);
     await open('enrollment');
     await page.locator('.enrollment-course').first().waitFor();
     assert.match(await page.locator('#enrollmentSummary').innerText(),/741/);

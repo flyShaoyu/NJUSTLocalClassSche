@@ -179,3 +179,5 @@ Android 登录改动还应在构建后运行 `node --test tests/android-login.te
 邮箱免重复登录：`SchoolMailConnections.kt`（短时复用 IMAP/SMTP 已认证连接、2分钟闲置释放、账号/授权码改变及错误失效），`SchoolMailModels.kt` 的 `SchoolMailAccountStore`（Keystore 密文保存并自动恢复），`SchoolMailClient.kt`（生产连接复用；不重试发送）。离线复用验证在 `SchoolMailChecks.reuse`。
 
 标题栏/邮件控件统一：`BluePageUi.kt`（独立箭头的选择行、白色选项与更新结果弹窗），`SecondaryPageToolbar.applyGeometry`（本地页面统一52dp+状态栏，外链域名页例外），`themes.xml` 的 `ThemeOverlay.ClassSche.Popup`。`SchoolMailActivity.renderOutbox` 为卡片记录与折叠标识；`BrowserUserAgent.kt` 为邮箱电脑版UA。课表固定白字、原15色+截图16色共同优先（前31项）、后15种补充色、大块优先在 `src/timetable-colors.ts` / `src/timetable-ui.ts`；首选数量见 `TIMETABLE_PREFERRED_COLOR_COUNT`，不按对比度阈值筛除。全学期过滤考试在 `src/timetable-ui-script.ts`；模板标记为 `timetable-flush-footer-v5`。设备回归阶段 `uiStyle`，不截屏。
+
+网络登录（小工具）：`NetworkLoginActivity.kt`（独立进程、Wi-Fi 申请/绑定、官网 WebView 与错误提示）、`WifiPortalSession.kt`（先绑定再加载、断网不回退蜂窝、网络替换与退出清理）、`activity_network_login.xml`。入口在 `src/campus-tools-ui.ts` 与 `CampusToolsActivity.Bridge.openTool`，模板标记 `toolbox-network-login-v1`；独立 WebView 目录 `wifi_portal`，普通权限 CHANGE_NETWORK_STATE。测试为 `tests/android-network-login.test.mjs`、`tests/android/NetworkLoginCheck.java` 及 `tests/enrollment-catalog.test.mjs`。

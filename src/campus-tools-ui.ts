@@ -37,10 +37,12 @@ function compactWeeks(weeks){const values=[...new Set(weeks)].sort((a,b)=>a-b),p
 function selectedWeeks(text){const values=new Set();for(const token of String(text||'').match(/\d+(?:-\d+)?/g)||[]){const [a,b]=token.split('-').map(Number);if(a>0&&a<=30)for(let n=a;n<=(b||a)&&n<=30;n++)values.add(n);}return values;}
 // toolbox-menu-v1: each tool opens in its own native activity so Back returns to this hub.
 // toolbox-enrollment-v1: actual enrollment remains closed; its local catalogue is available.
+// toolbox-network-login-v1: native, Wi-Fi-only school network authentication.
 function showToolbox(){
   page='toolbox';clearError();root.className='page';
   const tools=[{key:'rooms',title:'空闲教室',description:'按教学楼、日期和时段查询空教室',icon:'<path d="M3 10 12 4l9 6Z" fill="#d6e9f5"/><path d="M3 10 12 4l9 6M5 10v10h14V10M9 20v-7h6v7"/>'},{key:'courses',title:'课程搜索',description:'查找课程安排、任课教师和教师课表',icon:'<path d="M13 20H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3h11a3 3 0 0 1 3 3v6M7 8h8M7 11h4M7 14h2"/><circle cx="16" cy="16" r="4" fill="#d6e9f5"/><path d="m19 19 3 3"/>'},{key:'evaluation',title:'课程评教',description:'设置评级、预览课程并一键提交评价',icon:'<rect x="4" y="3" width="16" height="19" rx="2" fill="#e7f1fb"/><path d="M8 8h8M8 12h5M8 16l3 3 6-6"/>'}];
   root.innerHTML=tools.map(tool=>'<button class="card tool-card" data-open-tool="'+tool.key+'"><svg viewBox="0 0 24 24" aria-hidden="true">'+tool.icon+'</svg><span><strong>'+tool.title+'</strong><small>'+tool.description+'</small></span><span class="tool-arrow" aria-hidden="true">›</span></button>').join('')+'<button class="card tool-card" data-open-tool="enrollment"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4h12a3 3 0 0 1 3 3v2H3V7a3 3 0 0 1 3-3Z" fill="#d6e9f5"/><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M3 9h18M8 2v5M16 2v5M8 14h8M12 11v6"/></svg><span><strong>选课 / 抢课</strong><small>搜索课程分类，按类别筛选课程</small></span><span class="tool-arrow" aria-hidden="true">›</span></button>';
+  root.insertAdjacentHTML('beforeend','<button class="card tool-card" data-open-tool="network"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 8a16 16 0 0 1 20 0M5 12a11 11 0 0 1 14 0M8 16a6 6 0 0 1 8 0"/><circle cx="12" cy="20" r="1.5" fill="#d6e9f5"/></svg><span><strong>网络登录</strong><small>通过当前 Wi-Fi 打开校园网认证页</small></span><span class="tool-arrow" aria-hidden="true">›</span></button>');
   root.querySelectorAll('[data-open-tool]').forEach(button=>button.onclick=()=>window.CampusBridge?.openTool(button.dataset.openTool));
 }
 __ENROLLMENT_UI__

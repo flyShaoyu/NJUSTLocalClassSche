@@ -3,6 +3,7 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
@@ -71,6 +72,9 @@
         <activity android:name=".LibraryLoginActivity" android:exported="false"
             android:theme="@style/Theme.ClassScheMobile.BluePage" android:screenOrientation="portrait" />
         <activity android:name=".CampusBrowserActivity" android:exported="false"
+            android:theme="@style/Theme.ClassScheMobile.BluePage" android:screenOrientation="portrait" />
+        <activity android:name=".NetworkLoginActivity" android:exported="false"
+            android:process=":network_login" android:launchMode="singleTop"
             android:theme="@style/Theme.ClassScheMobile.BluePage" android:screenOrientation="portrait" />
         <activity android:name=".GeneralEducationUpdateActivity" android:exported="false"
             android:theme="@style/Theme.ClassScheMobile.BluePage" android:screenOrientation="portrait"

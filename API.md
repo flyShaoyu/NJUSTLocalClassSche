@@ -163,3 +163,7 @@ Android 登录与后台成绩同步只尝试统一认证，不再处理旧教务
 学校邮箱：首页邮件入口只打开原生Activity，无远程网页mail.*请求接口。密码与正文不返回CampusCallbacks。SchoolMailClient公开内部操作verify/folders/list/read/send；UID与UIDVALIDITY共同标识邮件。SMTP发送要求唯一id和显式点击确认，Outbox与正文读写分离；无后台自动回复/发信。轮询仅IMAP只读，可在设置关闭。
 
 邮箱登录态不使用 CAS Cookie。账号/授权码经 `SchoolMailAccountStore` 加密保存后跨进程恢复，已认证连接由 `SchoolMailConnections` 在进程内复用，按账号与授权码隔离；闲置2分钟关闭，错误或移除配置失效。断线重建连接不会重放读写命令，尤其不重试 SMTP 发送。
+
+### 校园网网络登录
+
+本地小工具调用 `CampusBridge.openTool("network")`，仅在可信本地文档、当前为 toolbox 且未重复打开时启动 `NetworkLoginActivity`。不通过网页桥接接收网络账号密码，不复用教务凭据；登录由校方网页处理。

@@ -219,4 +219,14 @@ SchoolMailPolling保留升级用户的原设置，新安装默认15分钟并启�
 
 本轮验证：68项离线回归及最终APK的 `uiStyle` 通过，未截屏。额外运行 `mailNotifications` 时，连接复用、通知/红点、长间隔和电脑版UA断言通过，随后首次绘制设置页遭模拟器 `libhwui.so / GrGLGpu::createTexture` 崩溃；重启后 `uiStyle` 再次通过，独立 `homeToolbar` 冷启动仍遭同一驱动崩溃，因此这两项完整阶段不计为本轮通过。未保留无效的页面软件渲染绕行，测试结束关闭模拟器。
 
-手机课表底部与周次栏贴齐：移除独立 ooter-underlay 白色遮罩和额外底部留白，背景统一白色。14行按可用高度（扣除日期栏、周次栏、13个行间距）精确均分，不向下取整；第14节完整显示到蓝栏上边缘。campus-ui.test.mjs 使用多个手机视口和动态调整尺寸验证几何位置，不截屏。
+手机课表底部与周次栏贴齐：移除独立 `footer-underlay` 白色遮罩和额外底部留白，背景统一白色。14行按可用高度（扣除日期栏、周次栏、13个行间距）精确均分，不向下取整；第14节完整显示到蓝栏上边缘。`campus-ui.test.mjs` 使用多个手机视口和动态调整尺寸验证几何位置，不截屏。
+
+### 仅使用 Wi-Fi 的网络登录
+
+`NetworkLoginActivity` 在独立 `:network_login` 进程打开 `http://m.njust.edu.cn/portal/index.html`，使用独立 WebView 目录 `wifi_portal`；Android 8.x 使用 AndroidX 启动特性，旧组件不支持时提示更新 WebView。不要在主进程绑定网络，否则会影响邮箱/教务请求路由。
+
+申请 Wi-Fi 不要求 INTERNET/VALIDATED，收到网络 capabilities 后才绑定该进程并创建 WebView。新增普通权限 CHANGE_NETWORK_STATE，不扫描 SSID、不自动打开或切换 Wi-Fi。断网先销毁网页并保持失效绑定，退出先销毁网页再解除绑定、注销回调。所有回调使用主线程；`WifiPortalSession` 去重同网络回调、忽略旧网络丢失及退出后的回调。不自动提交账号、重放 POST 或回退移动数据。
+
+错误区分 Wi-Fi 未连接/绑定失败、DNS、连接超时（含30秒加载上限）、TLS、重定向错误和 HTTP 状态。网页不安装 JS 桥接、不接收教务密码、不忽略证书错误；是否已认证以校方网页为准。小工具缓存要求 `toolbox-network-login-v1`，旧热更新回退 APK 自带模板。
+
+验证：`tests/android-network-login.test.mjs` / `tests/android/NetworkLoginCheck.java` 使用已编译 Kotlin 类测试未连接/仅蜂窝、先绑定再加载、重复回调、切换/断网不回退、绑定失败及退出清理；`enrollment-catalog.test.mjs` 验证入口桥接。未提交真实网络账号；未认证校园 Wi-Fi 的实际认证结果仍需设备现场验证。

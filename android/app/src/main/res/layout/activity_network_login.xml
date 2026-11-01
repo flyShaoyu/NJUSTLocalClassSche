@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="vertical" android:background="@android:color/white">
+    <com.google.android.material.appbar.MaterialToolbar
+        android:id="@+id/toolbar" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:minHeight="0dp" android:paddingTop="4dp" android:paddingBottom="4dp"
+        android:background="@color/sky_top" android:theme="@style/ThemeOverlay.Material3.Dark.ActionBar"
+        app:titleCentered="true" app:subtitleCentered="true" app:popupTheme="@style/ThemeOverlay.ClassSche.Popup" />
+    <TextView android:id="@+id/networkStatus" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:padding="12dp" android:textSize="13sp" android:textColor="#526B84" android:accessibilityLiveRegion="polite" />
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="end|center_vertical" android:paddingHorizontal="12dp">
+        <com.google.android.material.button.MaterialButton android:id="@+id/wifiSettings" style="@style/Widget.Material3.Button.TextButton"
+            android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Wi-Fi 设置" android:textSize="13sp" />
+        <com.google.android.material.button.MaterialButton android:id="@+id/retryPortal" style="@style/Widget.Material3.Button.TextButton"
+            android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="重新连接" android:textSize="13sp" />
+    </LinearLayout>
+    <FrameLayout android:id="@+id/portalContainer" android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" />
+</LinearLayout>
