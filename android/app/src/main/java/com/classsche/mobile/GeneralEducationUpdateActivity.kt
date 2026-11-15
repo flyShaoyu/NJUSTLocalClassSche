@@ -15,6 +15,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.activity.OnBackPressedCallback
 import com.classsche.mobile.databinding.ActivityGeneralEducationUpdateBinding
 import org.json.JSONObject
 import org.json.JSONTokener
@@ -58,6 +59,11 @@ class GeneralEducationUpdateActivity : AppCompatActivity() {
     binding.toolbar.title = "更新通识分类表"
     SecondaryPageToolbar.bind(binding.root, binding.toolbar)
     binding.toolbar.setNavigationOnClickListener { finish() }
+    onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+      override fun handleOnBackPressed() {
+        if (binding.browser.canGoBack()) binding.browser.goBack() else finish()
+      }
+    })
     with(binding.browser.settings) {
       javaScriptEnabled = true
       domStorageEnabled = true
@@ -113,7 +119,8 @@ class GeneralEducationUpdateActivity : AppCompatActivity() {
     binding.retry.visibility = View.GONE; binding.progress.visibility = View.VISIBLE
     binding.status.text = "正在打开教务处分类表，等待网页完成校验…"
     AppDebugLog.append(this, "GENERAL_CATALOG", "INFO", "手机 WebView 开始读取公开分类表")
-    binding.browser.loadUrl(GeneralEducationCatalogParser.SOURCE)
+    if (expectedUrl(binding.browser.url.orEmpty())) binding.browser.reload()
+    else binding.browser.loadUrl(GeneralEducationCatalogParser.SOURCE)
     if (foreground) resumeDeadline()
   }
   private fun scheduleRead(delay: Long = 600L) {

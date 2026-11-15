@@ -166,4 +166,14 @@ Android 登录与后台成绩同步只尝试统一认证，不再处理旧教务
 
 ### 校园网网络登录
 
+远程 WebView 顶栏返回退出当前 Activity；系统返回优先调用 WebView `goBack()`，没有历史时退出。网络登录“重新打开”调用 `reload()`，不把刷新当成新页面。
+
 本地小工具调用 `CampusBridge.openTool("network")`，仅在可信本地文档、当前为 toolbox 且未重复打开时启动 `NetworkLoginActivity`。不通过网页桥接接收网络账号密码，不复用教务凭据；登录由校方网页处理。
+
+邮件轮询配置的分钟值仅接受 `0/15/60/600/1440/2880/7200`。升级时已移除的旧值按 `SchoolMailIntervalPolicy` 顺延至下一档较长间隔；`0` 保持关闭，不改变新邮件通知开关。
+
+### 成绩及考试自动同步
+
+`HeadlessScoreSyncManager.runSync` 的 `APP_OPEN`（每进程一次）和 `ALARM`（设置间隔）在同一次认证后分别拉取成绩与考试。`SyncResult` 增加 `PARTIAL_SUCCESS`、`scoreSynced`、`examsSynced`、`examCount` 和 `examUpdatedCount`，各分支失败独立报告，不再次提交密码。考试由 `ExamQueryClient` 复用 Cookie，GET `EXAM_QUERY` 后携带校方所选 `xnxqid`/隐藏字段向固定 `EXAM_LIST` 查询，校验表头/行结构后才交给 `ExamUpdateStore` 原子保存。`ExamUpdatePolicy` 忽略顺序、教师及 rawText，识别新增、调整、移除；首次无有效本地缓存只建立基线，已有空缓存后出现记录可通知。通知通道 `classsche_exam_update_v1`、通知 ID `3102`，Intent action `com.classsche.mobile.action.OPEN_EXAM_UPDATES` 进入考试页。成功后重排考前提醒。离线验证：`node --test tests/android-exam-sync.test.mjs tests/android-login.test.mjs`（先构建 Android）。
+
+教务 SSO 协议：HTTP 客户端从可信 HTTPS IDS `/authserver/login` 的 `service` 参数识别固定教务回调。注册为 HTTP 时，只允许该主机/路径/标准端口的 GET（无 body）保持 HTTP，避免修改 CAS service 后票据校验循环；其他业务 HTTP 跳转改为 HTTPS。`HEADLESS_HTTP` 记录协议和票据存在标记，超限保留最近四跳，不输出完整 URL 查询参数。

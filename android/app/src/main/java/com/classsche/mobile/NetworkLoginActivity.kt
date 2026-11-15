@@ -21,6 +21,7 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.appcompat.app.AppCompatActivity
+import androidx.activity.OnBackPressedCallback
 import androidx.webkit.ProcessGlobalConfig
 import androidx.webkit.WebViewFeature
 import com.classsche.mobile.databinding.ActivityNetworkLoginBinding
@@ -45,11 +46,15 @@ class NetworkLoginActivity:AppCompatActivity(){
     super.onCreate(state)
     binding=ActivityNetworkLoginBinding.inflate(layoutInflater);setContentView(binding.root)
     binding.toolbar.title="网络登录";binding.toolbar.subtitle="m.njust.edu.cn"
-    SecondaryPageToolbar.bind(binding.root,binding.toolbar,domainSubtitle=true)
-    binding.toolbar.setNavigationOnClickListener{onBackPressed()}
+    SecondaryPageToolbar.bind(binding.root,binding.toolbar,adaptiveHeight=true)
+    binding.toolbar.setNavigationOnClickListener{finish()}
+    onBackPressedDispatcher.addCallback(this,object:OnBackPressedCallback(true){
+      override fun handleOnBackPressed(){if(browser?.canGoBack()==true)browser?.goBack()else finish()}
+    })
     binding.wifiSettings.setOnClickListener{startActivity(Intent(Settings.ACTION_WIFI_SETTINGS))}
     binding.retryPortal.setOnClickListener{
-      if(session?.isReady==true){if(browser==null)openPortal()else browser?.loadUrl(PORTAL_URL)}else requestWifi()
+      // Refresh the current document without pushing another entry into WebView history.
+      if(session?.isReady==true){if(browser==null)openPortal()else browser?.reload()}else requestWifi()
     }
     storageReady=runCatching{
       if(!storageConfigured){
@@ -153,6 +158,5 @@ class NetworkLoginActivity:AppCompatActivity(){
     if(view!=null){view.stopLoading();binding.portalContainer.removeView(view);view.destroy()}
   }
   private fun releaseSession(){callback?.let{runCatching{connectivity.unregisterNetworkCallback(it)}};callback=null;session?.close();session=null}
-  @Deprecated("Deprecated in Java") override fun onBackPressed(){if(browser?.canGoBack()==true)browser?.goBack()else finish()}
   override fun onDestroy(){releaseSession();destroyBrowser();super.onDestroy()}
 }

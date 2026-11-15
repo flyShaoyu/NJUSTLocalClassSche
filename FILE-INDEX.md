@@ -21,6 +21,7 @@
 | --- | --- |
 | 登录入口、SSO、登录态复用 | [`src/endpoints.ts`](src/endpoints.ts)、[`src/login.ts`](src/login.ts)、[`src/authenticated-page.ts`](src/authenticated-page.ts)、[`src/browser.ts`](src/browser.ts) |
 | Android 登录、Cookie 复用、密码保存 | [`MainActivity.kt`](android/app/src/main/java/com/classsche/mobile/MainActivity.kt)、[`LoginNavigationPolicy.kt`](android/app/src/main/java/com/classsche/mobile/LoginNavigationPolicy.kt)（密码/扫码共用门户 `/default/index.html` 等落点到教务 SSO 的跳转与去重）、[`CredentialStore.kt`](android/app/src/main/java/com/classsche/mobile/CredentialStore.kt)、[`HeadlessLoginClient.kt`](android/app/src/main/java/com/classsche/mobile/HeadlessLoginClient.kt)、[`LoginCookieStore.kt`](android/app/src/main/java/com/classsche/mobile/LoginCookieStore.kt) |
+| 自动考试拉取、变动通知、共用成绩同步间隔 | `HeadlessScoreSyncManager.kt`（启动/定时同一次认证、分支独立与部分成功）、`ExamQueryClient.kt`（当前学期表单与会话复用）、`ExamParser.kt`（表头和行校验）、`ExamUpdatePolicy.kt`（变化去重）、`ExamUpdateStore.kt`（原子缓存、通知和提醒重排）；MainActivity 处理通知进入考试页及刷新，测试 `tests/android-exam-sync.test.mjs` / `tests/android/ExamSyncCheck.java`。 |
 | 自动成绩同步过于频繁、认证失败后重试 | [`HeadlessScoreSyncManager.kt`](android/app/src/main/java/com/classsche/mobile/HeadlessScoreSyncManager.kt) 和 [`ScoreSyncTriggerPolicy.kt`](android/app/src/main/java/com/classsche/mobile/ScoreSyncTriggerPolicy.kt)：每个进程首次打开主界面同步一次，返回前台不重复；[`ScoreSyncSettings.kt`](android/app/src/main/java/com/classsche/mobile/ScoreSyncSettings.kt) 和 [`ScoreSyncTiming.kt`](android/app/src/main/java/com/classsche/mobile/ScoreSyncTiming.kt)：后台闹钟的持久间隔及认证暂停 |
 | 微信扫码、二维码保存、手动图形验证码 | [`IdentityQrLoginController.kt`](android/app/src/main/java/com/classsche/mobile/IdentityQrLoginController.kt) 和 [`IdentityQrPageScript.kt`](android/app/src/main/java/com/classsche/mobile/IdentityQrPageScript.kt)：首次加载即电脑端 UA、读取网页现有二维码、复用校方 `refresh()` 与分步骤诊断；[`QrImageGalleryStore.kt`](android/app/src/main/java/com/classsche/mobile/QrImageGalleryStore.kt) 的 MediaStore 相册写入；`MainActivity.kt` 的 `showLoginPage` 只重载表单、`authLoginRequested` 手动认证状态、`syncIdentityCaptcha`、`prepareIdentityLogin`、`openTimetableRefreshCaptcha` |
 | Android 静默更新课表、切换学期 | [`MainActivity.kt`](android/app/src/main/java/com/classsche/mobile/MainActivity.kt) 的 `startSilentTimetableRefresh`、[`HeadlessLoginClient.kt`](android/app/src/main/java/com/classsche/mobile/HeadlessLoginClient.kt) 的学期表单提交、[`TimetableSemesterStore.kt`](android/app/src/main/java/com/classsche/mobile/TimetableSemesterStore.kt) |
@@ -147,7 +148,7 @@ Android 登录改动还应在构建后运行 `node --test tests/android-login.te
 - `src/campus-tools-ui.ts`：周次全选、图书搜索置顶及错误呈现。
 - `android/app/src/main/java/com/classsche/mobile/ExamTimetableOverlay.kt`：考试映射到课表，未知校历不猜测。由 `TimetableRenderer.kt` 显式开启，`MainActivity.kt` 只在本人课表启用。
 - `CampusDataClient.kt` / `CampusDataParser.kt`、`src/library-data.ts`：新版OPAC参数、借阅登录与书目编码；`CampusToolsActivity.kt` 路由图书馆登录。
-- `CampusBrowserActivity.kt`：当前链接复制、外部网页缩放；`GeneralEducationUpdateActivity.kt` 与主页面远程 WebView 同步开启缩放。
+- `CampusBrowserActivity.kt`：当前链接复制、外部网页缩放；与 `NetworkLoginActivity.kt`、`GeneralEducationUpdateActivity.kt` 一起区分顶栏退出和安卓系统网页回退，后两者的同页重试使用 `reload()` 避免重复历史。`GeneralEducationUpdateActivity.kt` 与主页面远程 WebView 同步开启缩放。
 - `tests/general-education-drag.test.mjs`、`tests/campus-ui.test.mjs`、`tests/home-data.test.mjs`；原生 `RuntimeChecks.kt` 的 `refinement` / `libraryNew` 为本轮验收入口。详细结果在被忽略的 `artifacts/ui-refinement-20261030/`。
 
 
@@ -178,6 +179,10 @@ Android 登录改动还应在构建后运行 `node --test tests/android-login.te
 
 邮箱免重复登录：`SchoolMailConnections.kt`（短时复用 IMAP/SMTP 已认证连接、2分钟闲置释放、账号/授权码改变及错误失效），`SchoolMailModels.kt` 的 `SchoolMailAccountStore`（Keystore 密文保存并自动恢复），`SchoolMailClient.kt`（生产连接复用；不重试发送）。离线复用验证在 `SchoolMailChecks.reuse`。
 
-标题栏/邮件控件统一：`BluePageUi.kt`（独立箭头的选择行、白色选项与更新结果弹窗），`SecondaryPageToolbar.applyGeometry`（本地页面统一52dp+状态栏，外链域名页例外），`themes.xml` 的 `ThemeOverlay.ClassSche.Popup`。`SchoolMailActivity.renderOutbox` 为卡片记录与折叠标识；`BrowserUserAgent.kt` 为邮箱电脑版UA。课表固定白字、原15色+截图16色共同优先（前31项）、后15种补充色、大块优先在 `src/timetable-colors.ts` / `src/timetable-ui.ts`；首选数量见 `TIMETABLE_PREFERRED_COLOR_COUNT`，不按对比度阈值筛除。全学期过滤考试在 `src/timetable-ui-script.ts`；模板标记为 `timetable-flush-footer-v5`。设备回归阶段 `uiStyle`，不截屏。
+标题栏/邮件控件统一：`BluePageUi.kt`（独立箭头的选择行、白色选项与更新结果弹窗），`SecondaryPageToolbar.applyGeometry`（单行标题52dp+状态栏，双行副标题自适应高度），`themes.xml` 的 `ThemeOverlay.ClassSche.Popup`。`SchoolMailActivity.renderOutbox` 为卡片记录与折叠标识；`BrowserUserAgent.kt` 为邮箱电脑版UA。课表固定白字、原15色+截图16色共同优先（前31项）、后15种补充色、大块优先在 `src/timetable-colors.ts` / `src/timetable-ui.ts`；首选数量见 `TIMETABLE_PREFERRED_COLOR_COUNT`，不按对比度阈值筛除。全学期过滤考试在 `src/timetable-ui-script.ts`；模板标记为 `timetable-flush-footer-v5`。设备回归阶段 `uiStyle`，不截屏。
 
 网络登录（小工具）：`NetworkLoginActivity.kt`（独立进程、Wi-Fi 申请/绑定、官网 WebView 与错误提示）、`WifiPortalSession.kt`（先绑定再加载、断网不回退蜂窝、网络替换与退出清理）、`activity_network_login.xml`。入口在 `src/campus-tools-ui.ts` 与 `CampusToolsActivity.Bridge.openTool`，模板标记 `toolbox-network-login-v1`；独立 WebView 目录 `wifi_portal`，普通权限 CHANGE_NETWORK_STATE。测试为 `tests/android-network-login.test.mjs`、`tests/android/NetworkLoginCheck.java` 及 `tests/enrollment-catalog.test.mjs`。
+
+邮件通知开关用 `MaterialSwitch`，开启蓝色/关闭灰色由 `res/color/mail_notification_track.xml` 与 `mail_notification_thumb.xml` 控制。收件间隔在 `SchoolMailIntervalPolicy.kt`：关闭、15分钟、1/10小时、1/2/5天；移除项向下一档较长间隔迁移，入口为 `NotificationDefaults.initialize` / `SchoolMailPolling.migrateInterval`。离线迁移回归：`tests/android-mail-preferences.test.mjs` / `tests/android/SchoolMailIntervalCheck.java`。
+
+SSO 重定向循环：`HeadlessLoginClient.kt` 的 `rememberTeachingCallback` / `isRegisteredHttpCallback` 保留校方 IDS 注册的固定 HTTP GET 回调，其余业务保持 HTTPS；`safeRoute` 脱敏记录协议、票据存在标记，超限附最近四跳。公开入口只读验证及限制见 `LOGIN-MIGRATION.md` 的 2026-11-15 记录；回归场景位于 `tests/android/SessionReuseCheck.java`。

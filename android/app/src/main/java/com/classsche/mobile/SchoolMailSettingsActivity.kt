@@ -12,9 +12,10 @@ import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import com.classsche.mobile.databinding.ActivitySchoolMailBinding
 import com.google.android.material.button.MaterialButton
-import com.google.android.material.switchmaterial.SwitchMaterial
+import com.google.android.material.materialswitch.MaterialSwitch
 
 class SchoolMailSettingsActivity:AppCompatActivity(){
   private lateinit var binding:ActivitySchoolMailBinding
@@ -40,8 +41,11 @@ class SchoolMailSettingsActivity:AppCompatActivity(){
       }
     }.apply{tag="mailUpdateInterval"})
     content.addView(paragraph("自动检查收件箱，有新邮件时更新红点。系统省电或网络不稳定时可能晚一些，也可以在邮件页手动刷新。"))
-    val toggle=SwitchMaterial(this).apply{
+    val toggle=MaterialSwitch(this).apply{
       text="新邮件通知";textSize=14f;tag="mailNotificationSwitch";isChecked=SchoolMailPolling.notificationsEnabled(this@SchoolMailSettingsActivity)
+      thumbTintList=ContextCompat.getColorStateList(context,R.color.mail_notification_thumb)
+      trackTintList=ContextCompat.getColorStateList(context,R.color.mail_notification_track)
+      trackDecorationTintList=trackTintList
       setOnCheckedChangeListener{_,enabled->
         runCatching{SchoolMailPolling.setNotificationsEnabled(this@SchoolMailSettingsActivity,enabled)}.onFailure{showError(it)}
         if(enabled&&Build.VERSION.SDK_INT>=33&&checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS),751)

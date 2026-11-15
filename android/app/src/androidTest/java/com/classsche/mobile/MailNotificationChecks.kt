@@ -21,8 +21,9 @@ internal object MailNotificationChecks {
     val manager=base.getSystemService(android.app.NotificationManager::class.java)
     try{
       NotificationDefaults.initialize(ctx)
+      check(SchoolMailPolling.intervals==listOf(0,15,60,600,1440,2880,7200))
       for(minutes in SchoolMailPolling.intervals.filter{it>0})check(SchoolMailPolling.job(ctx,minutes).intervalMillis==minutes*60000L)
-      check(SchoolMailPolling.intervalLabel(300)=="每5小时"&&SchoolMailPolling.intervalLabel(600)=="每10小时"&&SchoolMailPolling.intervalLabel(1200)=="每20小时")
+      check(SchoolMailPolling.intervalLabel(15)=="每15分钟"&&SchoolMailPolling.intervalLabel(60)=="每1小时"&&SchoolMailPolling.intervalLabel(600)=="每10小时")
       check(SchoolMailPolling.intervalLabel(7200)=="每5天")
       val desktop=BrowserUserAgent.desktop("Mozilla/5.0 (Linux; Android 12; Device; wv) AppleWebKit/537.36 Version/4.0 Chrome/126.0.0.0 Mobile Safari/537.36")
       check(!desktop.contains("Android")&&!desktop.contains("Mobile")&&desktop.contains("Windows")&&desktop.contains("Chrome/126"))

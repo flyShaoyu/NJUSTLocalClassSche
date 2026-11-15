@@ -6,7 +6,7 @@ import android.content.Context
 internal object NotificationDefaults {
   @Synchronized fun initialize(context: Context) {
     val prefs=context.getSharedPreferences("classsche_prefs",Context.MODE_PRIVATE)
-    if(prefs.getBoolean("notification_defaults_v2",false))return
+    if(prefs.getBoolean("notification_defaults_v2",false)){SchoolMailPolling.migrateInterval(context);return}
     val fresh=prefs.all.isEmpty() && !java.io.File(context.filesDir,"timetable.json").exists() &&
       !java.io.File(context.noBackupFilesDir,"school_mail_credentials.enc").exists() &&
       !java.io.File(context.noBackupFilesDir,"library_credentials.enc").exists() &&
@@ -21,6 +21,7 @@ internal object NotificationDefaults {
     if(!mail.contains("minutes"))mailEdit.putInt("minutes",if(fresh)15 else 0)
     if(!mail.contains("notifications"))mailEdit.putBoolean("notifications",fresh||mail.getInt("minutes",0)>0)
     check(mailEdit.commit())
+    SchoolMailPolling.migrateInterval(context)
   }
   fun consumePermissionPrompt(context:Context):Boolean {
     val prefs=context.getSharedPreferences("classsche_prefs",Context.MODE_PRIVATE)

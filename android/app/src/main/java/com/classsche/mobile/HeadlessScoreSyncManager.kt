@@ -29,6 +29,7 @@ object HeadlessScoreSyncManager {
 
   enum class Status {
     SUCCESS,
+    PARTIAL_SUCCESS,
     SKIPPED,
     FAILED
   }
@@ -37,7 +38,11 @@ object HeadlessScoreSyncManager {
     val status: Status,
     val scoreCount: Int = 0,
     val updatedCount: Int = 0,
-    val message: String = ""
+    val message: String = "",
+    val examCount: Int = 0,
+    val examUpdatedCount: Int = 0,
+    val scoreSynced: Boolean = false,
+    val examsSynced: Boolean = false
   )
 
   private val executor = Executors.newSingleThreadExecutor()
@@ -88,7 +93,7 @@ object HeadlessScoreSyncManager {
   }
 
   private fun performSync(context: Context, reason: String): SyncResult {
-    log(context, "HEADLESS_SCORE_SYNC", "START", "开始纯 HTTP 成绩同步 reason=$reason")
+    log(context, "HEADLESS_SCORE_SYNC", "START", "开始纯 HTTP 成绩及考试同步 reason=$reason")
     val credentials = CredentialStore.credentials(context)
     if (credentials == null && WebViewLoginCookieStore.read(TIMETABLE_URL).isBlank() &&
       WebViewLoginCookieStore.read("https://ids.njust.edu.cn/authserver/").isBlank()) {
@@ -113,7 +118,28 @@ object HeadlessScoreSyncManager {
       "教务会话已就绪，cookieCount=${loginResult.cookies.size}"
     )
 
-    val latestScores = fetchScoreRecordsWithCookies(context, loginResult.cookies)
+    // One authenticated session serves both queries. A failed branch must not stop the other.
+    val scores = runCatching { syncScores(context, loginResult.cookies) }
+      .onFailure { log(context, "HEADLESS_SCORE_SYNC", "FAIL", "成绩同步失败：${FailureDetails.describe(it)}") }
+    val exams = runCatching {
+      val courses = TimetableParser.parse(loginResult.timetableHtml)
+      val latest = ExamQueryClient({ scope, status, message -> log(context, scope, status, message) }).fetch(courses)
+      latest.size to ExamUpdateStore.save(context, latest)
+    }.onFailure { log(context, "HEADLESS_EXAM_SYNC", "FAIL", "考试同步失败，保留原缓存：${FailureDetails.describe(it)}") }
+    val failures = listOfNotNull(scores.exceptionOrNull()?.let { "成绩：${FailureDetails.describe(it)}" }, exams.exceptionOrNull()?.let { "考试安排：${FailureDetails.describe(it)}" })
+    val status = when {
+      scores.isSuccess && exams.isSuccess -> Status.SUCCESS
+      scores.isSuccess || exams.isSuccess -> Status.PARTIAL_SUCCESS
+      else -> Status.FAILED
+    }
+    log(context, "HEADLESS_SCORE_SYNC", status.name, "成绩及考试同步结束：成绩${if (scores.isSuccess) "成功" else "失败"}，考试${if (exams.isSuccess) "成功" else "失败"}")
+    return SyncResult(status, scores.getOrNull()?.first ?: 0, scores.getOrNull()?.second ?: 0,
+      failures.joinToString("；").ifBlank { "ok" }, exams.getOrNull()?.first ?: 0, exams.getOrNull()?.second ?: 0,
+      scoreSynced = scores.isSuccess, examsSynced = exams.isSuccess)
+  }
+
+  private fun syncScores(context: Context, cookies: Map<String, String>): Pair<Int, Int> {
+    val latestScores = fetchScoreRecordsWithCookies(context, cookies)
     val scoreFile = File(context.filesDir, SCORE_JSON_FILE)
     val previousScores = readScoreArrayFromFile(scoreFile)
     scoreFile.writeText(latestScores.toString(), Charsets.UTF_8)
@@ -130,12 +156,7 @@ object HeadlessScoreSyncManager {
       log(context, "SCORE_UPDATE", "INFO", "本次未检测到新的成绩变动")
     }
     log(context, "HEADLESS_SCORE_SYNC", "SUCCESS", "成绩同步完成，共 ${latestScores.length()} 条")
-    return SyncResult(
-      status = Status.SUCCESS,
-      scoreCount = latestScores.length(),
-      updatedCount = updatedItems.size,
-      message = "ok"
-    )
+    return latestScores.length() to updatedItems.size
   }
 
   private fun fetchScoreRecordsWithCookies(

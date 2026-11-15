@@ -87,8 +87,8 @@
     <string name="profile_open_login">登录</string>
     <string name="profile_open_notifications">通知设置</string>
     <string name="profile_open_timetable_semester_settings">课表学期</string>
-    <string name="profile_open_score_sync_settings">后台成绩设置</string>
-    <string name="profile_score_sync_mode">后台成绩拉取</string>
+    <string name="profile_open_score_sync_settings">后台同步设置</string>
+    <string name="profile_score_sync_mode">成绩与考试自动拉取</string>
     <string name="profile_score_sync_interval">后台拉取频率</string>
     <string name="profile_check_updates">检查更新</string>
     <string name="profile_open_logs">日志</string>
@@ -100,8 +100,8 @@
     <string name="profile_login_hint">管理教务账号和课表缓存更新。</string>
     <string name="profile_notification_hint">调整上课与考试提醒时间，并检查后台启动、电池优化等系统设置。</string>
     <string name="profile_timetable_semester_settings_hint">切换本地课表使用的学期；可选项来自最近一次打开的教务课表页。</string>
-    <string name="profile_score_sync_settings_hint">单独设置后台成绩拉取的开关、Wi-Fi 限制和定时频率。</string>
-    <string name="profile_score_sync_mode_hint">控制后台定时拉取和应用打开时的自动成绩检查。</string>
+    <string name="profile_score_sync_settings_hint">设置成绩、考试安排自动拉取的开关、Wi-Fi 限制和定时频率。</string>
+    <string name="profile_score_sync_mode_hint">控制后台定时和应用打开时的成绩、考试安排检查，发现变动时通知。</string>
     <string name="profile_score_sync_interval_hint">可选 1h、2h、5h、12h、24h，仅控制后台定时检查。每次进程启动后首次打开应用时额外检查一次，进程仍在后台时切回不重复；认证失败后暂停自动登录。</string>
     <string name="profile_update_hint">优先检查 Gitee，失败后切换 GitHub；无更新结果缓存 24 小时，可在弹窗中重新获取。</string>
     <string name="profile_logs_hint">查看最近的抓取、解析、更新和错误日志，便于排查问题。</string>
@@ -137,9 +137,9 @@
     <string name="score_editor_saved">成绩条目已保存</string>
     <string name="score_editor_deleted">成绩条目已删除</string>
     <string name="score_editor_missing_required">至少填写课程名和成绩</string>
-    <string name="score_sync_settings_title">后台成绩设置</string>
-    <string name="score_sync_settings_section">后台成绩拉取</string>
-    <string name="score_sync_settings_hint">这里控制纯 HTTP 成绩后台链路，不会改动主登录流程。</string>
+    <string name="score_sync_settings_title">后台同步设置</string>
+    <string name="score_sync_settings_section">成绩与考试安排</string>
+    <string name="score_sync_settings_hint">自动检查成绩和考试安排，共用登录状态与更新间隔，有变动时发送通知。</string>
     <string name="timetable_semester_settings_title">课表学期</string>
     <string name="timetable_semester_settings_section">课表学期切换</string>
     <string name="timetable_semester_settings_hint">可选学期来自最近一次打开的教务课表页；保存后，下次进入网页课表会自动切换并刷新本地缓存。</string>

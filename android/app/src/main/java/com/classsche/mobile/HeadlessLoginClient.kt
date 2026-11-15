@@ -8,6 +8,7 @@ import java.io.ByteArrayInputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
+import java.net.URLDecoder
 import java.net.CookieManager
 import java.net.CookiePolicy
 import java.net.HttpCookie
@@ -31,6 +32,7 @@ internal class HeadlessLoginClient(
   }
   private val cookieJar = CookieManager(null, CookiePolicy.ACCEPT_ORIGINAL_SERVER)
   private var deadlineNanos = 0L
+  private var registeredTeachingCallback: URI? = null
   data class LoginResult(
     val cookies: Map<String, String>,
     val timetableHtml: String
@@ -71,6 +73,7 @@ internal class HeadlessLoginClient(
     loginUrl: String, timetableUrl: String, username: String, password: String, desiredSemester: String
   ): LoginResult {
     cookieJar.cookieStore.removeAll()
+    registeredTeachingCallback = null
     logger("HEADLESS_SESSION", "INFO", "优先复用已保存的教务 Cookie")
     // Reuse WebView cookies within their original domain/path boundaries.
     for (origin in listOf(timetableUrl, "https://ids.njust.edu.cn/authserver/")) {
@@ -316,11 +319,15 @@ internal class HeadlessLoginClient(
     var currentMethod = method.uppercase()
     var currentReferer = referer
     var currentBody = formBody
+    val redirects = mutableListOf<String>()
 
-    repeat(8) {
+    repeat(8) { hop ->
       remainingTimeout()
       val target = URL(currentUrl)
-      if (target.protocol != "https" || target.host !in setOf("ids.njust.edu.cn", "ehall2.njust.edu.cn", "bkjw.njust.edu.cn")) {
+      rememberTeachingCallback(target)
+      val allowedHttps = target.protocol == "https" && target.port in setOf(-1, 443) &&
+        target.host in setOf("ids.njust.edu.cn", "ehall2.njust.edu.cn", "bkjw.njust.edu.cn")
+      if (target.userInfo != null || !(allowedHttps || isRegisteredHttpCallback(target, currentMethod, currentBody))) {
         throw IllegalStateException("目标网站跳转错误：登录请求进入非预期站点 ${target.host}${target.path}")
       }
       val connection = (URL(currentUrl).openConnection() as HttpURLConnection).apply {
@@ -369,13 +376,24 @@ internal class HeadlessLoginClient(
 
       if (code in 300..399 && !location.isNullOrBlank()) {
         currentReferer = currentUrl
-        currentUrl = URL(URL(currentUrl), location).toString()
-        if (currentUrl.startsWith("http://bkjw.njust.edu.cn/")) currentUrl = currentUrl.replaceFirst("http:", "https:")
         if (code == 303 || ((code == 301 || code == 302) && currentMethod == "POST")) {
           currentMethod = "GET"
           currentBody = null
         }
-        logger("HEADLESS_HTTP", "INFO", "重定向到 ${URL(currentUrl).host}${URL(currentUrl).path} code=$code")
+        val originalNext = URL(target, location)
+        rememberTeachingCallback(originalNext)
+        // CAS tickets are bound to the registered service URL. Preserve its HTTP
+        // callback exactly; upgrading it before validation can make the school
+        // reject the ticket and send us back to CAS indefinitely.
+        val next = if (originalNext.host == "bkjw.njust.edu.cn" && originalNext.protocol == "http" &&
+          originalNext.port in setOf(-1, 80) && originalNext.userInfo == null &&
+          !isRegisteredHttpCallback(originalNext, currentMethod, currentBody)) {
+          URL("https", originalNext.host, -1, originalNext.file)
+        } else originalNext
+        currentUrl = next.toString()
+        val trace = "${safeRoute(target)} → ${safeRoute(next)} HTTP $code"
+        redirects += trace
+        logger("HEADLESS_HTTP", "INFO", "重定向 ${hop + 1}/8：$trace${if (next.toString() != originalNext.toString()) "（业务页切换 HTTPS）" else ""}")
         return@repeat
       }
 
@@ -393,7 +411,40 @@ internal class HeadlessLoginClient(
       return HttpResponse(code = code, body = body, url = currentUrl)
     }
 
-    throw IllegalStateException("HTTP 重定向次数过多")
+    throw IllegalStateException("登录目标网站跳转错误：连续 8 次重定向仍未建立教务会话，原缓存已保留；最近跳转：${redirects.takeLast(4).joinToString("；")}")
+  }
+
+  private fun rememberTeachingCallback(target: URL) {
+    if (target.protocol != "https" || target.host != "ids.njust.edu.cn" || target.port !in setOf(-1, 443) ||
+      target.userInfo != null || target.path != "/authserver/login") return
+    val service = queryParameter(target, "service") ?: return
+    val uri = runCatching { URI(service) }.getOrNull() ?: return
+    if (uri.scheme in setOf("http", "https") && uri.host == "bkjw.njust.edu.cn" && uri.userInfo == null &&
+      uri.path == "/njlgdx/indexsso.jsp" && uri.rawQuery == null && uri.fragment == null &&
+      uri.port in (if (uri.scheme == "http") setOf(-1, 80) else setOf(-1, 443))) {
+      registeredTeachingCallback = uri
+    }
+  }
+
+  private fun isRegisteredHttpCallback(target: URL, method: String, body: String?): Boolean {
+    val service = registeredTeachingCallback ?: return false
+    return service.scheme == "http" && target.protocol == "http" && target.host == service.host &&
+      target.path == service.path && target.userInfo == null && target.port in setOf(-1, 80) &&
+      method == "GET" && body == null
+  }
+
+  private fun queryParameter(target: URL, name: String): String? = runCatching {
+    target.query.orEmpty().split('&').firstOrNull { it.substringBefore('=') == name }
+      ?.substringAfter('=', "")?.let { URLDecoder.decode(it, "UTF-8") }
+  }.getOrNull()
+
+  private fun safeRoute(target: URL): String = buildString {
+    append(target.protocol).append("://").append(target.host).append(target.path)
+    if (queryParameter(target, "ticket") != null) append("（有票据）")
+    if (target.host == "ids.njust.edu.cn" && target.path == "/authserver/login") {
+      val service = queryParameter(target, "service")?.let { runCatching { URI(it) }.getOrNull() }
+      if (service?.host == "bkjw.njust.edu.cn" && service.path == "/njlgdx/indexsso.jsp") append("（教务回调协议=${service.scheme}）")
+    }
   }
 
   private fun parseHtml(bytes: ByteArray, baseUrl: String): Document =

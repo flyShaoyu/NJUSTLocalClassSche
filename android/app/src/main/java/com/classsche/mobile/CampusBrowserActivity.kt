@@ -17,6 +17,7 @@ import android.webkit.WebViewClient
 import android.webkit.WebSettings
 import android.webkit.CookieManager
 import androidx.appcompat.app.AppCompatActivity
+import androidx.activity.OnBackPressedCallback
 import com.classsche.mobile.databinding.ActivityCampusToolsBinding
 import java.net.URL
 
@@ -36,8 +37,13 @@ class CampusBrowserActivity : AppCompatActivity() {
     binding = ActivityCampusToolsBinding.inflate(layoutInflater)
     setContentView(binding.root)
     binding.toolbar.title = "常用网站"
-    SecondaryPageToolbar.bind(binding.root, binding.toolbar,domainSubtitle=true)
-    binding.toolbar.setNavigationOnClickListener { onBackPressed() }
+    SecondaryPageToolbar.bind(binding.root, binding.toolbar,adaptiveHeight=true)
+    binding.toolbar.setNavigationOnClickListener { finish() }
+    onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+      override fun handleOnBackPressed() {
+        if (binding.toolsWebView.canGoBack()) binding.toolsWebView.goBack() else finish()
+      }
+    })
     binding.toolbar.menu.add("复制链接").apply { setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS) }
     binding.toolbar.setOnMenuItemClickListener {
       val current = binding.toolsWebView.url.orEmpty()
@@ -89,6 +95,5 @@ class CampusBrowserActivity : AppCompatActivity() {
     if (allowedUrl(url)) binding.toolsWebView.loadUrl(url) else showError("网页地址无效")
   }
   private fun showError(message: String) { binding.browserError.text = message; binding.browserError.visibility = View.VISIBLE }
-  @Deprecated("Deprecated in Java") override fun onBackPressed() { if (binding.toolsWebView.canGoBack()) binding.toolsWebView.goBack() else finish() }
   override fun onDestroy() { binding.toolsWebView.stopLoading(); binding.toolsWebView.destroy(); super.onDestroy() }
 }

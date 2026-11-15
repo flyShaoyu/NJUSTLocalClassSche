@@ -4,6 +4,8 @@ Android 工程位于 `android/`，桌面抓取工程位于 `src/`。应用提供
 
 ## 登录与本地数据
 
+启动同步和后台定时同步共用一次 Cookie 优先的登录，依次独立拉取成绩与考试安排，沿用“后台同步设置”的开关、Wi-Fi 限制及间隔。`ExamQueryClient` 读取校方查询表单的当前学期与隐藏字段，只向固定考试列表接口查询；不另起登录，不使用写死的旧学期。`ExamUpdateStore` 用 AtomicFile 保存 `exam-list.json`，首次成功建立基线，之后新增、时间/地点/座位调整或从列表移除时通过“考试安排更新”通知提示，点击直接进入考试页。有效空表可更新缓存，旧空表之后出现考试也会通知；表头缺失、行字段异常、HTTP/跳转错误不覆盖缓存。重复结果与行顺序/教师补全变化不重复通知。成功保存后重排原有考前提醒；单项失败保留该项旧缓存，另一项继续，回调可返回 `PARTIAL_SUCCESS`。手动更新复用同一查询和保存逻辑。
+
 - 账号密码和微信扫码在认证后共用 `LoginNavigationPolicy.kt` 与 `MainActivity.continueLoginNavigation`：门户正常落点包括 `/index.html`、`/default/index.html` 和 `/default/index`，随后沿用当前 WebView/Cookie 访问教务 `indexsso.jsp`，再从教务主页进入课表。仅用户提交登录或启动扫码后继续，每个阶段去重，避免 `onPageCommitVisible` 与 `onPageFinished` 重复请求；不能把门户落点直接视为课表同步成功，仍须验证 `#kbtable` 后才更新缓存。`AUTH_FLOW` 日志记录不含票据的中转地址及后续步骤。
 - 登录入口由 `UniversityEndpoints.kt` 统一定义。应用使用 WebView 完成统一身份认证，再通过教务 SSO 建立教务域名的会话。登录页有提交登录、加载登录页和微信扫码登录入口；认证页从首次加载就使用电脑端 User-Agent，避免点击扫码后再切换 UA 重载整页。`IdentityQrLoginController.kt` 和 `IdentityQrPageScript.kt` 直接通过 canvas 读取当前网页已加载的二维码，在原生弹窗展示，不再次 HTTP 下载图片，也不等待其他后台请求队列。表单可用后即可操作，不必等轮播图等资源加载结束。学校要求图形验证码时，登录页显示当前网页已加载的图片，用户手动填写或刷新；不引入 OCR 库或模型。页面使用与主页相同的背景和卡片宽度、蓝色控件，以及黄色的校方限制提示。
 - 登录页使用**智慧理工服务门户密码**。`CredentialStore.kt` 用 Android Keystore 中的不可导出密钥进行 AES-GCM 加密；旧版保存在偏好设置中的明文密码在首次读取时迁移并删除。后台同步需要在未打开界面时解密，因此密钥不要求每次生物识别。
@@ -15,7 +17,7 @@ Android 工程位于 `android/`，桌面抓取工程位于 `src/`。应用提供
 - `HeadlessLoginClient.kt` 和 `HeadlessScoreSyncManager.kt` 处理纯 HTTP 登录及成绩同步，并遵守 Cookie 的域名/路径范围；课表静默更新复用该登录器，并用返回的教务 Cookie 拉取考试、成绩及等级考试。后台登录先查询学校验证码要求；需要验证码或收到图形动态码错误时通过 `CaptchaRequiredException` 把认证地址和 Cookie 交给登录 WebView，不反复提交。WebView 重新加载认证页后获取当前会话的验证码，手动验证成功后继续抓取课表。
 - `LoginCookieStore.kt` 将后台响应中域范围有效的 `Set-Cookie`（包括过期删除）写回同一 WebView Cookie 存储，等待异步写入完成后才继续，在本轮结束时 `flush()` 落盘。`LoginCookiePolicy.kt` 保留原站点和大学父域 `njust.edu.cn`，忽略校方语言偏好 Cookie 的无效 `Domain=edu.cn`，避免 WebView 拒收它后中断整个同步。重新加载登录表单不删除已有会话；先验证教务 Cookie，失效后尝试 CAS Cookie 恢复 SSO，仍出现认证表单才提交一次密码。网络、HTTP 和解析错误不触发密码回退。认证段共用锁，最多等待 15 秒，单次认证网络流程最多 60 秒。`HEADLESS_SESSION` 日志注明复用结果，不打印 Cookie 或票据。
 - 首页手动“更新数据”使用独立执行队列，避免排在图片预载或资源下载后。结束后显示完成、部分失败或具体错误弹窗，并解除忙碌状态；需要验证码时仍交给登录页手动填写。
-- 自动成绩同步由 `HeadlessScoreSyncManager` 中的进程级 `ScoreSyncTriggerPolicy` 控制：进程启动后首次打开主界面额外尝试一次，不受后台定时间隔限制；进程仍存活时切回前台、重新进入或重建主界面都不重复。首次触发因设置、认证暂停或已有同步而跳过时也不在切回前台后补试。进程被结束后重新打开可再次触发。后台闹钟继续按设置间隔执行（默认 2h，可选 1h、2h、5h、12h、24h）；`ScoreSyncSettings` 持久保存最近尝试时间，`ScoreSyncTiming` 计算剩余时间，启动同步也从本次尝试起重新计算下次闹钟。关闭同步、仅 Wi-Fi 和认证失败暂停同样约束启动同步；账号冻结、密码被拒或需要验证码后暂停自动认证，手动登录或手动更新课表成功后解除暂停。
+- 自动成绩及考试同步由 `HeadlessScoreSyncManager` 中的进程级 `ScoreSyncTriggerPolicy` 控制：进程启动后首次打开主界面额外尝试一次，不受后台定时间隔限制；进程仍存活时切回前台、重新进入或重建主界面都不重复。首次触发因设置、认证暂停或已有同步而跳过时也不在切回前台后补试。进程被结束后重新打开可再次触发。后台闹钟继续按设置间隔执行（默认 2h，可选 1h、2h、5h、12h、24h）；`ScoreSyncSettings` 持久保存最近尝试时间，`ScoreSyncTiming` 计算剩余时间，启动同步也从本次尝试起重新计算下次闹钟。关闭同步、仅 Wi-Fi 和认证失败暂停同样约束启动同步；账号冻结、密码被拒或需要验证码后暂停自动认证，手动登录或手动更新课表成功后解除暂停。
 - 个人课表、考试和成绩缓存写入应用私有目录，升级 APK 时保留。应用关闭系统备份；不要把密码、Cookie、票据或用户数据提交到仓库。
 - “检查更新”将有更新和无更新结果都缓存 24 小时；有更新时连同版本、发布页、下载地址和简介一起保存，再次点击直接显示结果。弹窗中的“重新获取更新”会绕过缓存并重新请求发布页。新版本号仍用于设置页红点。
 - 安装包使用系统 `DownloadManager` 下载；切到后台或主界面重建后任务仍由系统继续，返回应用时按持久化的任务 ID 恢复下载弹窗和进度。下载弹窗的叉叉可撤销下载任务并删除未完成的安装包；下载完成后通过 `FileProvider` 打开系统安装器。
@@ -189,13 +191,13 @@ ReleaseVersion.kt支持alpha.N/beta.N/rc.N，更新页面保留完整版本后�
 SchoolMailClient使用Eclipse Angus Mail 2.0.5（官方Android兼容说明：https://eclipse-ee4j.github.io/angus-mail/Android），Activation 2.0.3/API 2.1.4。默认IMAPS993、SMTPS465，系统证书及主机名校验，不放宽TLS；固定腾讯服务主机，不支持任意邮件服务器。连接15秒、读写25秒超时，后台执行，不自动重发SMTP。
 列表每页30条，仅预取envelope/flags/UID；用UID和UIDVALIDITY校验与分页，不跨邮件夹复用编号，READ_ONLY和peek不改已读。正文最多512KB，MIME深度/数量有界，附件不取内容，HTML只转文字。首版不实现附件发送、完整HTML、删除、标已读或离线正文缓存。
 SchoolMailOutbox只持久化唯一草稿编号、账号指纹、Message-ID、时间和发送状态，不存正文或授权码。accepted=SMTP受理；unknown/partial不能当发送失败自动重试；进程中断的sending转unknown。成功后核对/追加已发送副本，副本失败不再发SMTP。
-SchoolMailPolling保留升级用户的原设置，新安装默认15分钟并启用新邮件通知，JobScheduler持久任务74120、联网约束和15/30/60分钟周期；系统不保证准点。通知74121默认不显示邮件标题/发件人。新UID基线按账号与UIDVALIDITY隔离；撤销配置/停用轮询不继续后续通知。轮询结果以通用错误描述存入本机设置，不记录原始协议或邮件内容。
+SchoolMailPolling保留升级用户的有效设置，新安装默认15分钟并启用新邮件通知，JobScheduler持久任务74120、联网约束；当前间隔为15分钟、1/10小时、1/2/5天或关闭，系统不保证准点。通知74121默认不显示邮件标题/发件人。新UID基线按账号与UIDVALIDITY隔离；撤销配置/停用轮询不继续后续通知。轮询结果以通用错误描述存入本机设置，不记录原始协议或邮件内容。
 设备测试schoolMail使用内存假Store/Transport，覆盖读写逻辑但不冒充真实协议送达；schoolMailTls只握手及欢迎语；schoolMailReal的.env内存接入仅存在测试APK；schoolMailSendTest仅用户单独授权时执行，通过本机内存通道接收本人指定的单个收件人并先查唯一记录。未配置有效授权码时不能宣称真实收发通过。
 
 
 ### 邮件提醒、引导与课表学期快捷选择
 
-- “设置 → 邮件更新与通知”与邮件页同名按钮打开同一 `SchoolMailSettingsActivity`，更新间隔（关闭、15/30分钟、1/2/5/10/20小时、1/2/5天）和新邮件通知独立保存。没有配置账号时不会建立收件任务。
+- “设置 → 邮件更新与通知”与邮件页同名按钮打开同一 `SchoolMailSettingsActivity`，更新间隔（关闭、15分钟、1/10小时、1/2/5天）和新邮件通知独立保存。没有配置账号时不会建立收件任务。
 - `NotificationDefaults` 只为全新安装开启上课/考试通知、15分钟邮件检查和新邮件通知，并在首次启动申请 Android 13+ 通知权限；升级不覆盖原有关闭选择。系统拒绝通知权限时不能显示通知，红点不依赖该权限。
 - `SchoolMailPolling` 按账号哈希和 UIDVALIDITY 保存新 UID 集合及首页提示集合。第一次读取仅建立基线；后台发现新信显示首页邮件红点，进入相应列表清除已展示邮件的首页提示，列表标记在打开邮件后清除。只改变本机记录，不修改服务器已读状态；通知关闭不影响红点。
 - `SchoolMailGuideActivity` 使用六张去元数据、保留遮挡的 WebP 图片（总计约301KiB），逐步解释网页版开启 IMAP/SMTP、生成客户端专用密码和在 App 保存连接；支持点图放大。原图未进入仓库。
@@ -211,9 +213,9 @@ SchoolMailPolling保留升级用户的原设置，新安装默认15分钟并启�
 
 ### 界面统一（2026-10-31）
 
-`SecondaryPageToolbar.applyGeometry` 统一所有本地页面标题栏为52dp内容高度加状态栏；带域名副标题的外链浏览器保留自适应高度。菜单使用独立白底蓝色高亮主题，不继承蓝色标题栏的深色菜单。`BluePageUi` 提供无底色/无圆角选择行（独立箭头）及白色选项、同步结果弹窗。邮件移除标题栏写信入口和列表尾部提示，发送记录改状态卡片，发送标识折叠；目录选择不再用系统Spinner。课表学期入口无底色、白字与白色选项弹窗。
+`SecondaryPageToolbar.applyGeometry` 将单行标题栏统一为52dp内容高度加状态栏；有非空副标题时自动使用自适应高度，包括教师课表的学期、外链网页和网络登录页的域名。动态添加副标题的网页用 `adaptiveHeight=true` 预留双行高度。菜单使用独立白底蓝色高亮主题，不继承蓝色标题栏的深色菜单。`BluePageUi` 提供无底色/无圆角选择行（独立箭头）及白色选项、同步结果弹窗。邮件移除标题栏写信入口和列表尾部提示，发送记录改状态卡片，发送标识折叠；目录选择不再用系统Spinner。课表学期入口无底色、白字与白色选项弹窗。
 
-邮件更新支持15/30分钟、1/2/5/10/20小时、1/2/5天及关闭，存储单位仍为分钟，不迁移或重置既有设置。`BrowserUserAgent.desktop` 只对邮箱网页版使用电脑版UA（保留本机WebView引擎版本），引导与邮件页面入口均带 `desktop_mode`。
+邮件更新支持15分钟、1/10小时、1/2/5天及关闭，存储单位仍为分钟。`SchoolMailIntervalPolicy` 将已移除的旧值顺延至较长选项（30分钟→1小时、2/5小时→10小时、20小时→1天），`NotificationDefaults.initialize` 触发持久化和重新安排任务，不改变通知开关或关闭状态。通知开关与其他页面一样使用 `MaterialSwitch`，`res/color/mail_notification_*` 显式指定开启蓝色轨道/关闭灰色轨道及白色滑块。`BrowserUserAgent.desktop` 只对邮箱网页版使用电脑版UA（保留本机WebView引擎版本），引导与邮件页面入口均带 `desktop_mode`。
 
 课表首选组共31色：扩色前的15种原色，以及参考截图提取的16种课程底色（Display P3换算sRGB后的JPEG近似值）；后加的15种仅作补充，合计46色，文字保持白色。不以对比度阈值筛掉用户选定原色/参考色。`TIMETABLE_PREFERRED_COLOR_COUNT` 与调色板前31项对应。分配先避免同周撞色，再优先首选组；不同周可以复用首选色，同周首选色不够时才使用补充色。组内仍按感知色差区分，大块课程优先取色，输入顺序不影响结果。全学期视图过滤考试，周视图和考试通知仍保留。模板标记 `timetable-flush-footer-v5` 使旧资源回退APK模板。离线回归在 `timetable-colors.test.mjs` / `campus-ui.test.mjs`，设备阶段 `uiStyle` 验证等高标题栏、菜单颜色、选择箭头与发送记录，仅模拟收信并恢复原收件检查点。
 
@@ -223,6 +225,8 @@ SchoolMailPolling保留升级用户的原设置，新安装默认15分钟并启�
 
 ### 仅使用 Wi-Fi 的网络登录
 
+远程网页（常用网站、邮箱网页版、图书馆网页版、网络登录及分类表更新页）左上角返回直接退出当前网页 Activity，回到打开它的页面；安卓系统返回通过 `OnBackPressedDispatcher` 优先回退当前 WebView 历史，无历史时退出。网络登录“重新打开”刷新当前网页；分类表重试同一文章也使用 `reload()`，避免重复压入浏览历史。
+
 `NetworkLoginActivity` 在独立 `:network_login` 进程打开 `http://m.njust.edu.cn/portal/index.html`，使用独立 WebView 目录 `wifi_portal`；Android 8.x 使用 AndroidX 启动特性，旧组件不支持时提示更新 WebView。不要在主进程绑定网络，否则会影响邮箱/教务请求路由。
 
 申请 Wi-Fi 不要求 INTERNET/VALIDATED，收到网络 capabilities 后才绑定该进程并创建 WebView。新增普通权限 CHANGE_NETWORK_STATE，不扫描 SSID、不自动打开或切换 Wi-Fi。断网先销毁网页并保持失效绑定，退出先销毁网页再解除绑定、注销回调。所有回调使用主线程；`WifiPortalSession` 去重同网络回调、忽略旧网络丢失及退出后的回调。不自动提交账号、重放 POST 或回退移动数据。
@@ -230,3 +234,7 @@ SchoolMailPolling保留升级用户的原设置，新安装默认15分钟并启�
 错误区分 Wi-Fi 未连接/绑定失败、DNS、连接超时（含30秒加载上限）、TLS、重定向错误和 HTTP 状态。网页不安装 JS 桥接、不接收教务密码、不忽略证书错误；是否已认证以校方网页为准。小工具缓存要求 `toolbox-network-login-v1`，旧热更新回退 APK 自带模板。
 
 验证：`tests/android-network-login.test.mjs` / `tests/android/NetworkLoginCheck.java` 使用已编译 Kotlin 类测试未连接/仅蜂窝、先绑定再加载、重复回调、切换/断网不回退、绑定失败及退出清理；`enrollment-catalog.test.mjs` 验证入口桥接。未提交真实网络账号；未认证校园 Wi-Fi 的实际认证结果仍需设备现场验证。
+
+### 教务 SSO 注册回调协议
+
+`HeadlessLoginClient` 保留可信 IDS `service` 注册的固定教务回调协议：仅当注册为 HTTP 时允许 `http://bkjw.njust.edu.cn/njlgdx/indexsso.jsp` 无请求体 GET，不强制改写票据验证地址。密码提交及其余业务页继续 HTTPS，Secure Cookie 不发送到 HTTP。跳转日志包括源/目标协议、票据是否存在、service 协议，不输出票据/Cookie；8 次超限显示最近四跳且不重新提交密码。原因和校方公开入口验证见 `LOGIN-MIGRATION.md`，离线测试在 `SessionReuseCheck.java`。

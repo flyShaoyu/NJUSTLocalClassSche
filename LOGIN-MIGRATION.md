@@ -16,3 +16,11 @@
 课表 URL 有时会返回 HTTP 200 的旧登录表单，地址仍是课表路径。代码因此同时检查登录表单、跳转目标和 `#kbtable` 等业务内容；缺少有效表格时不能覆盖原缓存。考试、成绩、等级考试同样检查页面结构。Android 纯 HTTP 登录需按 CAS 表单要求提交，额外验证由用户在认证网页完成。
 
 当时完整桌面抓取、保存后复用登录态、五类生成页面加载和 Android APK 构建通过。没有连接手机或模拟器，因此 WebView 交互、验证码和后台定时任务未做设备端端到端验证。实际密码、完整 Cookie 与临时票据均未写入本记录；调试文件位于被 Git 忽略的 `artifacts/`。
+
+## 2026-11-15 SSO 循环跳转修复
+
+用户日志显示 IDS 与教务 `indexsso.jsp` 多轮 HTTP 302，未到密码提交步骤。对无账号、无 Cookie 的教务 SSO 入口进行只读检查，当前 IDS `service` 参数指向 `http://bkjw.njust.edu.cn/njlgdx/indexsso.jsp`；旧 HTTP 客户端会把回调强制改成 HTTPS。CAS 校验要求与发票据时的 service 匹配，因此协议改写可能导致教务拒绝票据后再次请求认证。
+
+`HeadlessLoginClient` 现在从可信 HTTPS IDS 登录地址读取并核验该固定 service，仅允许注册为 HTTP 的 `bkjw.njust.edu.cn/njlgdx/indexsso.jsp` 使用无请求体的 GET 回调，原始票据和 Cookie 按规则传递，Secure Cookie 不降级。其他教务业务页仍升级为 HTTPS，账号密码仍只经 HTTPS 提交。8 次跳转上限不变，异常不自动清 Cookie 或重交密码。诊断记录源/目标协议、是否有票据和教务 service 协议，隐藏所有参数值；超限附最近四跳。
+
+离线 `SessionReuseCheck` 模拟注册 HTTP 回调及去票据后的 Cookie 中转、未注册回调保持 HTTPS、真实循环停止和票据日志脱敏。未用真实账号执行密码提交；最终校方会话仍需手机验证。

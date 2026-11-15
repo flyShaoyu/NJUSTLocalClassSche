@@ -331,8 +331,6 @@ class MainActivity : AppCompatActivity() {
     private const val HEADLESS_SCORE_TEST_FILE = "headless-score-test.json"
     private const val SCORE_UPDATE_META_FILE = "score-update-meta.json"
     private const val CACHE_RAW_HTML_FILE = "timetable.raw.html"
-    private const val EXAM_QUERY_URL = UniversityEndpoints.EXAM_QUERY
-    private const val EXAM_LIST_URL = UniversityEndpoints.EXAM_LIST
     private const val SCORE_LIST_URL = UniversityEndpoints.SCORES
     private const val LEVEL_EXAM_LIST_URL = UniversityEndpoints.LEVEL_EXAMS
     private const val GITEE_HOME_URL = "https://gitee.com/flyshaoyu/njust_localclasssche"
@@ -349,7 +347,6 @@ class MainActivity : AppCompatActivity() {
     private const val UPDATE_NOTES_READ_TIMEOUT_MS = 5000
     private const val SCORE_UPDATE_CHANNEL_ID = "classsche_score_update_v1"
     private const val SCORE_UPDATE_NOTIFICATION_ID = 3101
-    private const val EXAM_DEFAULT_SEMESTER = "2025-2026-2"
     private const val PREF_ASSET_EXPORT_ID = "asset_export_id"
     private const val PREF_TIMETABLE_CACHE_PARSER_VERSION = "timetable_cache_parser_version"
     private const val CURRENT_TIMETABLE_CACHE_PARSER_VERSION = 3
@@ -462,6 +459,7 @@ class MainActivity : AppCompatActivity() {
     HeadlessScoreSyncScheduler.scheduleNext(this)
 
     showHomePage()
+    if (intent.action == ExamUpdateStore.ACTION_OPEN_EXAMS) showCachedExamSchedule()
     binding.root.post {
       refreshGeneratedCacheAfterStartup()
       if(NotificationDefaults.consumePermissionPrompt(this) && Build.VERSION.SDK_INT>=33 && !hasPostNotificationPermission()) notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
@@ -483,6 +481,12 @@ class MainActivity : AppCompatActivity() {
     ioExecutor.shutdownNow()
     timetableRefreshExecutor.shutdownNow()
     super.onDestroy()
+  }
+
+  override fun onNewIntent(intent: Intent) {
+    super.onNewIntent(intent)
+    setIntent(intent)
+    if (intent.action == ExamUpdateStore.ACTION_OPEN_EXAMS) showCachedExamSchedule()
   }
 
   override fun onPause() {
@@ -542,17 +546,19 @@ class MainActivity : AppCompatActivity() {
 
   private fun triggerScoreSyncOnAppOpenIfNeeded() {
     HeadlessScoreSyncManager.runSync(this, reason = "APP_OPEN") { result ->
-      if (result.status != HeadlessScoreSyncManager.Status.SUCCESS) {
+      if (result.status != HeadlessScoreSyncManager.Status.SUCCESS && result.status != HeadlessScoreSyncManager.Status.PARTIAL_SUCCESS) {
         return@runSync
       }
       mainHandler.post {
         if (isFinishing || isDestroyed) return@post
         when (currentWebScreen) {
-          WebScreen.HOME -> if (result.updatedCount > 0) {
+          WebScreen.HOME -> {
             renderedHomeSignature = null
             presentHomePage()
           }
-          WebScreen.SCORE -> loadScorePageWithLatestData()
+          WebScreen.SCORE -> if (result.scoreSynced) loadScorePageWithLatestData()
+          WebScreen.EXAM -> if (result.examsSynced) loadExamPageWithLatestData()
+          WebScreen.TIMETABLE -> if (result.examsSynced && !showingLiveTimetable) showCachedTimetableOrEmpty()
           WebScreen.LEVEL_EXAM -> loadLevelExamPageWithLatestData()
           else -> Unit
         }
@@ -5038,7 +5044,7 @@ class MainActivity : AppCompatActivity() {
         .putInt(PREF_TIMETABLE_CACHE_PARSER_VERSION, CURRENT_TIMETABLE_CACHE_PARSER_VERSION)
         .apply()
       appendDebugLog("TIMETABLE_CAPTURE", "INFO", "课表缓存文件写入完成")
-      val examSyncResult = runCatching { syncExamCacheFromSession(courses, sessionCookies) }
+      val examSyncResult = runCatching { syncExamCacheFromSession(courses) }
         .onFailure { appendDebugLog("EXAM", "FAIL", it.message ?: "unknown") }
       val scoreSyncResult = runCatching { syncScoreCacheFromSession(sessionCookies) }
         .onFailure { appendDebugLog("SCORE", "FAIL", it.message ?: "unknown") }
@@ -5185,10 +5191,10 @@ class MainActivity : AppCompatActivity() {
     }
   }
 
-  private fun syncExamCacheFromSession(courses: List<TimetableCourse>, sessionCookies: Map<String, String>? = null): Int {
+  private fun syncExamCacheFromSession(courses: List<TimetableCourse>): Int {
     appendDebugLog("EXAM", "START", "开始同步考试缓存，课程数=${courses.size}")
-    val exams = fetchExamArrangements(courses, sessionCookies)
-    File(filesDir, EXAM_JSON_FILE).writeText(ExamRenderer.toJson(exams), Charsets.UTF_8)
+    val exams = fetchExamArrangements(courses)
+    ExamUpdateStore.save(this, exams)
     appendDebugLog("EXAM", "SUCCESS", "考试缓存写入完成，共 ${exams.size} 场")
     return exams.size
   }
@@ -5594,15 +5600,8 @@ class MainActivity : AppCompatActivity() {
     return ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
   }
 
-  private fun fetchExamArrangements(courses: List<TimetableCourse>, sessionCookies: Map<String, String>? = null): List<ExamArrangement> {
-    val queryDocument = fetchExamQueryDocument(sessionCookies)
-    val form = queryDocument.selectFirst("form[name=ksapQueryForm]") ?: queryDocument.selectFirst("form")
-      ?: throw IllegalStateException("未找到考试查询表单")
-    val method = form.attr("method").ifBlank { "post" }
-    val actionUrl = resolveExamListUrl(form)
-    val parameters = extractExamFormParameters(form)
-    val examBytes = submitExamQuery(actionUrl, method, parameters, sessionCookies)
-    return ExamParser.parseBytes(examBytes, actionUrl, courses)
+  private fun fetchExamArrangements(courses: List<TimetableCourse>): List<ExamArrangement> {
+    return ExamQueryClient({ scope, status, message -> appendDebugLog(scope, status, message) }).fetch(courses)
   }
 
   private fun fetchScoreRecords(sessionCookies: Map<String, String>? = null): JSONArray {
@@ -5765,113 +5764,6 @@ class MainActivity : AppCompatActivity() {
 
     appendDebugLog("LEVEL_EXAM_PARSE", "SUCCESS", "等级考试解析完成，共 ${result.length()} 条")
     return result
-  }
-
-  private fun fetchExamQueryDocument(sessionCookies: Map<String, String>? = null) =
-    withSessionConnection(EXAM_QUERY_URL, method = "GET", sessionCookies = sessionCookies) { connection ->
-      val code = connection.responseCode
-      check(code in 200..299) {
-        "考试查询页面 HTTP $code，地址 $EXAM_QUERY_URL，跳转目标 ${connection.getHeaderField("Location") ?: "无"}"
-      }
-      val bytes = connection.inputStream.use { it.readBytes() }
-      org.jsoup.Jsoup.parse(java.io.ByteArrayInputStream(bytes), null, EXAM_QUERY_URL)
-    }
-
-  private fun resolveExamListUrl(form: org.jsoup.nodes.Element): String {
-    val rawAction = form.absUrl("action").ifBlank { form.attr("action") }
-    val resolved = when {
-      rawAction.isBlank() -> EXAM_LIST_URL
-      rawAction.contains("xsksap_list", ignoreCase = true) -> rawAction
-      else -> URL(URL(EXAM_QUERY_URL), rawAction).toString()
-    }
-    return if (resolved.contains("xsksap_list", ignoreCase = true)) resolved else EXAM_LIST_URL
-  }
-
-  private fun extractExamFormParameters(form: org.jsoup.nodes.Element): Map<String, String> {
-    val parameters = linkedMapOf<String, String>()
-
-    form.select("input[name], textarea[name], select[name]").forEach { field ->
-      val name = field.attr("name").trim()
-      if (name.isBlank()) {
-        return@forEach
-      }
-
-      when (field.tagName().lowercase()) {
-        "select" -> {
-          parameters[name] = resolveSelectValue(field)
-        }
-        "textarea" -> {
-          parameters[name] = field.text()
-        }
-        else -> {
-          val type = field.attr("type").lowercase()
-          when (type) {
-            "checkbox", "radio" -> if (field.hasAttr("checked")) {
-              parameters[name] = field.attr("value").ifBlank { "on" }
-            }
-            "submit", "button", "file", "image", "reset" -> Unit
-            else -> parameters[name] = field.attr("value")
-          }
-        }
-      }
-    }
-
-    val semesterField = form.selectFirst("select[name=xnxqid]")
-    if (semesterField != null) {
-      parameters["xnxqid"] = resolveSelectValue(semesterField)
-    } else if (parameters["xnxqid"].isNullOrBlank()) {
-      parameters["xnxqid"] = EXAM_DEFAULT_SEMESTER
-    }
-
-    return parameters
-  }
-
-  private fun resolveSelectValue(select: org.jsoup.nodes.Element): String {
-    val options = select.select("option")
-    val preferred = options.firstOrNull { option ->
-      option.hasAttr("selected") && option.attr("value").isNotBlank()
-    }?.attr("value")
-      ?: options.firstOrNull { option ->
-        option.attr("value") == EXAM_DEFAULT_SEMESTER
-      }?.attr("value")
-      ?: options.firstOrNull { option ->
-        option.attr("value").isNotBlank()
-      }?.attr("value")
-      ?: options.firstOrNull()?.attr("value")
-      ?: ""
-
-    return preferred.ifBlank { EXAM_DEFAULT_SEMESTER }
-  }
-
-  private fun submitExamQuery(
-    url: String,
-    method: String,
-    parameters: Map<String, String>,
-    sessionCookies: Map<String, String>? = null
-  ): ByteArray {
-    val normalizedMethod = method.uppercase()
-    val requestUrl = if (normalizedMethod == "GET" && parameters.isNotEmpty()) {
-      val separator = if (url.contains("?")) "&" else "?"
-      url + separator + encodeFormBody(parameters)
-    } else {
-      url
-    }
-
-    return withSessionConnection(requestUrl, method = normalizedMethod, referer = EXAM_QUERY_URL, sessionCookies = sessionCookies) { connection ->
-      if (method.equals("post", ignoreCase = true)) {
-        connection.doOutput = true
-        connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
-        connection.outputStream.use { output ->
-          output.write(encodeFormBody(parameters).toByteArray(Charsets.UTF_8))
-        }
-      }
-
-      val code = connection.responseCode
-      check(code in 200..299) {
-        "考试列表页面 HTTP $code，地址 $requestUrl，跳转目标 ${connection.getHeaderField("Location") ?: "无"}"
-      }
-      connection.inputStream.use { it.readBytes() }
-    }
   }
 
   private inline fun <T> withSessionConnection(

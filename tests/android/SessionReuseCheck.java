@@ -20,6 +20,8 @@ public final class SessionReuseCheck {
   static final String TABLE_HTML = "<table id='kbtable'><tr><td>fixture</td></tr></table>";
   static String scenario;
   static int passwordPosts, captchaChecks, identityGets, timetableGets;
+  static int httpCallbacks;
+  static List<String> messages = new ArrayList<>();
 
   static void check(boolean condition, String detail) {
     if (!condition) throw new AssertionError(scenario + ": " + detail);
@@ -66,7 +68,25 @@ public final class SessionReuseCheck {
         else if (scenario.equals("expired401")) response(401, "");
         else response(200, "<input type='password'>");
       } else if (path.endsWith("indexsso.jsp")) {
-        redirect(IDS + "login?service=https%3A%2F%2Fbkjw.njust.edu.cn%2Fnjlgdx%2Findexsso.jsp");
+        if ((scenario.equals("sso-http-service") || scenario.equals("sso-cycle") || scenario.equals("sso-unregistered-http")) && url.getQuery()!=null && url.getQuery().contains("ticket=")) {
+          check(method.equals("GET"), "CAS callback must never submit a password");
+          if (scenario.equals("sso-unregistered-http")) {
+            check(url.getProtocol().equals("https"), "unregistered HTTP callback must not be allowed");
+            redirect("https://bkjw.njust.edu.cn/njlgdx/framework/main.jsp");
+          } else {
+            check(url.getProtocol().equals("http"), "registered CAS service protocol was rewritten before ticket validation");
+            check(!hasCookie("SECURE_ONLY"), "Secure teaching cookie leaked to HTTP callback");
+            httpCallbacks++;
+            if(!scenario.equals("sso-cycle")) headers=Map.of("Set-Cookie",List.of("JSESSIONID=teacher-fixture; Path=/njlgdx; HttpOnly"));
+            redirect("http://bkjw.njust.edu.cn/njlgdx/indexsso.jsp");
+          }
+        } else if (url.getProtocol().equals("http") && hasCookie("JSESSIONID=teacher-fixture")) {
+          check(!hasCookie("SECURE_ONLY"), "Secure cookie leaked on second callback");
+          redirect("http://bkjw.njust.edu.cn/njlgdx/framework/main.jsp");
+        } else {
+          String scheme=scenario.equals("sso-http-service")||scenario.equals("sso-cycle")?"http":"https";
+          redirect(IDS + "login?service="+scheme+"%3A%2F%2Fbkjw.njust.edu.cn%2Fnjlgdx%2Findexsso.jsp");
+        }
       } else if (path.endsWith("checkNeedCaptcha.htl")) {
         captchaChecks++;
         check(hasCookie("JSESSIONID=ids-fixture"), "IDS challenge session not retained");
@@ -82,11 +102,15 @@ public final class SessionReuseCheck {
           }
         } else {
           identityGets++;
-          if (hasCookie("TGC=valid-sso")) redirect("https://bkjw.njust.edu.cn/njlgdx/framework/main.jsp");
+          if (hasCookie("TGC=valid-sso")) {
+            if (scenario.equals("sso-http-service") || scenario.equals("sso-cycle") || scenario.equals("sso-unregistered-http")) redirect("http://bkjw.njust.edu.cn/njlgdx/indexsso.jsp?ticket=fixture-ticket-"+identityGets);
+            else redirect("https://bkjw.njust.edu.cn/njlgdx/framework/main.jsp");
+          }
           else response(200, FORM);
           headers = Map.of("Set-Cookie", List.of("JSESSIONID=ids-fixture; Path=/authserver; Secure; HttpOnly"));
         }
       } else if (path.endsWith("framework/main.jsp")) {
+        check(url.getProtocol().equals("https"), "Business pages must remain HTTPS");
         response(200, "<h1>Teaching portal</h1>");
         headers = Map.of("Set-Cookie", List.of("JSESSIONID=teacher-fixture; Path=/njlgdx; Secure; HttpOnly"));
       } else throw new AssertionError("Unexpected request: " + url.getHost() + path);
@@ -100,7 +124,8 @@ public final class SessionReuseCheck {
 
   static HeadlessLoginClient client(SharedStore store) {
     return new HeadlessLoginClient((scope,status,message) -> {
-      check(!message.contains("teacher-fixture") && !message.contains("ids-fixture") && !message.contains("fixture-password"), "secret logged");
+      check(!message.contains("teacher-fixture") && !message.contains("ids-fixture") && !message.contains("fixture-password") && !message.contains("fixture-ticket"), "secret logged");
+      messages.add(message);
       return Unit.INSTANCE;
     }, "fixture-agent", store);
   }
@@ -109,7 +134,7 @@ public final class SessionReuseCheck {
     check(client(store).login(LOGIN, TABLE, "fixture-student", password, "").getTimetableHtml().contains("kbtable"), "invalid timetable");
   }
 
-  static void reset(String name) { scenario=name; passwordPosts=0; captchaChecks=0; identityGets=0; timetableGets=0; }
+  static void reset(String name) { scenario=name; passwordPosts=0; captchaChecks=0; identityGets=0; timetableGets=0; httpCallbacks=0; messages.clear(); }
 
   public static void main(String[] args) throws Exception {
     reset("cookie-domain");
@@ -120,7 +145,7 @@ public final class SessionReuseCheck {
     Map<String,List<String>> filtered = LoginCookiePolicy.INSTANCE.filterHeaders(IDS, Map.of("Set-Cookie", List.of("platformMultilingual=zh_CN; Domain=edu.cn", "JSESSIONID=session; Path=/authserver"), "Location", List.of("fixture")));
     check(filtered.get("Set-Cookie").size()==1 && filtered.get("Location").equals(List.of("fixture")), "filter must preserve session cookie and unrelated headers");
     System.out.println("PASS cookie scopes: public suffix ignored, original domain/path/deletion retained");
-    URL.setURLStreamHandlerFactory(protocol -> protocol.equals("https") ? new URLStreamHandler() {
+    URL.setURLStreamHandlerFactory(protocol -> (protocol.equals("https") || protocol.equals("http")) ? new URLStreamHandler() {
       protected URLConnection openConnection(URL url) { return new Connection(url); }
     } : null);
 
@@ -150,6 +175,25 @@ public final class SessionReuseCheck {
     login(sso, "");
     check(passwordPosts==0 && captchaChecks==0 && identityGets==1, "CAS SSO should restore teaching session without password");
     System.out.println("PASS existing CAS session restores teaching session without password");
+
+    for(String name:List.of("sso-http-service","sso-unregistered-http")) {
+      reset(name);SharedStore service=new SharedStore();
+      service.seed(IDS,"TGC=valid-sso; Path=/authserver; Secure; HttpOnly");
+      service.seed(TABLE,"SECURE_ONLY=fixture; Path=/njlgdx; Secure");
+      login(service, "fixture-password");
+      check(passwordPosts==0&&captchaChecks==0&&identityGets==1,"SSO callback recovery must not submit a password");
+      check(httpCallbacks==(name.equals("sso-http-service")?1:0),"Only the registered HTTP service callback may use HTTP");
+      check(messages.stream().anyMatch(s->s.contains("有票据")),"Redirect diagnostics must report ticket presence, never its value");
+      System.out.println("PASS "+name+": preserve registered callback, retain ticket/cookies, keep Secure cookies and business pages on HTTPS");
+    }
+    reset("sso-cycle");SharedStore cycle=new SharedStore();cycle.seed(IDS,"TGC=valid-sso; Path=/authserver; Secure; HttpOnly");
+    try {login(cycle,"fixture-password");throw new AssertionError("Expected SSO loop failure");}
+    catch(IllegalStateException expected){
+      check(expected.getMessage().contains("连续 8 次重定向") && expected.getMessage().contains("最近跳转"),"Loop failure must include sanitized redirect trace");
+      check(!expected.getMessage().contains("fixture-ticket"),"Loop error leaked ticket");
+      check(passwordPosts==0&&captchaChecks==0,"SSO loop must not fall back to repeated password submission");
+    }
+    System.out.println("PASS genuine SSO loop: bounded redirects, sanitized diagnostics, no password fallback");
 
     for (String name : List.of("timeout", "http500", "malformed")) {
       reset(name);

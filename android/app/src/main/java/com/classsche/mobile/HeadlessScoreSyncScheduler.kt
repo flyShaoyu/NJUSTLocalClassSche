@@ -16,7 +16,7 @@ object HeadlessScoreSyncScheduler {
     val settings = ScoreSyncSettings.read(appContext)
     if (settings.mode == ScoreSyncSettings.Mode.DISABLED) {
       cancel(appContext)
-      AppDebugLog.append(appContext, "HEADLESS_SCORE_SCHEDULE", "INFO", "后台成绩拉取已关闭，取消定时任务")
+      AppDebugLog.append(appContext, "HEADLESS_SCORE_SCHEDULE", "INFO", "后台成绩及考试拉取已关闭，取消定时任务")
       return
     }
     val remaining = ScoreSyncSettings.remainingDelayMillis(appContext)
@@ -33,7 +33,7 @@ object HeadlessScoreSyncScheduler {
       appContext,
       "HEADLESS_SCORE_SCHEDULE",
       "INFO",
-      "已安排下次成绩后台同步，${delayMillis.coerceAtLeast(60_000L) / 1000}s 后触发"
+      "已安排下次成绩及考试后台同步，${delayMillis.coerceAtLeast(60_000L) / 1000}s 后触发"
     )
   }
 
@@ -47,7 +47,7 @@ object HeadlessScoreSyncScheduler {
       context.applicationContext,
       "HEADLESS_SCORE_SCHEDULE",
       "INFO",
-      "收到成绩后台同步闹钟 action=${action ?: "-"}"
+      "收到成绩及考试后台同步闹钟 action=${action ?: "-"}"
     )
     val skipReason = ScoreSyncSettings.skipReason(context.applicationContext)
     if (skipReason != null) {
@@ -65,7 +65,7 @@ object HeadlessScoreSyncScheduler {
       context.applicationContext,
       "HEADLESS_SCORE_SCHEDULE",
       "INFO",
-      "收到系统事件 ${event ?: "-"}，重新安排成绩后台同步"
+      "收到系统事件 ${event ?: "-"}，重新安排成绩及考试后台同步"
     )
     scheduleNext(context)
   }
@@ -75,7 +75,7 @@ object HeadlessScoreSyncScheduler {
     val pendingIntent = buildPendingIntent(context.applicationContext)
     alarmManager.cancel(pendingIntent)
     pendingIntent.cancel()
-    AppDebugLog.append(context.applicationContext, "HEADLESS_SCORE_SCHEDULE", "INFO", "已取消成绩后台同步闹钟")
+    AppDebugLog.append(context.applicationContext, "HEADLESS_SCORE_SCHEDULE", "INFO", "已取消成绩及考试后台同步闹钟")
   }
 
   fun onSettingsChanged(context: Context) {
@@ -83,14 +83,14 @@ object HeadlessScoreSyncScheduler {
     val settings = ScoreSyncSettings.read(appContext)
     if (settings.mode == ScoreSyncSettings.Mode.DISABLED) {
       cancel(appContext)
-      AppDebugLog.append(appContext, "HEADLESS_SCORE_SCHEDULE", "INFO", "后台成绩拉取设置已关闭")
+      AppDebugLog.append(appContext, "HEADLESS_SCORE_SCHEDULE", "INFO", "后台成绩及考试拉取设置已关闭")
       return
     }
     AppDebugLog.append(
       appContext,
       "HEADLESS_SCORE_SCHEDULE",
       "INFO",
-      "后台成绩拉取设置已更新，模式=${settings.mode.storageValue}，间隔=${settings.intervalHours}h"
+      "后台成绩及考试拉取设置已更新，模式=${settings.mode.storageValue}，间隔=${settings.intervalHours}h"
     )
     scheduleNext(appContext)
   }

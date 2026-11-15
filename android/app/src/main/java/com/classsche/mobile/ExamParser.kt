@@ -24,10 +24,18 @@ object ExamParser {
       }
       throw IllegalStateException("未在考试页面中找到 #dataList 表格。当前页面: $title")
     }
+    val header = rows.first()!!.text()
+    check(header.contains("课程") && header.contains("考试")) { "考试页面解析错误：表头与考试列表不符，原缓存已保留" }
 
     rows.drop(1).forEach { row ->
       val cells = row.select("td")
-      if (cells.size < 7) return@forEach
+      if (cells.size < 7) {
+        val text = row.text().trim()
+        check(text.isBlank() || Regex("暂无|无数据|没有|未查询|未找到|无记录|无考试").containsMatchIn(text)) {
+          "考试页面解析错误：考试行字段不足，原缓存已保留"
+        }
+        return@forEach
+      }
 
       val indexText = cleanInlineText(cells[0].text())
       val examSession = cleanInlineText(cells[1].text())

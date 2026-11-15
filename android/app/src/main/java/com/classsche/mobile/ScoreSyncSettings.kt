@@ -86,7 +86,7 @@ object ScoreSyncSettings {
 
   fun skipReason(context: Context): String? {
     return when (read(context).mode) {
-      Mode.DISABLED -> "已在设置中关闭后台成绩拉取"
+      Mode.DISABLED -> "已在设置中关闭后台成绩及考试拉取"
       Mode.WIFI_ONLY -> if (isOnWifi(context)) null else "当前不是 Wi-Fi 网络"
       Mode.ENABLED -> null
     }

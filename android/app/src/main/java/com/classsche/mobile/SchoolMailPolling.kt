@@ -25,9 +25,13 @@ internal object SchoolMailPolling {
   private const val JOB=74120
   private const val NOTICE=74121
   private fun prefs(c:Context)=c.getSharedPreferences("school_mail_poll",Context.MODE_PRIVATE)
-  val intervals=listOf(0,15,30,60,120,300,600,1200,1440,2880,7200)
+  val intervals=SchoolMailIntervalPolicy.values
   fun intervalLabel(minutes:Int)=when{minutes==0->"关闭自动更新";minutes%1440==0->"每${minutes/1440}天";minutes%60==0->"每${minutes/60}小时";else->"每${minutes}分钟"}
-  fun interval(c:Context)=prefs(c).getInt("minutes",0)
+  fun interval(c:Context)=SchoolMailIntervalPolicy.normalize(prefs(c).getInt("minutes",0))
+  fun migrateInterval(c:Context){
+    val stored=prefs(c).getInt("minutes",0);val normalized=SchoolMailIntervalPolicy.normalize(stored)
+    if(stored!=normalized)runCatching{configure(c,normalized)}.onFailure{AppDebugLog.append(c,"SCHOOL_MAIL_POLL","FAIL","邮件更新间隔调整失败，请在邮件更新与通知中重新设置")}
+  }
   fun notificationsEnabled(c:Context)=prefs(c).getBoolean("notifications",false)
   @Synchronized fun setNotificationsEnabled(c:Context,enabled:Boolean){check(prefs(c).edit().putBoolean("notifications",enabled).commit());if(!enabled)c.getSystemService(NotificationManager::class.java).cancel(NOTICE)}
   private fun ids(raw:String?):Set<Long> = runCatching{val a=org.json.JSONArray(raw?:"[]");(0 until a.length()).map{a.getLong(it)}.toSet()}.getOrDefault(emptySet())
@@ -56,7 +60,7 @@ internal object SchoolMailPolling {
   fun record(c:Context,account:SchoolMailAccount,result:String){if(SchoolMailAccountStore(c).load()==account)prefs(c).edit().putLong("last_check",System.currentTimeMillis()).putString("last_result",result).apply()}
 
   @Synchronized fun configure(c:Context,minutes:Int){
-    require(minutes in intervals);val previous=interval(c)
+    require(minutes in intervals);val previous=prefs(c).getInt("minutes",0)
     check(prefs(c).edit().putInt("minutes",minutes).commit())
     try{schedule(c);if(minutes==0)c.getSystemService(NotificationManager::class.java).cancel(NOTICE)}
     catch(error:Exception){prefs(c).edit().putInt("minutes",previous).commit();runCatching{schedule(c)};throw error}
